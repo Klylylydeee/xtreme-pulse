@@ -24,6 +24,9 @@ Several rules below depend on this, so exposing the app beyond the office networ
 - **Password login only.** No Google, Yahoo or other third-party sign-in.
 - Hash passwords with argon2id (or bcrypt); never store, log or return plain-text passwords.
 - New accounts get a temporary password from HR or the System Administrator, who can also reset any user's password. Only a System Administrator can reset a System Administrator's password. Users must change a temporary password on first sign-in.
+- **Password rule:** 12 to 128 characters, with no composition rules (no required digits, capitals or symbols). A new password must differ from the current password and from the account's email, and its confirmation must match. The lengths are `packages/core` constants (`PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH`). The same rule applies to the temporary passwords HR or the System Administrator set, except the check against the current password.
+- Changing your own password requires the current password. Changing it does not end the user's other signed-in sessions; whether a password change or reset ends them is decided in build step 1.5.
+- Sign-ins are never audit-logged (there is no login history, see below). Password changes and resets are audit-logged without the password from build step 1.3 (see [Audit logging](#audit-logging)).
 - **Forgot password (later phase, not a priority):** a "Forgot password?" link on the login page lets users reset their own password by email.
   - Needs an email system (e.g. Nodemailer over SMTP). Keep sending behind one `packages/core` email service so the provider can change.
   - Reset tokens are random, single-use, expire after 1 hour, and are stored hashed, never in plain text.
@@ -31,7 +34,7 @@ Several rules below depend on this, so exposing the app beyond the office networ
   - The reset link points to the internal URL, so users must be on the office network or VPN to open it.
   - Until this ships, HR or the System Administrator handles resets.
 - No MFA, account lockout or login-history tracking: the app is internal and reachable only on the office network or via VPN.
-- A session lasts **24 hours** from sign-in. After that the user signs in again. Keep the length in one config constant (`SESSION_MAX_AGE_HOURS`); it can be made longer, never shorter. The status check on every request still signs a deactivated user out at once (see [Account status](#account-status)).
+- A session lasts **24 hours** from sign-in. The limit is absolute: activity doesn't extend it. After that the user signs in again. Keep the length in one config constant (`SESSION_MAX_AGE_HOURS`); it can be made longer, never shorter. The status check on every request still signs a deactivated user out at once (see [Account status](#account-status)).
 
 ### Account status
 

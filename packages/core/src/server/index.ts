@@ -22,8 +22,30 @@ export {
   listConfigVersions,
   resolveConfig,
 } from './config';
-// Passwords (SECURITY.md#sign-in-and-passwords)
+// Sign-in, passwords, account status and roles (SECURITY.md#account--access, SECURITY.md#roles)
 export { hashPassword, verifyPassword } from './auth/password';
+export { assertSignedIn, type SignedInOptions } from './auth/access';
+export { type AccountStatusInput, resolveAccountStatus } from './auth/account-status';
+export {
+  authenticate,
+  type AuthenticateFailure,
+  type AuthenticateResult,
+} from './auth/authenticate';
+export { changePassword } from './auth/change-password';
+export {
+  type DepartmentRole,
+  departmentRolesFor,
+  hasRole,
+  isAccounting,
+  isBoard,
+  isHR,
+  isSystemAdministrator,
+  type Role,
+  type RoleHolder,
+  ROLE_DEPARTMENT_CODES,
+} from './auth/roles';
+export { type CurrentUser, isSessionCurrent, loadSessionUser } from './auth/session-user';
+export { checkEmailDomain, type EmailDomainCheck } from './allowed-email-domains/service';
 
 export {
   checkSharedHelpers,

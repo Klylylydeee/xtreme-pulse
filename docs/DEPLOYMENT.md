@@ -12,6 +12,7 @@ MongoDB 8 Community Server and Redis are installed directly on the developer's c
 | --- | --- |
 | `MONGODB_URI` | MongoDB connection string. It must point to a replica set, because transactions need one. Locally it is a single-node replica set, for example `mongodb://127.0.0.1:27017/xtreme-pulse?replicaSet=rs0`. |
 | `AUTH_SECRET` | Secret that Auth.js uses to sign and encrypt sessions. Generate a long random value, for example with `npx auth secret`. |
+| `AUTH_TRUST_HOST` | Set to `true`. Auth.js then accepts the host name the app is reached on, since the app is internal (office network or VPN) and has no fixed public URL to set instead. |
 | `REDIS_URL` | Redis connection for the BullMQ background jobs. Locally, `redis://127.0.0.1:6379`. |
 | `FILE_STORAGE_DIR` | Folder for uploaded and generated files. Default: `./storage` in the project. It must be outside `public/`, is never committed, and must survive deploys (see [File storage](ARCHITECTURE.md#file-storage)). |
 | `SEED_ADMIN_EMAIL` | Login email of the bootstrap System Administrator, read by `pnpm seed:admin`. Default: `sysadmin@xtreme-works.com`. |

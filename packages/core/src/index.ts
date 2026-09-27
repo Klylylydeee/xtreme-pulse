@@ -62,6 +62,7 @@ export {
   formDataToObject,
   formFailure,
   noAccessCheckYet,
+  publicAction,
   type ServerAction,
   validationFailure,
 } from './actions';
@@ -71,12 +72,24 @@ export {
   type AccountStatus,
   ALLOWED_EMAIL_DOMAINS,
   type AllowedEmailDomain,
+  type ChangePasswordInput,
+  changePasswordSchema,
   EMAIL_DOMAIN_PATTERN,
   emailDomainOf,
   EMPLOYMENT_STATUS,
   EMPLOYMENT_STATUSES,
   type EmploymentStatus,
+  newPasswordField,
+  newPasswordSchema,
   normalizeEmail,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULE_HELP,
+  SAME_AS_CURRENT,
+  SAME_AS_EMAIL,
+  SESSION_MAX_AGE_HOURS,
+  type SignInInput,
+  signInSchema,
 } from './account';
 export { EMPLOYEE_NUMBER_PATTERN, EMPLOYEE_SEQUENCE_MAX } from './employee-number';
 export { isPlaceholder } from './placeholder';

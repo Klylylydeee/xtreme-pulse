@@ -33,6 +33,7 @@ export function AppShell({
   onNavigate,
   notifications,
   help,
+  account,
   children,
 }: {
   appName: string;
@@ -45,6 +46,8 @@ export function AppShell({
   onNavigate: (href: string) => void;
   notifications: ReactNode;
   help: ReactNode;
+  /** The signed-in account: who is signed in and a Sign out button. Omit to hide the button. */
+  account?: ReactNode;
   children: ReactNode;
 }) {
   const [sidebarHidden, setSidebarHidden] = useState(false);
@@ -239,6 +242,7 @@ export function AppShell({
           commandBar={<CommandBarTrigger onOpen={openCommand} />}
           notifications={notifications}
           help={help}
+          account={account}
         />
         <main
           id="main"

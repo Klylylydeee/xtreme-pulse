@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode, Ref } from 'react';
-import { Bell, ChevronRight, CircleHelp } from 'lucide-react';
+import { Bell, ChevronRight, CircleHelp, CircleUserRound } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './button';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
@@ -15,7 +15,7 @@ export type ShellBreadcrumb = {
 
 /**
  * The top toolbar (DESIGN_SYSTEM.md › Pro-app layout): leading buttons, the breadcrumb, the command
- * bar trigger, and notification and help buttons. Wider screens always show the full breadcrumb.
+ * bar trigger, and notification, help and account buttons. Wider screens always show the full breadcrumb.
  * Phones show the app name until the page's large title scrolls under the toolbar, then the title.
  */
 export function TopToolbar({
@@ -27,6 +27,7 @@ export function TopToolbar({
   commandBar,
   notifications,
   help,
+  account,
   className,
 }: {
   ref?: Ref<HTMLElement>;
@@ -37,6 +38,8 @@ export function TopToolbar({
   commandBar: ReactNode;
   notifications: ReactNode;
   help: ReactNode;
+  /** The signed-in account's popover content; no account button when omitted. */
+  account?: ReactNode;
   className?: string;
 }) {
   const fade = 'transition-opacity duration-base';
@@ -99,6 +102,16 @@ export function TopToolbar({
           </PopoverTrigger>
           <PopoverContent aria-label="Help">{help}</PopoverContent>
         </Popover>
+        {account ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="plain" size="icon" aria-label="Account">
+                <CircleUserRound aria-hidden="true" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent aria-label="Account">{account}</PopoverContent>
+          </Popover>
+        ) : null}
       </div>
     </header>
   );

@@ -56,11 +56,18 @@ export class AccessDeniedError extends Error {
 }
 
 /**
- * The access check slot. It runs first and throws {@link AccessDeniedError} to refuse. Step 1.6
- * supplies the real checks (`requireModuleAccess(module, level)`); until then, the only option
- * is {@link noAccessCheckYet}.
+ * The access check slot. It runs first and throws {@link AccessDeniedError} to refuse. The app
+ * supplies `requireSignedIn()` (step 1.2, in apps/web/lib/auth.ts, since it reads the session);
+ * step 1.6 adds `requireModuleAccess(module, level)`. {@link publicAction} is the one explicit
+ * exception.
  */
 export type AccessCheck = () => void | Promise<void>;
+
+/**
+ * No sign-in needed. Only for signing in itself (SECURITY.md#sign-in-and-passwords): every other
+ * action checks the signed-in user. Named so a review can find every use.
+ */
+export const publicAction: AccessCheck = () => {};
 
 /**
  * Placeholder for Phase 0 development code only. It enforces nothing in development and refuses

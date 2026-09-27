@@ -8,8 +8,10 @@ import type { ShellBreadcrumb } from '@pulse/ui/components/top-toolbar';
 import type { ShellNavSection } from '@pulse/ui/components/sidebar';
 import { COMMAND_BAR_SHORTCUT } from '@pulse/ui/components/command-bar';
 import { ShortcutHint } from '@pulse/ui/components/shortcut-hint';
+import { Button } from '@pulse/ui/components/button';
 import { APP_NAME } from '@/lib/app';
 import { NAV_GROUPS, isEntryActive } from '@/lib/navigation';
+import { signOutAction } from '@/lib/sign-out';
 import { LogoPlaceholder } from './logo-placeholder';
 
 function sectionsFor(pathname: string): ShellNavSection[] {
@@ -54,11 +56,28 @@ function HelpContent() {
   );
 }
 
+function AccountContent({ email }: { email: string }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h2 className="text-headline">Account</h2>
+        <p className="truncate text-subheadline text-text-secondary">{email}</p>
+      </div>
+      <form action={signOutAction}>
+        <Button type="submit" variant="secondary" className="w-full">
+          Sign out
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 /**
- * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing.
- * It lists every section for now; step 1.6 passes in the user's modules instead.
+ * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing. The
+ * (pulse) layout has already checked the signed-in user and passes their email. It lists every
+ * section for now; step 1.6 passes in the user's modules instead.
  */
-export function PulseShell({ children }: { children: ReactNode }) {
+export function PulseShell({ email, children }: { email: string; children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const sections = sectionsFor(pathname);
@@ -78,6 +97,7 @@ export function PulseShell({ children }: { children: ReactNode }) {
         </div>
       }
       help={<HelpContent />}
+      account={<AccountContent email={email} />}
     >
       {children}
     </AppShell>
