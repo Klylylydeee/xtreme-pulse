@@ -18,6 +18,10 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - The account must change its password on first sign-in.
 - It is a **system account**, not an employee: no employee number or employment status, always active unless another System Administrator disables it, and excluded from the directory, org chart, onboarding, timesheets, payroll and reporting lines.
 - The script is idempotent in two parts. If a System Administrator already exists, it skips creating one. Base data loaders insert only what is missing and never overwrite existing records, so base data for modules built later can be added to an existing database (for example during a staged go-live).
+- A loader may fill a field that is absent on an existing record; it never changes an existing value.
+- Seeded positions carry a stable seed key, so renaming a seeded position doesn't make the seed add it again.
+- Seed writes are system writes (`createdBy` is null) and are not audit-logged. They are not backfilled when the [audit log](#audit-log) arrives in build step 1.3.
+- The seed only loads the allowed email domains. The allowed-domain check runs in services (bootstrap, sign-in and user creation) against the stored `allowedEmailDomains` records, not in the users schema.
 - The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
 
 ## Departments and positions

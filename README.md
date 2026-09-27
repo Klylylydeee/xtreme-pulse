@@ -51,18 +51,28 @@ Transactions need a replica set, so they fail on a standalone MongoDB. A fresh i
      replSetName: rs0
    ```
 
+   YAML needs spaces here, not tabs. On Windows, the stock file has a commented-out `#replication:` line. Replace that line with the two lines above. The file is under Program Files, so edit it as administrator. In VS Code, saving offers **Retry as Admin**.
+
 2. Restart MongoDB: on Windows, restart the **MongoDB Server** service (Services, or `Restart-Service MongoDB` in an administrator PowerShell); on macOS, `brew services restart mongodb-community`; on Linux, `sudo systemctl restart mongod`.
-3. Start the replica set:
+3. Install mongosh if you don't have it. On Windows it isn't bundled with the server: run `winget install MongoDB.Shell`, or use the MSI from [mongodb.com/try/download/shell](https://www.mongodb.com/try/download/shell). Open a new terminal afterwards, so `mongosh` is on the PATH.
+4. Start the replica set:
 
    ```bash
    mongosh --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
    ```
 
-4. Check it with `mongosh --eval "rs.status()"`: `ok` is `1` and the member's `stateStr` is `PRIMARY`.
+5. Check it with `mongosh --eval "rs.status()"`: `ok` is `1` and the member's `stateStr` is `PRIMARY`. For a quick check, `mongosh --eval "rs.status().ok"` prints `1`.
 
 ### Redis (once)
 
 Keep Redis bound to localhost (`bind 127.0.0.1`) and set `maxmemory-policy noeviction` in its config file (`memurai.conf` for Memurai, `redis.conf` elsewhere), because BullMQ loses jobs if Redis evicts keys; `/dev/health` flags any other policy. Persistence (`appendonly yes`) is recommended, so queued jobs survive a restart. Restart Redis after changing the config.
+
+On Windows, with Memurai:
+
+1. Install it with `winget install Memurai.MemuraiDeveloper`.
+2. Edit `C:\Program Files\Memurai\memurai.conf` as administrator, and set `bind 127.0.0.1`, `maxmemory-policy noeviction` and `appendonly yes`.
+3. Restart it with `Restart-Service Memurai` in an administrator PowerShell.
+4. Check it. `memurai-cli` isn't on the PATH, so run `& "C:\Program Files\Memurai\memurai-cli.exe" ping`. It prints `PONG`.
 
 ### Run the app
 
@@ -82,7 +92,13 @@ MONGODB_URI=mongodb://127.0.0.1:27017/xtreme-pulse?replicaSet=rs0
 REDIS_URL=redis://127.0.0.1:6379
 ```
 
-`FIELD_ENCRYPTION_LOCAL_KEY` and the other values are described in [Environment variables](docs/DEPLOYMENT.md#environment-variables).
+Then fill in the values that have no default:
+
+- `FIELD_ENCRYPTION_LOCAL_KEY`: exactly 96 random bytes, base64-encoded (128 characters). Generate one with `node -e "console.log(require('crypto').randomBytes(96).toString('base64'))"`. Keep a safe copy. If you lose it, the encrypted data can't be read.
+- `AUTH_SECRET`: a long random value, for example 32 random bytes, base64-encoded (`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`).
+- `SEED_ADMIN_PASSWORD`: set it before running `pnpm seed:admin` on a fresh database.
+
+The other values are described in [Environment variables](docs/DEPLOYMENT.md#environment-variables).
 
 Sign in as `sysadmin@xtreme-works.com` with the `SEED_ADMIN_PASSWORD` you set, then change the password. The variables are described in [DEPLOYMENT.md](docs/DEPLOYMENT.md#environment-variables), and all commands are in [AGENTS.md](AGENTS.md#commands).
 

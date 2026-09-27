@@ -161,8 +161,11 @@ const companySettingsLoader: SeedLoader = {
     if (inserted) return { added: 1, skipped: 0 };
 
     // The record exists: fill in only fields it doesn't have yet (a field added in a later
-    // release), never touching a value that is there. `updatedAt` and `updatedBy` stay as they
-    // are, so they keep saying who last edited the real details.
+    // release), never touching a value that is there, even an empty string or a placeholder
+    // (docs/modules/core.md#bootstrap-system-administrator-account: a loader may fill an absent
+    // field, never change an existing value). The `$exists: false` filter makes each update
+    // match nothing when the field is there, so a normal re-run writes nothing. `updatedAt` and
+    // `updatedBy` stay as they are, so they keep saying who last edited the real details.
     let filled = 0;
     for (const [path, placeholder] of COMPANY_DETAIL_FIELDS) {
       const result = await CompanySettingsModel.updateOne(

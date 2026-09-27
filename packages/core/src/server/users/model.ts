@@ -1,6 +1,6 @@
 import { Schema, type Types } from 'mongoose';
 import { baseSchemaPlugin, defineModel } from '@pulse/db';
-import { ALLOWED_EMAIL_DOMAINS, emailDomainOf } from '../../account';
+import { emailDomainOf } from '../../account';
 
 // Spec: SECURITY.md#account--access and docs/modules/core.md#people-data-ownership — the user
 // account. Every user is an employee (`employeeId`), except the bootstrap system account.
@@ -31,19 +31,18 @@ export interface UserRecord {
   updatedBy: Types.ObjectId | null;
 }
 
-// Spec: SECURITY.md#sign-in-and-passwords. Until build step 1.2 moves the check to the stored
-// allowed email domains, the schema checks the default list.
-const allowedDomains: ReadonlySet<string> = new Set(ALLOWED_EMAIL_DOMAINS);
-
 const userSchema = new Schema<UserRecord>({
   email: {
     type: String,
     required: true,
     trim: true,
     lowercase: true,
+    // Shape only. The allowed-domain check runs in services (bootstrap, sign-in, user creation)
+    // against the stored allowedEmailDomains records (SECURITY.md#sign-in-and-passwords,
+    // docs/modules/core.md#bootstrap-system-administrator-account).
     validate: {
-      validator: (value: string) => allowedDomains.has(emailDomainOf(value) ?? ''),
-      message: 'Use an email address on an allowed domain.',
+      validator: (value: string) => emailDomainOf(value) !== null,
+      message: 'Enter a valid email address.',
     },
   },
   passwordHash: { type: String, required: true, select: false },

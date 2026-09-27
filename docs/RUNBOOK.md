@@ -26,6 +26,12 @@ There is no lockout to clear. The app has no account lockout.
 
 Another System Administrator can reset the password. If there's no other, `pnpm seed:admin` won't help, because it skips creating an admin when one exists. Recovery needs direct database access. Decide the procedure in advance, and keep a second System Administrator account so this can't happen.
 
+### The only System Administrator is disabled
+
+Only another System Administrator can re-enable a System Administrator (see [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)). `pnpm seed:admin` won't create a new one, because it counts a disabled System Administrator as existing.
+
+This is a known limitation. The spec defines no safe recovery yet: the procedure is to be defined in step 1.5/1.6. Don't edit the users collection by hand. Until then, keep at least two active System Administrator accounts.
+
 ## Payroll and HR
 
 ### A timesheet wasn't approved before the payroll run
@@ -85,3 +91,28 @@ The deploy replaced or emptied `storage/`. Restore the folder from the latest ba
 ### Seed script run again on production
 
 This is safe. `pnpm seed:admin` skips an existing System Administrator and inserts only missing base data. It never overwrites records (see [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)).
+
+## Local development
+
+### Transactions fail: MongoDB is standalone
+
+**Symptom:** on `/dev/health`, the Replica set row shows "None (standalone server)" and the Test transaction row shows "Not committed". `mongosh --eval "rs.status()"` fails with `NoReplicationEnabled`.
+
+Transactions need a replica set. Convert the local MongoDB with the steps in [MongoDB replica set (once)](../README.md#mongodb-replica-set-once), then check that `MONGODB_URI` ends with `?replicaSet=rs0`.
+
+### Redis or Memurai is down
+
+**Symptom:** the worker logs an error with `connect ECONNREFUSED`, and `/dev/health` shows "Can’t reach Redis".
+
+1. Check that the service is running: on Windows, `Get-Service Memurai`; on macOS, `brew services list`; on Linux, `systemctl status redis`.
+2. Restart it: on Windows, `Restart-Service Memurai` in an administrator PowerShell; on macOS, `brew services restart redis`; on Linux, `sudo systemctl restart redis`.
+3. Check that `REDIS_URL` in `.env.local` points to it, then restart `pnpm dev`.
+
+The setup is in [Redis (once)](../README.md#redis-once).
+
+### Encryption key invalid
+
+**Symptom:** `/dev/health` shows "Field encryption key is invalid": "FIELD_ENCRYPTION_LOCAL_KEY must be 96 random bytes, base64-encoded (128 characters)."
+
+- **Nothing has been encrypted yet** (a fresh local database): generate a new key as described in [Run the app](../README.md#run-the-app), put it in `.env.local`, and restart `pnpm dev`.
+- **Encrypted data already exists:** don't generate a new key. It can't decrypt the old data. Restore the original key from its safe copy (see [Encryption key lost or changed](#encryption-key-lost-or-changed)).

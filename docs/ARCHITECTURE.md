@@ -38,7 +38,7 @@ Nothing is reachable from the public internet (see [Network exposure](../SECURIT
 | Pulse Desk | `/desk` | `packages/desk` | [desk.md](modules/desk.md) |
 | Pulse Insight | `/insight` | `packages/insight` | [insight.md](modules/insight.md) |
 
-Shared packages: `packages/db` (connection, transactions, shared master-data schemas) and `packages/ui` (design tokens and components).
+Shared packages: `packages/db` (connection, transactions, model helpers, and the shared master-data schemas added in build step 1.8) and `packages/ui` (design tokens and components). Every other schema lives in its module's package, Core's own included (`users`, `employees`, `departments`, `positions`, `companySettings`, `allowedEmailDomains`, `employeeNumberCounters` in `packages/core`).
 
 ## Tech stack
 
@@ -66,7 +66,7 @@ apps/web/                         the single Xtreme Pulse Next.js app
   app/files/[fileId]/             the one file route: checks access, then streams a stored file
 apps/worker/                      the BullMQ worker process (background and scheduled jobs)
 packages/core/                    auth, module access, audit log, approvals, notifications, directory, org chart, holidays
-packages/db/                      Mongo connection, shared master-data schemas
+packages/db/                      Mongo connection, model helpers, shared master-data schemas (step 1.8)
 packages/<module>/                models, services and validation for each module
 packages/ui/                      shared components
 scripts/                          seed scripts (e.g. seed-admin.ts)
