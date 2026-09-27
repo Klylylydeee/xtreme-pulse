@@ -19,7 +19,7 @@ Several rules below depend on this, so exposing the app beyond the office networ
 
 ### Sign-in and passwords
 
-- Sign-in is restricted to these email domains: **`@xtreme-works.com`**, **`@gmail.com`**, **`@yahoo.com`**. Keep the list in one config constant (`ALLOWED_EMAIL_DOMAINS`). Normalize emails to lowercase and reject any other domain, both at sign-in and when creating a user.
+- Sign-in is restricted to these email domains: **`@xtreme-works.com`**, **`@gmail.com`**, **`@yahoo.com`**. These are the default list, kept in one config constant (`ALLOWED_EMAIL_DOMAINS`) that `pnpm seed:admin` loads into the stored allowed email domains (`allowedEmailDomains`). Sign-in and user creation check the stored records, which the System Administrator manages (see [System Administrator](#system-administrator)). Normalize emails to lowercase and reject any other domain, both at sign-in and when creating a user.
 - No self-registration. An email can only sign in if it belongs to an existing user created by HR or the System Administrator with an active account status; a valid domain alone is never enough.
 - **Password login only.** No Google, Yahoo or other third-party sign-in.
 - Hash passwords with argon2id (or bcrypt); never store, log or return plain-text passwords.
@@ -128,14 +128,24 @@ These actions don't need module access. Each one still needs a server-side check
 These rules apply the Data Privacy Act of 2012 (RA 10173). See also [COMPLIANCE.md](docs/COMPLIANCE.md#data-privacy-act-of-2012-ra-10173).
 
 - Salary, allowances, payslips, government IDs, bank accounts, medical certificates, 201 file documents and disciplinary cases are sensitive personal information.
-- Encrypt these fields at rest (MongoDB Client-Side Field Level Encryption or Queryable Encryption); store 201 files, receipts, medical certificates and payslip PDFs in the private [file storage](docs/ARCHITECTURE.md#file-storage) folder, served only after an access check.
+- Encrypt these fields at rest with explicit field-level encryption in MongoDB's Client-Side Field Level Encryption format (`encryptSensitive` in `@pulse/core/server`, see [ADR 0005](docs/adr/0005-field-level-encryption.md)); store 201 files, receipts, medical certificates and payslip PDFs in the private [file storage](docs/ARCHITECTURE.md#file-storage) folder, served only after an access check.
 - Access limited to HR, Accounting and the System Administrator (and the employee viewing their own record). Module access levels do not change this. Board of Directors members see payroll run totals and per-employee net pay when approving a run, and disciplinary cases as described in [Termination due process](docs/modules/talent.md#termination-due-process).
 - Board of Directors members can also view and change the salary, allowances, government IDs and bank accounts of employees in the HR department, because HR can't change these for their own department (see [Self-service & record changes](docs/modules/talent.md#self-service--record-changes)).
 - Medical certificates are visible to the employee, HR, the System Administrator, and the approving supervisor for that request only.
 - Mask in the UI by default (show last 4 digits); revealing the full value is audit-logged.
 - Never log, cache or send these fields to analytics or Pulse Insight in raw form.
 
-**Encryption choice:** automatic or explicit field encryption depends on the MongoDB edition. Build step 0.8 settles it and records the choice in [ADR 0005](docs/adr/0005-field-level-encryption.md).
+**Encryption choice:** explicit encryption, because the app runs on MongoDB Community (automatic encryption needs Enterprise or Atlas). Services encrypt each sensitive value before saving it, in a `sensitiveField()` schema field that refuses plain values; the data keys live in the `encryptionKeys` key vault, wrapped by `FIELD_ENCRYPTION_LOCAL_KEY`. Screens get only the last 4 characters, and the full value only on reveal. Details in [ADR 0005](docs/adr/0005-field-level-encryption.md).
+
+**Supported shapes:** a `sensitiveField()` may only be a single-value field on a document or on a nested subdocument, or a field inside an array of subdocuments. None of the planned sensitive data (bank accounts, government IDs, salary, 201 files, payroll history, dependents' IDs) needs any other shape. The guard fails closed, as follows ([ADR 0012](docs/adr/0012-fail-closed-sensitive-fields.md)):
+
+- Refused when the schema or model is defined (it throws): a `sensitiveField()` inside an array of plain values (for example `arr: [sensitiveField()]`), inside a Map, or declared only on a discriminator's child schema.
+- Refused on write: any write with `strict: false` on a model that has sensitive paths; a `$rename` into or out of a sensitive path; an upsert whose filter includes a sensitive path.
+- `$push` and `$addToSet` onto an array of sensitive subdocuments are allowed only when every pushed sensitive value is encrypted. `$pull` and `$pop` are allowed.
+
+Adding another shape needs a spec change first.
+
+**Database backstop:** every collection with sensitive paths also has a MongoDB `$jsonSchema` validator (`validationAction: "error"`) that rejects a plain string or number in any sensitive path. Any write the Mongoose guard can't see (`bulkWrite`, `replaceOne`, update pipelines, `$merge` and `$out`, raw driver calls through `Model.collection`) fails instead of storing plain text. The validator is built from the schema's sensitive paths, never written by hand, and installed with the model's indexes (see [ADR 0012](docs/adr/0012-fail-closed-sensitive-fields.md)).
 
 ## Secrets
 
@@ -170,6 +180,7 @@ Use this list in every phase review and in the whole-app review (build step 7.8)
 - [ ] Account status is checked on every request ([Account status](#account-status)).
 - [ ] All input is validated with Zod ([Architecture rules](docs/ARCHITECTURE.md#architecture-rules)).
 - [ ] Sensitive fields are encrypted, masked in the UI, and never raw in logs, Insight or snapshots ([Sensitive data](#sensitive-data)).
+- [ ] Sensitive fields use only the supported shapes, and their collections have the `$jsonSchema` validator ([Sensitive data](#sensitive-data)).
 - [ ] Uploaded and generated files are in `storage/`, never under `public/` or in Git, and open only through the access-checked file route ([File storage](docs/ARCHITECTURE.md#file-storage)).
 - [ ] Every mutation is audit-logged ([Audit logging](#audit-logging)).
 - [ ] No secrets in the diff, and `/dev/*` pages are excluded from production builds.

@@ -72,7 +72,7 @@ The list of jobs is in [Background jobs](ARCHITECTURE.md#background-jobs).
 
 ### Encryption key lost or changed
 
-Encrypted sensitive fields (salaries, government IDs, bank accounts and so on) can't be read without `FIELD_ENCRYPTION_LOCAL_KEY`. Restore the original key from its safe copy. A new key won't decrypt old data. Never rotate the key without a planned re-encryption (see [Secrets](../SECURITY.md#secrets)).
+Encrypted sensitive fields (salaries, government IDs, bank accounts and so on) can't be read without `FIELD_ENCRYPTION_LOCAL_KEY`. Restore the original key from its safe copy. A new key won't decrypt old data. Never change the key without a planned rotation: the data keys in the `encryptionKeys` key vault must be re-wrapped with the new key while the old one is still available (the fields themselves don't need re-encrypting; see [ADR 0005](adr/0005-field-level-encryption.md) and [Secrets](../SECURITY.md#secrets)).
 
 ### Restore from backup
 

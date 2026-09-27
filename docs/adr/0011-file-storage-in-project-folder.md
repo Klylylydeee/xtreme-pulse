@@ -13,7 +13,7 @@ Store every uploaded and generated file in a `storage/` folder with the app, by 
 
 ## Consequences
 
-- No MinIO or S3 to run. The local Docker stack is MongoDB and Redis only, and the four `S3_*` variables are replaced by `FILE_STORAGE_DIR`.
+- No MinIO or S3 to run. The local stack is MongoDB and Redis only, and the four `S3_*` variables are replaced by `FILE_STORAGE_DIR`. _(Note, 2026-09-27: this first read "the local Docker stack". The project has since dropped Docker; MongoDB and Redis are installed locally, as set out in [README.md › Getting started](../../README.md#getting-started).)_
 - Deploys must leave `storage/` in place, and backups must include it with the database and the encryption key.
 - Files sit on one server's disk, so running several app servers would need a shared drive or a move to object storage. Because modules use only the storage service, that move stays contained.
 - Sensitive files (medical certificates, 201 files, payslips) are on that disk, so the server's disk encryption and file permissions matter (see [DEPLOYMENT.md](../DEPLOYMENT.md#still-to-decide)).

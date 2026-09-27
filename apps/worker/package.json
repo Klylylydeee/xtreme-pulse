@@ -1,0 +1,22 @@
+{
+  "name": "@pulse/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@next/env": "16.3.6",
+    "@pulse/core": "workspace:*",
+    "@pulse/db": "workspace:*",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "typescript": "6.0.3"
+  }
+}

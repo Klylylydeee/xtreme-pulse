@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment (only .env.example is committed)
+.env
+.env.local
+.env.*.local
+
+# Uploaded and generated files: never committed (docs/ARCHITECTURE.md#file-storage)
+storage/
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,33 @@
+{
+  "name": "xtreme-pulse",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @pulse/web --filter @pulse/worker dev",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "format": "prettier --write .",
+    "seed:admin": "tsx scripts/seed-admin.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "24.13.6",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.6",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1"
+  },
+  "dependencies": {
+    "@next/env": "16.3.6",
+    "@pulse/core": "workspace:*",
+    "@pulse/db": "workspace:*"
+  }
+}

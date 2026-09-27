@@ -1,0 +1,47 @@
+{
+  "name": "@pulse/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/index.ts"
+    },
+    "./server/exports": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/exports/index.ts"
+    },
+    "./server/seed": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/seed/index.ts"
+    },
+    "./server/worker": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/jobs/worker.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@node-rs/argon2": "2.2.1",
+    "@pulse/db": "workspace:*",
+    "@pulse/ui": "workspace:*",
+    "@react-pdf/renderer": "4.9.0",
+    "bullmq": "6.3.8",
+    "exceljs": "4.4.0",
+    "ioredis": "6.0.0",
+    "mongoose": "9.10.2",
+    "react": "19.3.0",
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@pulse/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "browser": "./src/client-guard.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mongoose": "9.10.2",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "6.0.3"
+  }
+}

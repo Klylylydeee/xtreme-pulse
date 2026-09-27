@@ -1,0 +1,145 @@
+/*
+ * Xtreme Pulse global stylesheet: Tailwind, shadcn/ui base, the design tokens and the
+ * accessibility fallbacks. apps/web imports this once from its root layout.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/inter';
+@import './tokens.css';
+
+/* Scan the shared UI package for class names as well as the app. */
+@source '../';
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    letter-spacing: var(--text-body--letter-spacing);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    border-color: var(--separator);
+  }
+
+  /* Visible focus rings in the accent color (DESIGN_SYSTEM.md › Accessibility). */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--accent-subtle);
+    color: var(--text-primary);
+  }
+}
+
+/*
+ * Frosted glass (DESIGN_SYSTEM.md › Depth and glass): backdrop blur over a semi-transparent fill,
+ * a hairline inner highlight. glass-sidebar uses the sidebar color, glass the surface color.
+ * Falls back to a solid fill without backdrop-filter or with reduced transparency (below).
+ */
+@utility glass {
+  background-color: color-mix(in srgb, var(--surface) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 0 0 1px var(--glass-highlight);
+}
+
+@utility glass-sidebar {
+  background-color: color-mix(in srgb, var(--sidebar) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 0 0 1px var(--glass-highlight);
+}
+
+/* The top toolbar: glass over the page background, with a hairline under it only. */
+@utility glass-bar {
+  background-color: color-mix(in srgb, var(--bg) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: inset 0 -1px 0 var(--glass-highlight);
+}
+
+/* Motion durations from the tokens. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+
+/* Tabular numerals for amounts and data (DESIGN_SYSTEM.md › Data-rich). */
+@utility numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Fallbacks ---------- */
+
+/* No backdrop-filter support: glass becomes a solid fill. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background-color: var(--surface);
+  }
+  .glass-sidebar {
+    background-color: var(--sidebar);
+  }
+  .glass-bar {
+    background-color: var(--bg);
+  }
+}
+
+/* Reduced transparency: glass becomes a solid fill with no blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-sidebar,
+  .glass-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass {
+    background-color: var(--surface);
+  }
+  .glass-sidebar {
+    background-color: var(--sidebar);
+  }
+  .glass-bar {
+    background-color: var(--bg);
+  }
+}
+
+/* Reduced motion: turn animations and transitions off. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

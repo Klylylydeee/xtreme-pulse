@@ -63,6 +63,8 @@ apps/web/                         the single Xtreme Pulse Next.js app
   app/(pulse)/page.tsx            Pulse Core home
   app/(pulse)/admin/              system administration (HR and System Administrator), e.g. /admin/access for user access
   app/(pulse)/<module>/           one folder per module: engage, ops, supply, desk, fiscal, talent, insight
+  app/files/[fileId]/             the one file route: checks access, then streams a stored file
+apps/worker/                      the BullMQ worker process (background and scheduled jobs)
 packages/core/                    auth, module access, audit log, approvals, notifications, directory, org chart, holidays
 packages/db/                      Mongo connection, shared master-data schemas
 packages/<module>/                models, services and validation for each module

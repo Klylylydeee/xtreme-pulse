@@ -10,10 +10,11 @@ To add one, copy [0000-template.md](0000-template.md), take the next number, and
 | [0002](0002-modular-monolith.md) | One application, built as a modular monolith | Accepted |
 | [0003](0003-mongodb-replica-set.md) | MongoDB replica set with Mongoose | Accepted |
 | [0004](0004-password-only-auth-on-internal-network.md) | Password-only sign-in on an internal network | Accepted |
-| [0005](0005-field-level-encryption.md) | Field-level encryption for sensitive data | Proposed (settled in step 0.8) |
+| [0005](0005-field-level-encryption.md) | Field-level encryption for sensitive data | Accepted, amended by 0012 |
 | [0006](0006-money-as-integer-centavos.md) | Money as integer centavos | Accepted |
 | [0007](0007-append-only-records-and-derived-balances.md) | Append-only records and derived balances | Accepted |
 | [0008](0008-versioned-configuration.md) | Versioned, effective-dated configuration | Accepted |
 | [0009](0009-background-jobs-bullmq.md) | Background jobs on BullMQ and Redis | Accepted |
-| [0010](0010-manual-verification-before-automated-tests.md) | Manual verification before automated tests | Accepted |
+| [0010](0010-manual-verification-before-automated-tests.md) | Manual verification before automated tests | Accepted, narrowed by 0012 |
 | [0011](0011-file-storage-in-project-folder.md) | Files stored in a folder with the app, not S3 | Accepted |
+| [0012](0012-fail-closed-sensitive-fields.md) | Fail-closed sensitive fields, database validators and guard tests | Accepted |

@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true
+  # Optional native speed-up for BullMQ's msgpackr; the pure JavaScript fallback is used instead.
+  msgpackr-extract: false
+
+minimumReleaseAgeExclude:
+  - lucide-react@1.48.0

@@ -31,7 +31,7 @@ Each module owns its collections, and no module writes to another module's colle
 
 | Module | Owns |
 |---|---|
-| Core | User accounts (`users`), employee identity (`employees`), departments, positions, employee number counters (`employeeNumberCounters`), company settings (`companySettings`), clients with sites and contacts, products (`brands`), catalog items, suppliers, holidays, approvals, notifications, audit log |
+| Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients with sites and contacts, products (`brands`), catalog items, suppliers, holidays, approvals, notifications, audit log |
 | Talent | Employee records (personal, employment, compensation history, government IDs, bank account), 201 documents, e-signatures, certifications, work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
@@ -83,7 +83,7 @@ These values are always computed from their source records and never edited dire
 | Leave balances | Opening, credit, carry-over and usage entries | [Leave](modules/talent.md#leave) |
 | Offset balances | Opening, credit and usage entries | [Offset balance & offset time off](modules/talent.md#offset-balance--offset-time-off) |
 | Daily Time Record | Approved timesheets, schedules, leave, offset time off, confirmed holidays | [Daily Time Record (DTR)](modules/talent.md#daily-time-record-dtr) |
-| Account status | Employment status | [Account status](../SECURITY.md#account-status) |
+| Account status | Employment status. The one exception is the bootstrap system account (`isSystemAccount`), which has no employment status: it is active unless `systemAccountDisabled` is set | [Account status](../SECURITY.md#account-status), [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account) |
 | Org chart | `reportingTo` | [Org chart](modules/core.md#org-chart) |
 | Delivery status | Accepted quotation, POs, receipts and signed delivery receipts | [Delivery receipts](modules/supply.md#delivery-receipts) |
 

@@ -1,6 +1,6 @@
 # ADR 0010: Manual verification before automated tests
 
-- **Status:** Accepted, to be revisited
+- **Status:** Accepted, to be revisited. Narrowed by [ADR 0012](0012-fail-closed-sensitive-fields.md): the sensitive-data guard has automated tests.
 - **Date:** 2026-09-24 (build plan)
 
 ## Context

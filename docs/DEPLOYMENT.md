@@ -4,19 +4,19 @@ How Xtreme Pulse runs locally and in production, and how to go live. The product
 
 ## Local development
 
-The local stack runs in Docker (build step 0.1): a single-node MongoDB replica set and Redis. Uploaded and generated files are saved in the project's `storage/` folder (see [File storage](ARCHITECTURE.md#file-storage)). `pnpm dev` starts the app and the BullMQ worker. Setup steps are in [README.md › Getting started](../README.md#getting-started).
+MongoDB 8 Community Server and Redis are installed directly on the developer's computer, with no containers: MongoDB runs as a single-node replica set named `rs0`, and Redis keeps `maxmemory-policy noeviction` for BullMQ. Uploaded and generated files are saved in the project's `storage/` folder (see [File storage](ARCHITECTURE.md#file-storage)). `pnpm dev` starts the app and the BullMQ worker. Setup steps are in [README.md › Getting started](../README.md#getting-started).
 
 ## Environment variables
 
 | Variable | What it's for |
 | --- | --- |
-| `MONGODB_URI` | MongoDB connection string. It must point to a replica set, because transactions need one. The local Docker setup runs a single-node replica set. |
+| `MONGODB_URI` | MongoDB connection string. It must point to a replica set, because transactions need one. Locally it is a single-node replica set, for example `mongodb://127.0.0.1:27017/xtreme-pulse?replicaSet=rs0`. |
 | `AUTH_SECRET` | Secret that Auth.js uses to sign and encrypt sessions. Generate a long random value, for example with `npx auth secret`. |
-| `REDIS_URL` | Redis connection for the BullMQ background jobs. |
+| `REDIS_URL` | Redis connection for the BullMQ background jobs. Locally, `redis://127.0.0.1:6379`. |
 | `FILE_STORAGE_DIR` | Folder for uploaded and generated files. Default: `./storage` in the project. It must be outside `public/`, is never committed, and must survive deploys (see [File storage](ARCHITECTURE.md#file-storage)). |
 | `SEED_ADMIN_EMAIL` | Login email of the bootstrap System Administrator, read by `pnpm seed:admin`. Default: `sysadmin@xtreme-works.com`. |
 | `SEED_ADMIN_PASSWORD` | Initial password for that account, changed on first sign-in. Never commit it. |
-| `FIELD_ENCRYPTION_LOCAL_KEY` | Master key that encrypts sensitive fields at rest: a random 96-byte value, base64-encoded. Use a new value on the real server and keep a safe copy, since encrypted fields can't be read without it. |
+| `FIELD_ENCRYPTION_LOCAL_KEY` | Master key that encrypts sensitive fields at rest: a random 96-byte value, base64-encoded (generate one with `node -e "console.log(require('crypto').randomBytes(96).toString('base64'))"`). Use a new value on the real server and keep a safe copy, since encrypted fields can't be read without it. |
 
 Put the values in `.env.local`, which is never committed. Phase 0 creates a `.env.example` that lists every variable without values.
 

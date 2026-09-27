@@ -35,19 +35,54 @@ Install these once, then Phase 0 sets up the rest.
 - **Node.js**, the current LTS release
 - **pnpm**, the package manager for the workspace
 - **Git**, to commit after every step
-- **Docker Desktop**, to run MongoDB and Redis locally
+- **MongoDB 8.x Community Server** and **mongosh**, run locally as a single-node replica set (set up below)
+- **Redis 7 or later**, run locally. On Windows, use [Memurai](https://www.memurai.com/) or a Windows port of Redis.
 - **Claude Code**
 - **A code editor**, such as VS Code
 
-Then, once Phase 0 has scaffolded the repo:
+### MongoDB replica set (once)
+
+Transactions need a replica set, so they fail on a standalone MongoDB. A fresh install, or an existing standalone MongoDB service, is converted like this:
+
+1. Open the MongoDB config file: on Windows usually `C:\Program Files\MongoDB\Server\<version>\bin\mongod.cfg`, on macOS (Homebrew) `$(brew --prefix)/etc/mongod.conf`, on Linux `/etc/mongod.conf`. Keep `bindIp: 127.0.0.1`, and add:
+
+   ```yaml
+   replication:
+     replSetName: rs0
+   ```
+
+2. Restart MongoDB: on Windows, restart the **MongoDB Server** service (Services, or `Restart-Service MongoDB` in an administrator PowerShell); on macOS, `brew services restart mongodb-community`; on Linux, `sudo systemctl restart mongod`.
+3. Start the replica set:
+
+   ```bash
+   mongosh --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
+   ```
+
+4. Check it with `mongosh --eval "rs.status()"`: `ok` is `1` and the member's `stateStr` is `PRIMARY`.
+
+### Redis (once)
+
+Keep Redis bound to localhost (`bind 127.0.0.1`) and set `maxmemory-policy noeviction` in its config file (`memurai.conf` for Memurai, `redis.conf` elsewhere), because BullMQ loses jobs if Redis evicts keys; `/dev/health` flags any other policy. Persistence (`appendonly yes`) is recommended, so queued jobs survive a restart. Restart Redis after changing the config.
+
+### Run the app
+
+Once Phase 0 has scaffolded the repo:
 
 ```bash
 pnpm install
 cp .env.example .env.local   # fill in the values
-docker compose up -d         # MongoDB replica set and Redis
 pnpm seed:admin              # first System Administrator and base data
 pnpm dev                     # the app and the background worker
 ```
+
+`.env.local` lives at the repo root. For the local services above, use:
+
+```bash
+MONGODB_URI=mongodb://127.0.0.1:27017/xtreme-pulse?replicaSet=rs0
+REDIS_URL=redis://127.0.0.1:6379
+```
+
+`FIELD_ENCRYPTION_LOCAL_KEY` and the other values are described in [Environment variables](docs/DEPLOYMENT.md#environment-variables).
 
 Sign in as `sysadmin@xtreme-works.com` with the `SEED_ADMIN_PASSWORD` you set, then change the password. The variables are described in [DEPLOYMENT.md](docs/DEPLOYMENT.md#environment-variables), and all commands are in [AGENTS.md](AGENTS.md#commands).
 

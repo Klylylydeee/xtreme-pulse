@@ -1,0 +1,2 @@
+/* Design tokens, Tailwind and shadcn/ui base all come from the shared UI package. */
+@import '@pulse/ui/globals.css';
