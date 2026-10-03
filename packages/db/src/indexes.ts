@@ -1,8 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import mongoose, { type ClientSession, type Model } from 'mongoose';
+import { ensureSensitiveValidator } from './sensitive-validator';
 
 // Index readiness for every model (docs/DATA_MODEL.md relies on unique indexes for document
-// numbers, configuration versions and idempotent files).
+// numbers, configuration versions and idempotent files). The same step installs the `$jsonSchema`
+// validator of a collection with sensitive paths (sensitive-validator.ts, ADR 0012), after its
+// indexes: a model is ready only when both are in place, so "indexes" below means both.
 //
 // Mongoose builds a model's indexes in the background and swallows any error, so a write could
 // run before a unique index exists (and slip in the duplicates that then stop it from ever being
@@ -41,6 +44,11 @@ const BUILD_FAILURE_CODES = new Set([
   86, // IndexKeySpecsConflict
   171, // CannotIndexParallelArrays
   197, // InvalidIndexSpecificationOption
+  // Installing the sensitive-field validator (sensitive-validator.ts):
+  2, // BadValue
+  9, // FailedToParse
+  13, // Unauthorized: the database user may not run createCollection or collMod
+  72, // InvalidOptions
 ]);
 
 function errorCode(error: unknown): number | undefined {
@@ -65,12 +73,12 @@ function isBuildFailure(error: unknown): boolean {
 }
 
 /**
- * Thrown to a write when the collection's indexes can't be built because of the index definition
- * or the data (for example existing duplicates for a unique index). It is not the write's own
- * duplicate-key error, so code that handles E11000 on insert doesn't mistake it for one. The
- * driver's error is kept as `cause` (it can hold record values: don't send it to the browser).
- * Network and other temporary errors are never wrapped: they are rethrown unchanged, with their
- * labels, so `withTransaction` can retry them.
+ * Thrown to a write when the collection's indexes or validator can't be built because of the index
+ * definition, the data or the database user's rights (for example existing duplicates for a
+ * unique index). It is not the write's own duplicate-key error, so code that handles E11000 on
+ * insert doesn't mistake it for one. The driver's error is kept as `cause` (it can hold record
+ * values: don't send it to the browser). Network and other temporary errors are never wrapped:
+ * they are rethrown unchanged, with their labels, so `withTransaction` can retry them.
  */
 export class IndexBuildError extends Error {
   readonly collection: string;
@@ -80,7 +88,7 @@ export class IndexBuildError extends Error {
         ? String(cause.codeName)
         : `code ${String(errorCode(cause))}`;
     super(
-      `The indexes of the "${collection}" collection could not be built (${codeName}), so writes to it are refused. Fix the data or the index definition; the build is retried automatically.`,
+      `The indexes or validator of the "${collection}" collection could not be built (${codeName}), so writes to it are refused. Fix the data, the index definition or the database user's rights; the build is retried automatically.`,
       { cause },
     );
     this.name = 'IndexBuildError';
@@ -177,6 +185,8 @@ export function ensureModelIndexes(model: Model<unknown>): Promise<void> {
         // `init()` keeps its first result, so build again to learn the current state.
         await model.createIndexes();
       }
+      // Then the sensitive-field validator, when the schema has sensitive paths.
+      await ensureSensitiveValidator(model);
       state.ready = true;
       state.failure = null;
       state.transient = null;

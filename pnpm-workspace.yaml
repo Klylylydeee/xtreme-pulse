@@ -7,6 +7,9 @@ allowBuilds:
   unrs-resolver: true
   # Optional native speed-up for BullMQ's msgpackr; the pure JavaScript fallback is used instead.
   msgpackr-extract: false
+  # Its postinstall downloads a MongoDB binary for the host. The test setup downloads the right one
+  # on the first `pnpm test` instead (x64 on Windows on Arm; see docs/TESTING.md).
+  mongodb-memory-server: false
 
 minimumReleaseAgeExclude:
   - lucide-react@1.48.0

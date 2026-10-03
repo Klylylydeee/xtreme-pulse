@@ -1,12 +1,13 @@
 import mongoose, { mongo, type Schema } from 'mongoose';
+import { SENSITIVE_OPTION } from '@pulse/db';
 import { isEncryptedValue } from './format';
 
-// The write guard for sensitive fields (SECURITY.md#sensitive-data). A sensitive field only ever
-// stores ciphertext from `encryptSensitive`. `sensitiveField()`'s validator covers `create()` and
-// `save()`, but Mongoose skips validators on query writes, `bulkWrite` updates, lean `insertMany`
-// and `save({ validateBeforeSave: false })`. So every write path is checked here as well, on the
-// values as the caller passed them, before Mongoose casts them (so `strict: false` and
-// `strictQuery: false` change nothing):
+// The write guard for sensitive fields (SECURITY.md#sensitive-data, ADR 0012). A sensitive field
+// only ever stores ciphertext from `encryptSensitive`. `sensitiveField()`'s validator covers
+// `create()` and `save()`, but Mongoose skips validators on query writes, `bulkWrite` updates, lean
+// `insertMany` and `save({ validateBeforeSave: false })`. So every write path is checked here as
+// well, on the values as the caller passed them, before Mongoose casts them (so `strictQuery:
+// false` changes nothing):
 //
 // - query writes (updateOne, updateMany, findOneAndUpdate, replaceOne, findOneAndReplace, and a
 //   document's updateOne), which also get `runValidators: true`;
@@ -18,8 +19,9 @@ import { isEncryptedValue } from './format';
 //
 // What a write may do to a sensitive field:
 //
-// - Set it (top-level keys, $set, $setOnInsert, a replacement, an insert) to ciphertext or null,
-//   also inside a parent object or subdocument that is set as a whole.
+// - Set it (top-level keys, $set, $setOnInsert, a replacement, an insert) to ciphertext, also
+//   inside a parent object or subdocument that is set as a whole. `null` is refused: an absent
+//   field means "no value".
 // - Remove it ($unset, or $pull, $pullAll and $pop on its array of subdocuments).
 // - $push or $addToSet (with or without $each) new subdocuments into an array of subdocuments;
 //   the new subdocuments are checked like an insert.
@@ -27,26 +29,46 @@ import { isEncryptedValue } from './format';
 //   below it (`acct.x`), an update pipeline stage that writes it, and an upsert whose filter names
 //   it (MongoDB would copy the filter value into the new record).
 //
+// Refused on any write to a model with a sensitive field, whatever it changes:
+//
+// - `strict: false` (a query option, a bulkWrite option or operation, or a document created with
+//   it), which lets values past the schema;
+// - `bypassDocumentValidation`, which skips the database validator (ADR 0012): in query and
+//   bulkWrite options, and on an aggregate of the model. An aggregate of any model with this
+//   option is refused too when its `$out` or `$merge` writes to a collection with sensitive
+//   fields. Mongoose 9's insertMany hook can't see its options, so it can't refuse the option
+//   there; the documents are still checked. `save` and `create` never pass it to MongoDB.
+//
 // A refused write throws SensitiveFieldNotEncryptedError, which names the field, never the value,
 // and nothing is written. The raw driver collection bypasses Mongoose and this guard; module code
-// never uses it.
+// never uses it, and the database validator still refuses a plain value written through it.
+//
+// KNOWN LIMITS (accepted, ADR 0012). Mongoose's per-call option `middleware: false` (or
+// `middleware: { pre: false }`) skips every user hook, this guard included, and
+// `mongoose.connection.bulkWrite` never runs a model's bulkWrite hooks. Through them, a plain
+// value with `bypassDocumentValidation` is stored as plain text; without it, `sensitiveField()`'s
+// setter turns a plain value or `null` into an empty placeholder that the validator accepts, so
+// the value is lost silently. Code never passes these options or calls `connection.bulkWrite`: a
+// lint rule (eslint.config.mjs) bans the option keys, and review checks the rest.
 //
 // SUPPORTED SHAPES. A sensitive field may be a top-level field, a field of a nested object, or a
 // field of a subdocument or an array of subdocuments, at any depth. These shapes are refused with
 // SensitiveFieldShapeError when the model or discriminator is defined, because this guard can't
 // check every write to them:
 //
-// - an array of sensitive values (`[sensitiveField()]`): use an array of subdocuments instead;
-// - a Map of sensitive values (`{ type: Map, of: sensitiveField() }`);
+// - an array of sensitive values (`[sensitiveField()]`), at any depth of nesting: use an array of
+//   subdocuments instead;
+// - a Map of sensitive values (`{ type: Map, of: sensitiveField() }`) or of subdocuments with one;
 // - discriminators: a discriminator schema with a sensitive field, or a discriminator of a schema
-//   that has one (Mongoose runs query and insert middleware from the base schema only).
+//   that has one (Mongoose runs query and insert middleware from the base schema only);
+// - a schema with a sensitive field that has the schema option `strict: false`, or whose nested
+//   schemas do.
 //
 // The guard is a global Mongoose plugin, registered the first time `sensitiveField()` is called, so
-// it is in place before any model with a sensitive field is compiled. It adds no hooks to schemas
-// without one.
+// it is in place before any model with a sensitive field is compiled. On a schema without a
+// sensitive field it adds only the aggregate check for `bypassDocumentValidation` above.
 
-/** The schema type option that marks a path as sensitive. Set by `sensitiveField()`. */
-export const SENSITIVE_OPTION = 'pulseSensitive';
+export { SENSITIVE_OPTION };
 
 /** Thrown when a write would store something other than ciphertext in a sensitive field. */
 export class SensitiveFieldNotEncryptedError extends Error {
@@ -82,6 +104,20 @@ function upsertFilterRefusal(path: string): SensitiveFieldNotEncryptedError {
   );
 }
 
+function nullRefusal(path: string): SensitiveFieldNotEncryptedError {
+  return new SensitiveFieldNotEncryptedError(
+    path,
+    `The sensitive field "${path}" can't be set to null. Leave it out, or $unset it, to store no value. Nothing was written.`,
+  );
+}
+
+function optionRefusal(path: string, option: string): SensitiveFieldNotEncryptedError {
+  return new SensitiveFieldNotEncryptedError(
+    path,
+    `The option ${option} can't be used to write to a collection with sensitive fields (such as "${path}"). Nothing was written.`,
+  );
+}
+
 /**
  * Thrown when a model or discriminator is defined with a sensitive field in a shape the write guard
  * can't protect (see SUPPORTED SHAPES above). A programming error, raised before any data is read.
@@ -89,7 +125,7 @@ function upsertFilterRefusal(path: string): SensitiveFieldNotEncryptedError {
 export class SensitiveFieldShapeError extends Error {
   constructor(where: string) {
     super(
-      `A sensitive field can't be used in ${where}. Use a top-level field, a nested object field, or a field of a subdocument or an array of subdocuments.`,
+      `A sensitive field can't be used in ${where}. Use a top-level field, a nested object field, or a field of a subdocument or an array of subdocuments, in a schema without strict: false.`,
     );
     this.name = 'SensitiveFieldShapeError';
   }
@@ -107,8 +143,20 @@ const QUERY_WRITES = [
 const SETTING_OPERATORS = new Set(['$set', '$setOnInsert']);
 const ADDING_OPERATORS = new Set(['$push', '$addToSet']);
 const REMOVING_OPERATORS = new Set(['$unset', '$pull', '$pullAll', '$pop']);
-// Filter operators that can carry equality conditions into an upserted record.
-const EQUALITY_FILTER_OPERATORS = new Set(['$and', '$or', '$nor', '$eq']);
+// Filter operators followed into an upsert's filter: those that can carry a value into the
+// upserted record (`$in` or `$all` with one element acts as equality), and those that reach a
+// field below a parent object or an array of subdocuments (`$nin` and `$elemMatch` too, to fail
+// closed).
+const FILTER_OPERATORS_TO_CHECK = new Set([
+  '$and',
+  '$or',
+  '$nor',
+  '$eq',
+  '$in',
+  '$nin',
+  '$all',
+  '$elemMatch',
+]);
 const PIPELINE_WRITING_STAGES = new Set([
   '$set',
   '$addFields',
@@ -142,15 +190,20 @@ interface SchemaInspection {
   paths: string[];
   /** Where a sensitive field is used in an unsupported shape. */
   unsupported: string[];
+  /** Where the schema, or a nested schema, has the option `strict: false`. */
+  notStrict: string[];
 }
 
 /** Finds every sensitive field in the schema, including in nested schemas. */
 function inspectSchema(
   schema: Schema,
   prefix = '',
-  result: SchemaInspection = { paths: [], unsupported: [] },
+  result: SchemaInspection = { paths: [], unsupported: [], notStrict: [] },
 ): SchemaInspection {
   const before = result.paths.length;
+  if ((schema as { options?: { strict?: unknown } }).options?.strict === false) {
+    result.notStrict.push(prefix ? `"${prefix.slice(0, -1)}"` : 'the schema');
+  }
   schema.eachPath((path, schemaType) => {
     const type = schemaType as unknown as SchemaTypeLike;
     const full = prefix + path;
@@ -231,6 +284,11 @@ class Checker {
     this.paths = new Set(paths);
   }
 
+  /** A sensitive path, to name in a refusal that isn't about one field. */
+  get first(): string {
+    return this.paths.values().next().value ?? '';
+  }
+
   private isParent(path: string): boolean {
     for (const sensitive of this.paths) if (sensitive.startsWith(`${path}.`)) return true;
     return false;
@@ -248,7 +306,9 @@ class Checker {
   }
 
   private checkValue(path: string, value: unknown): void {
-    if (value == null) return;
+    // Absent: nothing is stored (Mongoose drops undefined keys from updates and documents).
+    if (value === undefined) return;
+    if (value === null) throw nullRefusal(path);
     const ok = this.strictBinary
       ? value instanceof mongo.Binary && isEncryptedValue(value)
       : isEncryptedValue(value);
@@ -322,7 +382,8 @@ class Checker {
 
   /**
    * An upsert's filter: MongoDB copies its equality conditions into the record it inserts, so a
-   * sensitive field (or a parent object holding one) must not be named in it.
+   * sensitive field (or a parent object holding one) must not be named in it, also not through
+   * `$in`, `$nin`, `$all` or `$elemMatch` on the parent.
    */
   upsertFilter(filter: unknown, prefix = ''): void {
     const current = plain(filter);
@@ -333,7 +394,7 @@ class Checker {
     if (!isPlainObject(current)) return;
     for (const [key, value] of Object.entries(current)) {
       if (key.startsWith('$')) {
-        if (EQUALITY_FILTER_OPERATORS.has(key)) this.upsertFilter(value, prefix);
+        if (FILTER_OPERATORS_TO_CHECK.has(key)) this.upsertFilter(value, prefix);
         continue;
       }
       const path = normalize(prefix ? `${prefix}.${key}` : key);
@@ -347,10 +408,7 @@ class Checker {
       if (!isPlainObject(stage)) continue;
       for (const [name, spec] of Object.entries(stage)) {
         if (!PIPELINE_WRITING_STAGES.has(name)) continue;
-        if (name === '$replaceWith' || name === '$replaceRoot') {
-          const first = this.paths.values().next().value;
-          if (first) throw pipelineRefusal(first);
-        }
+        if (name === '$replaceWith' || name === '$replaceRoot') throw pipelineRefusal(this.first);
         const fields = Array.isArray(spec)
           ? spec.map(String)
           : typeof spec === 'string'
@@ -365,6 +423,15 @@ class Checker {
       }
     }
   }
+
+  /** Refuses the options that let a write past the schema or the database validator. */
+  options(options: unknown): void {
+    if (!isPlainObject(options)) return;
+    if (options.strict === false) throw optionRefusal(this.first, 'strict: false');
+    if (options.bypassDocumentValidation) {
+      throw optionRefusal(this.first, 'bypassDocumentValidation');
+    }
+  }
 }
 
 interface BulkUpdate {
@@ -372,36 +439,110 @@ interface BulkUpdate {
   update?: unknown;
   replacement?: unknown;
   upsert?: boolean;
+  strict?: unknown;
 }
 
 interface BulkOperation {
-  insertOne?: { document?: unknown };
+  insertOne?: { document?: unknown; strict?: unknown };
   updateOne?: BulkUpdate;
   updateMany?: BulkUpdate;
   replaceOne?: BulkUpdate;
 }
 
+// Schemas found to have a sensitive field, for the aggregate check of any model.
+const sensitiveSchemas = new WeakMap<Schema, boolean>();
+
+function schemaIsSensitive(schema: Schema): boolean {
+  let known = sensitiveSchemas.get(schema);
+  if (known === undefined) {
+    known = hasSensitiveField(schema);
+    sensitiveSchemas.set(schema, known);
+  }
+  return known;
+}
+
+/** The collections an aggregate pipeline writes to with `$out` or `$merge`. */
+function outputCollections(pipeline: unknown[]): string[] {
+  const names: string[] = [];
+  const nameOf = (target: unknown): string | undefined => {
+    if (typeof target === 'string') return target;
+    if (isPlainObject(target) && typeof target.coll === 'string') return target.coll;
+    return undefined;
+  };
+  for (const stage of pipeline) {
+    if (!isPlainObject(stage)) continue;
+    const out = nameOf(stage.$out);
+    if (out) names.push(out);
+    const merge = stage.$merge;
+    const into = nameOf(isPlainObject(merge) ? merge.into : merge);
+    if (into) names.push(into);
+  }
+  return names;
+}
+
+/** A sensitive path of a registered model stored in `collection`, or undefined for none. */
+function sensitiveCollectionPath(collection: string): string | undefined {
+  for (const name of mongoose.modelNames()) {
+    const model = mongoose.model(name);
+    if (model.collection.collectionName !== collection) continue;
+    const schema = model.schema as unknown as Schema;
+    if (schemaIsSensitive(schema)) return inspectSchema(schema).paths[0] ?? collection;
+  }
+  return undefined;
+}
+
+interface AggregateLike {
+  options?: Record<string, unknown>;
+  pipeline(): unknown[];
+}
+
 /**
  * The plugin. Refuses unsupported shapes, and adds the checks to schemas that have a sensitive
- * field; adds nothing to other schemas.
+ * field; other schemas get only the aggregate check for `$out`/`$merge` into a sensitive
+ * collection with `bypassDocumentValidation`.
  */
 export function sensitiveFieldGuard(schema: Schema): void {
-  const { paths, unsupported } = inspectSchema(schema);
+  const { paths, unsupported, notStrict } = inspectSchema(schema);
   if (unsupported.length) throw new SensitiveFieldShapeError(unsupported[0] as string);
-  if (!paths.length) return;
+  if (paths.length && notStrict.length) {
+    throw new SensitiveFieldShapeError(`a schema with strict: false (${notStrict[0] as string})`);
+  }
+  sensitiveSchemas.set(schema, paths.length > 0);
+
+  if (!paths.length) {
+    schema.pre('aggregate', function () {
+      const aggregate = this as unknown as AggregateLike;
+      if (!aggregate.options?.bypassDocumentValidation) return;
+      for (const collection of outputCollections(aggregate.pipeline())) {
+        const path = sensitiveCollectionPath(collection);
+        if (path) throw optionRefusal(path, 'bypassDocumentValidation');
+      }
+    });
+    return;
+  }
   const checker = new Checker(paths);
 
   schema.pre([...QUERY_WRITES], { document: false, query: true }, function () {
+    checker.options({
+      strict: this.mongooseOptions().strict,
+      // eslint-disable-next-line no-restricted-syntax -- reads the option to refuse it, never sets it
+      bypassDocumentValidation: this.getOptions().bypassDocumentValidation,
+    });
     checker.update(this.getUpdate());
     if (this.getOptions().upsert) checker.upsertFilter(this.getFilter());
     this.setOptions({ runValidators: true });
   });
 
-  schema.pre('bulkWrite', function (ops) {
+  schema.pre('bulkWrite', function (ops: unknown, options?: unknown) {
+    checker.options(options);
     for (const operation of ops as BulkOperation[]) {
-      if (operation.insertOne) checker.document(operation.insertOne.document);
+      if (operation.insertOne) {
+        checker.options({ strict: operation.insertOne.strict });
+        checker.document(operation.insertOne.document);
+      }
       for (const write of [operation.updateOne, operation.updateMany, operation.replaceOne]) {
         if (!write) continue;
+        checker.options({ strict: write.strict });
         checker.update(write.update ?? write.replacement);
         if (write.upsert) checker.upsertFilter(write.filter);
       }
@@ -419,9 +560,21 @@ export function sensitiveFieldGuard(schema: Schema): void {
   // Runs with or without validation, on new and existing documents. Reads the values as stored on
   // the document, after the setter (so the empty placeholder fails here too).
   schema.pre('save', function () {
+    const state = (this as unknown as { $__?: { strictMode?: unknown } }).$__;
+    if (state?.strictMode === false) throw optionRefusal(checker.first, 'strict: false');
     checker.document(
       this.toObject({ depopulate: true, getters: false, virtuals: false, transform: false }),
     );
+  });
+
+  // An aggregate can't write a field of this collection's documents in place, but its $out or
+  // $merge could write anywhere: only the database validator stops a plain value there, so it
+  // must not be bypassed.
+  schema.pre('aggregate', function () {
+    const aggregate = this as unknown as AggregateLike;
+    if (aggregate.options?.bypassDocumentValidation) {
+      throw optionRefusal(checker.first, 'bypassDocumentValidation');
+    }
   });
 }
 

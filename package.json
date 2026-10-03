@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "format": "prettier --write .",
-    "seed:admin": "tsx scripts/seed-admin.ts"
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
@@ -20,10 +21,13 @@
     "eslint-config-next": "16.3.6",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
+    "mongodb-memory-server": "11.3.0",
+    "mongoose": "9.10.2",
     "prettier": "3.9.9",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.70.1"
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.3"
   },
   "dependencies": {
     "@next/env": "16.3.6",

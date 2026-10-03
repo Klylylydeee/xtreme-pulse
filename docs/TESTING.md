@@ -25,14 +25,19 @@ The guard that keeps sensitive fields encrypted is the one area with committed a
 - **Scope.** The `sensitiveField()` guard and the `$jsonSchema` validator described in [Sensitive data](../SECURITY.md#sensitive-data). Nothing else.
 - **Where.** Next to the code they test, as `*.test.ts`: the guard's tests in `packages/core/src/server/encryption/`, and the validator's beside the code that builds and installs it.
 - **What `pnpm test` runs.** Every `*.test.ts` in the workspace, once, without watch mode. It must pass after every build step.
-- **Framework (proposed).** Vitest, the runner already named below. The repo has none yet; Vitest suits the ESM, TypeScript setup (`"type": "module"`, run through `tsx` today) with no extra build step.
-- **Database.** A real MongoDB replica set that the suite starts and throws away, such as `mongodb-memory-server` in replica-set mode. Never the development database, and never real employee data.
+- **Framework.** Vitest (`vitest.config.ts` at the repo root). It suits the ESM, TypeScript setup (`"type": "module"`) with no extra build step. Files run one at a time, each in its own process.
+- **Database.** A real MongoDB replica set that the suite starts and throws away: `mongodb-memory-server` in replica-set mode (one member), started by `vitest.global-setup.ts`. Each test file gets its own database, named `xtreme-pulse-test-…`, and a random throwaway `FIELD_ENCRYPTION_LOCAL_KEY`; the database is dropped after the file. The tests never load `.env.local`, never use the development database (`xtreme-pulse`), and never use real employee data.
+  - **First run.** The first `pnpm test` downloads a MongoDB binary (the version `mongodb-memory-server` pins, 8.2 today; about 75 MB, cached in `~/.cache/mongodb-binaries` for later runs), so it needs internet access and takes longer. pnpm skips `mongodb-memory-server`'s own install script on purpose (`allowBuilds` in `pnpm-workspace.yaml`); the download happens in the test setup instead.
+  - **Windows on Arm.** MongoDB publishes no Windows on Arm build, so there the setup uses the x64 build, which Windows runs under emulation. Set `MONGOMS_ARCH` or `MONGOMS_SYSTEM_BINARY` (the path of a `mongod` to use) to override this.
+  - **Using another server.** Set `PULSE_TEST_MONGODB_URI` to a replica set connection string to skip `mongodb-memory-server`. It must name a database starting with `xtreme-pulse-test-`, or the suite refuses to start; each file then uses its own database with that name as a prefix, and drops it afterwards.
 - **What it covers.**
-  - Schema shapes refused when defined: a sensitive field in an array of plain values, in a Map, or only on a discriminator's child schema.
-  - Writes the guard refuses: `strict: false`, `$rename` into or out of a sensitive path, an upsert with a sensitive path in its filter, and plain values in `$setOnInsert`.
+  - Schema shapes refused when defined: a sensitive field in an array of plain values (at any depth), in a Map, on any discriminator, or in a schema with `strict: false`; and the supported shapes compile.
+  - Writes the guard refuses: `strict: false`, `bypassDocumentValidation`, `null`, `$rename` into or out of a sensitive path or its parent, an upsert with a sensitive path in its filter, and plain values in `$setOnInsert`, `bulkWrite`, `replaceOne`, `findOneAndReplace`, update pipelines, lean `insertMany` and `save` without validation. Each refusal throws the expected error, whose message never contains the plaintext, and writes nothing.
   - Arrays of sensitive subdocuments: `$push` and `$addToSet` with encrypted values pass and with plain values fail; `$pull` and `$pop` pass.
-  - Writes only the validator stops: `bulkWrite`, `replaceOne` and `findOneAndReplace`, update pipelines, `$merge` and `$out`, and raw calls through `Model.collection`. Each must fail with plain text and succeed with encrypted values.
-  - The validator is installed on every collection with sensitive paths, and installing it again changes nothing.
+  - Writes only the validator stops: raw calls through `Model.collection` (insert, `bulkWrite`, `replaceOne`, `findOneAndReplace`, update pipelines), `$merge` and `$out`. Each must fail with plain text (code 121) and succeed with encrypted values, and `$out` must leave the validator in place.
+  - Every accepted write is read back raw and stored as binary subtype 6.
+  - The validator is installed on every collection with sensitive paths, and installing it again changes nothing, also when another process creates the collection first.
+  - Known limits ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md#consequences)): tests named "known limitation" pin what happens today with `middleware: false` and `connection.bulkWrite`, which skip the guard. They store plain text with `bypassDocumentValidation`, and otherwise fail at the validator (update pipelines) or store an empty placeholder in place of a plain value or `null`. When a fix closes a gap, its test fails: change it to expect a refusal.
 
 ## Hand calculations
 

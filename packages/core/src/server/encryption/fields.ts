@@ -134,16 +134,19 @@ export async function decryptSensitive(value: unknown): Promise<SensitivePlainte
 
 /**
  * The schema type for a sensitive field. It stores an {@link EncryptedValue} and refuses anything
- * else: Mongoose would otherwise cast a plaintext string to bytes and save it readable. The setter
- * swaps such a value for an empty one straight away, so the plaintext never reaches the database
- * or the validation error (Mongoose errors carry the rejected value), and validation then fails.
- * Every other write path (query updates, bulkWrite, lean insertMany, save without validation) is
- * checked by the write guard in guard.ts, which the first call registers.
+ * else, `null` included (leave the field out, or `$unset` it, for no value): Mongoose would
+ * otherwise cast a plaintext string to bytes and save it readable. The setter swaps such a value
+ * for an empty one straight away, so the plaintext never reaches the database or the validation
+ * error (Mongoose errors carry the rejected value), and validation then fails. Every other write
+ * path (query updates, bulkWrite, lean insertMany, save without validation) is checked by the
+ * write guard in guard.ts, which the first call registers, and the collection's `$jsonSchema`
+ * validator refuses anything but an encrypted value at the database (ADR 0012).
  *
  * Supported shapes: a top-level field, a field of a nested object, or a field of a subdocument or
- * an array of subdocuments. An array of sensitive values (`[sensitiveField()]`), a Map of them, and
- * any discriminator involving a sensitive field throw SensitiveFieldShapeError when the model or
- * discriminator is defined, because their writes can't all be checked.
+ * an array of subdocuments. An array of sensitive values (`[sensitiveField()]`), a Map of them, a
+ * schema with `strict: false`, and any discriminator involving a sensitive field throw
+ * SensitiveFieldShapeError when the model or discriminator is defined, because their writes can't
+ * all be checked.
  *
  * The field is left out of query results unless selected (`.select('+salary')`), so a list never
  * loads it by accident.
@@ -163,12 +166,13 @@ export function sensitiveField(
     subtype: ENCRYPTED_SUBTYPE,
     required: options.required ?? false,
     select: false,
+    // `undefined` leaves the field absent; anything else, `null` included, must be ciphertext.
     set: (value: unknown) =>
-      value == null || isEncryptedValue(value)
+      value === undefined || isEncryptedValue(value)
         ? value
         : new mongo.Binary(Buffer.alloc(0), ENCRYPTED_SUBTYPE),
     validate: {
-      validator: (value: unknown) => value == null || isEncryptedValue(value),
+      validator: (value: unknown) => value === undefined || isEncryptedValue(value),
       message: 'A sensitive field must be encrypted with encryptSensitive before it is saved.',
     },
   };
