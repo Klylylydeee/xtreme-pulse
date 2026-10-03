@@ -18,6 +18,7 @@ MongoDB 8 Community Server and Redis are installed directly on the developer's c
 | `SEED_ADMIN_EMAIL` | Login email of the bootstrap System Administrator, read by `pnpm seed:admin`. Default: `sysadmin@xtreme-works.com`. |
 | `SEED_ADMIN_PASSWORD` | Initial password for that account, changed on first sign-in. Never commit it. |
 | `FIELD_ENCRYPTION_LOCAL_KEY` | Master key that encrypts sensitive fields at rest: a random 96-byte value, base64-encoded (generate one with `node -e "console.log(require('crypto').randomBytes(96).toString('base64'))"`). Use a new value on the real server and keep a safe copy, since encrypted fields can't be read without it. |
+| `DEV_ALLOWED_ORIGINS` | Optional, development only. Extra host names, comma-separated (for example `mybox.local`), that other devices on the network may open the dev server through. The computer's own IPv4 addresses are allowed automatically, and Next's `*` and `**` patterns work. Production ignores it. |
 
 Put the values in `.env.local`, which is never committed. Phase 0 creates a `.env.example` that lists every variable without values.
 

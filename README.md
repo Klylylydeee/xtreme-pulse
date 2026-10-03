@@ -102,6 +102,8 @@ The other values are described in [Environment variables](docs/DEPLOYMENT.md#env
 
 Sign in as `sysadmin@xtreme-works.com` with the `SEED_ADMIN_PASSWORD` you set, then change the password. The variables are described in [DEPLOYMENT.md](docs/DEPLOYMENT.md#environment-variables), and all commands are in [AGENTS.md](AGENTS.md#commands).
 
+To try the app on a phone or tablet, open `http://<this computer's IP>:3000` from the same network. The dev server allows the computer's own IPv4 addresses; add any other host name you use (such as `mybox.local`) to `DEV_ALLOWED_ORIGINS`.
+
 ### Run the tests
 
 `pnpm test` runs the sensitive-data guard tests. They start their own throwaway MongoDB, so they need neither the local replica set nor `.env.local`, and never touch the development database. The first run needs internet access: it downloads a MongoDB binary (about 75 MB, cached afterwards). On Windows on Arm it uses the x64 build, which Windows runs under emulation. Details, and how to point the tests at another server, are in [TESTING.md](docs/TESTING.md#sensitive-data-guard-tests).

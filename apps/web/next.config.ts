@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvConfig } from '@next/env';
@@ -8,6 +9,22 @@ import { PHASE_DEVELOPMENT_SERVER } from 'next/constants';
 // forceReload: Next has already loaded (and cached) env from apps/web by the time this runs.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 loadEnvConfig(repoRoot, process.env.NODE_ENV !== 'production', console, true);
+
+// Dev only: hosts other devices on the network may open the dev server through. Next blocks its
+// dev resources (the /_next/hmr socket) for any other host, and the page then never hydrates.
+// This computer's own IPv4 addresses, plus any extra hosts in DEV_ALLOWED_ORIGINS (comma-separated).
+function devOrigins(): string[] {
+  const own = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((net): net is os.NetworkInterfaceInfo => net !== undefined)
+    .filter((net) => net.family === 'IPv4' && !net.internal)
+    .map((net) => net.address);
+  const extra = (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+  return [...new Set([...own, ...extra])];
+}
 
 export default function nextConfig(phase: string): NextConfig {
   // Development-only routes (/dev/*) use the `.dev.tsx` extension (page.dev.tsx, layout.dev.tsx).
@@ -20,6 +37,7 @@ export default function nextConfig(phase: string): NextConfig {
   return {
     // Agent instructions live in the root AGENTS.md and CLAUDE.md; stop `next dev` writing its own copies here.
     agentRules: false,
+    ...(phase === PHASE_DEVELOPMENT_SERVER ? { allowedDevOrigins: devOrigins() } : {}),
     // Workspace packages ship TypeScript source.
     transpilePackages: ['@pulse/core', '@pulse/db', '@pulse/ui'],
     experimental: {
