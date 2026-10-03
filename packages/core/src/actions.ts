@@ -18,6 +18,12 @@ import { z } from 'zod';
 //   handler: (input) => dealService.create(input),
 // });
 // ```
+//
+// The audit log entry is not written here. A mutating service writes it itself, inside its own
+// `withTransaction`, with `recordAudit(…, { session })` from `@pulse/core/server`, so the change
+// and its entry commit or abort together (docs/ARCHITECTURE.md#architecture-rules,
+// docs/modules/core.md#audit-log). The action passes the signed-in user to the service as the
+// actor.
 
 /** Field errors keyed by field name (nested fields use dots: `lines.0.amount`). */
 export type FieldErrors = Partial<Record<string, string>>;

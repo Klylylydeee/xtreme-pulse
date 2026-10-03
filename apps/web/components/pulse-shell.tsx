@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AppShell } from '@pulse/ui/components/app-shell';
@@ -10,9 +10,10 @@ import { COMMAND_BAR_SHORTCUT } from '@pulse/ui/components/command-bar';
 import { ShortcutHint } from '@pulse/ui/components/shortcut-hint';
 import { Button } from '@pulse/ui/components/button';
 import { APP_NAME } from '@/lib/app';
-import { NAV_GROUPS, isEntryActive } from '@/lib/navigation';
+import { NAV_GROUPS, OTHER_PAGES, isEntryActive } from '@/lib/navigation';
 import { signOutAction } from '@/lib/sign-out';
 import { LogoPlaceholder } from './logo-placeholder';
+import { NotificationRouteWatcher, useNotificationBell } from './notification-bell';
 
 function sectionsFor(pathname: string): ShellNavSection[] {
   return NAV_GROUPS.map((group) => ({
@@ -29,6 +30,10 @@ function sectionsFor(pathname: string): ShellNavSection[] {
 }
 
 function breadcrumbFor(pathname: string): ShellBreadcrumb {
+  const page = OTHER_PAGES.find(
+    (candidate) => pathname === candidate.href || pathname.startsWith(`${candidate.href}/`),
+  );
+  if (page) return { parent: page.parent, current: page.title };
   for (const group of NAV_GROUPS) {
     const entry = group.entries.find((candidate) => isEntryActive(candidate, pathname));
     // "Administration › Administration" would repeat itself, so a page named after its group stands alone.
@@ -74,13 +79,22 @@ function AccountContent({ email }: { email: string }) {
 
 /**
  * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing. The
- * (pulse) layout has already checked the signed-in user and passes their email. It lists every
- * section for now; step 1.6 passes in the user's modules instead.
+ * (pulse) layout has already checked the signed-in user and passes their email and unread
+ * notification count. It lists every section for now; step 1.6 passes in the user's modules instead.
  */
-export function PulseShell({ email, children }: { email: string; children: ReactNode }) {
+export function PulseShell({
+  email,
+  unreadNotifications,
+  children,
+}: {
+  email: string;
+  unreadNotifications: number;
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const sections = sectionsFor(pathname);
+  const bell = useNotificationBell(unreadNotifications);
 
   return (
     <AppShell
@@ -90,15 +104,16 @@ export function PulseShell({ email, children }: { email: string; children: React
       breadcrumb={breadcrumbFor(pathname)}
       linkComponent={Link}
       onNavigate={(href) => router.push(href)}
-      notifications={
-        <div className="flex flex-col gap-1">
-          <h2 className="text-headline">Notifications</h2>
-          <p className="text-subheadline text-text-secondary">Notifications aren’t set up yet.</p>
-        </div>
-      }
+      notifications={bell.panel}
+      notificationsUnread={bell.unread}
+      notificationsOpen={bell.open}
+      onNotificationsOpenChange={bell.onOpenChange}
       help={<HelpContent />}
       account={<AccountContent email={email} />}
     >
+      <Suspense fallback={null}>
+        <NotificationRouteWatcher onChange={bell.refreshCount} />
+      </Suspense>
       {children}
     </AppShell>
   );

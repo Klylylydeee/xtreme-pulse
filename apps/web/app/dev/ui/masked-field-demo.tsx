@@ -1,6 +1,6 @@
 import { connection } from 'next/server';
 import {
-  devEncryptionSampleLastFour,
+  devEncryptionSampleForDisplay,
   EncryptionKeyInvalidError,
   EncryptionNotConfiguredError,
 } from '@pulse/core/server';
@@ -8,7 +8,7 @@ import { DatabaseNotConfiguredError, redactConnectionString } from '@pulse/db';
 import { ErrorState } from '@pulse/ui/components/error-state';
 import { FormSection } from '@pulse/ui/components/form';
 import { MaskedField } from '@pulse/ui/components/masked-field';
-import { revealSampleValue } from './actions';
+import { revealSensitiveAction } from '@/lib/actions/sensitive';
 
 function problem(error: unknown): { title: string; description: string } {
   if (error instanceof EncryptionNotConfiguredError || error instanceof EncryptionKeyInvalidError) {
@@ -26,26 +26,32 @@ function problem(error: unknown): { title: string; description: string } {
 
 /**
  * The masked field on the development sample: a made-up bank account number stored encrypted. The
- * page gets only its last 4 characters; Reveal fetches the full value through a Server Action.
+ * page gets only its last 4 characters; Reveal fetches the full value through the same reveal Server
+ * Action as every sensitive field, which needs a signed-in System Administrator, HR or Accounting
+ * user and writes an audit entry first (SECURITY.md#sensitive-data).
  */
 export async function MaskedFieldDemo() {
   // Read the database on every request, never at build time.
   await connection();
-  let lastFour: string;
+  let sample: Awaited<ReturnType<typeof devEncryptionSampleForDisplay>>;
   try {
-    lastFour = await devEncryptionSampleLastFour();
+    sample = await devEncryptionSampleForDisplay();
   } catch (error) {
     return <ErrorState {...problem(error)} />;
   }
   return (
     <FormSection
       title="Bank details"
-      footer="A made-up value, stored encrypted. Revealing it will be audit-logged once the audit log exists."
+      footer="A made-up value, stored encrypted. Sign in as the System Administrator, HR or Accounting to reveal it. Each reveal is audit-logged."
     >
       <MaskedField
         label="Bank account number"
-        lastFour={lastFour}
-        reveal={revealSampleValue.bind(null, null, {})}
+        lastFour={sample.lastFour}
+        reveal={revealSensitiveAction.bind(null, null, {
+          ownerType: sample.ownerType,
+          ownerId: sample.ownerId,
+          field: sample.field,
+        })}
       />
     </FormSection>
   );

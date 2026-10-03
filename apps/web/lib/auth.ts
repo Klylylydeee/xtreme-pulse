@@ -1,9 +1,10 @@
 import { cache } from 'react';
-import { redirect } from 'next/navigation';
-import type { AccessCheck } from '@pulse/core';
+import { notFound, redirect } from 'next/navigation';
+import { AccessDeniedError, type AccessCheck } from '@pulse/core';
 import {
   assertSignedIn,
   type CurrentUser,
+  isSystemAdministrator,
   loadSessionUser,
   type SignedInOptions,
 } from '@pulse/core/server';
@@ -43,5 +44,36 @@ export async function requireCurrentUser(options: SignedInOptions = {}): Promise
 export function requireSignedIn(options: SignedInOptions = {}): AccessCheck {
   return async () => {
     assertSignedIn(await getCurrentUser(), options);
+  };
+}
+
+/**
+ * The signed-in user inside a Server Action's handler, after its `requireSignedIn()` check (the
+ * user is loaded once per request, so this costs nothing more). Throws AccessDeniedError, which
+ * `defineAction` turns into a form error, when there is none.
+ */
+export async function signedInUser(options: SignedInOptions = {}): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  assertSignedIn(user, options);
+  return user;
+}
+
+/**
+ * The signed-in System Administrator, for a page only they may open (the audit log until module
+ * access arrives in step 1.6). Anyone else gets "not found", so the page's existence isn't
+ * revealed; signed-out users go to the login page first.
+ */
+export async function requireSystemAdministrator(): Promise<CurrentUser> {
+  const user = await requireCurrentUser();
+  if (!isSystemAdministrator(user)) notFound();
+  return user;
+}
+
+/** The access check for a Server Action only the System Administrator may call. */
+export function systemAdministratorOnly(): AccessCheck {
+  return async () => {
+    const user = await getCurrentUser();
+    assertSignedIn(user);
+    if (!isSystemAdministrator(user)) throw new AccessDeniedError();
   };
 }

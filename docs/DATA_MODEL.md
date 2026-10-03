@@ -31,7 +31,7 @@ Each module owns its collections, and no module writes to another module's colle
 
 | Module | Owns |
 |---|---|
-| Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients with sites and contacts, products (`brands`), catalog items, suppliers, holidays, approvals, notifications, audit log |
+| Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients with sites and contacts, products (`brands`), catalog items, suppliers, holidays, approvals, notifications (`notifications`), audit log (`auditLogs`) |
 | Talent | Employee records (personal, employment, compensation history, government IDs, bank account), 201 documents, e-signatures, certifications, work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
@@ -96,5 +96,12 @@ Some records can't be edited once they reach a certain state. Corrections go thr
 - Closed accounting periods: postings in the current open period ([Chart of accounts and ledger](modules/fiscal.md#chart-of-accounts-and-ledger))
 - Salary and allowance history: new effective-dated entries ([Compensation](modules/talent.md#compensation))
 - Sent quotations and BOQ versions: a new revision or version ([Quotations](modules/engage.md#quotations), [Presales and BOQ](modules/engage.md#presales-and-boq))
-- Audit log entries: never changed ([Audit log](modules/core.md#audit-log))
+- Audit log entries: never changed or deleted ([Audit log](modules/core.md#audit-log))
+- Notifications: never deleted; only `readAt` changes, when the recipient marks one read ([Notifications](modules/core.md#notifications))
 - Employee records: never deleted ([Record retention](COMPLIANCE.md#record-retention))
+
+## Retention
+
+Decided by the project owner on 2026-10-03 (build step 1.3): **audit log entries (`auditLogs`) and notifications (`notifications`) are kept forever.** Nothing deletes or archives them, and neither collection has a TTL (expiry) index. The owner chose this for an internal app and set aside Philippine-law retention limits and erasure requests for these two records (see [Record retention](COMPLIANCE.md#record-retention)).
+
+This doesn't relax what goes into them: an audit entry never holds a password, a hash or a sensitive value ([Audit logging](../SECURITY.md#audit-logging)).

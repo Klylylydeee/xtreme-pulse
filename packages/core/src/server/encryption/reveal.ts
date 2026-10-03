@@ -1,48 +1,40 @@
-import type { Types } from 'mongoose';
-import { AccessDeniedError } from '../../actions';
 import { lastFourOf } from '../../sensitive';
+import type { RevealActor } from '../sensitive/policy';
+import { revealSensitiveField } from '../sensitive/service';
 import { decryptSensitive } from './fields';
 
 // Showing sensitive values (SECURITY.md#sensitive-data): masked by default, and revealing the full
-// value is access-checked and audit-logged.
-//
-// PHASE 1 EXTENSION POINT. There is no sign-in, access check or audit log yet, so a reveal can't
-// be checked or logged. Until Phase 1 fills in `revealSensitive`, it works in development only and
-// refuses EVERY reveal in production, like `noAccessCheckYet`. Phase 1 must:
-//   - check that the signed-in user may see this field of this record (the Sensitive data rules:
-//     HR, Accounting, the System Administrator, the employee's own record, and the exceptions),
-//   - write the audit log entry: the field name, the record (`owner`) and the actor, never the
-//     value (SECURITY.md#audit-logging),
-//   - and only then remove the production refusal below.
+// value is access-checked and audit-logged. From build step 1.3 the reveal goes through
+// `revealSensitiveField` (sensitive/service.ts): the record type and field must be registered, the
+// reveal rules must allow it for this user, and the audit entry is written before the value is
+// decrypted. Phase 0's blanket refusal in production is gone because of those checks.
 
 /** Which record a sensitive value belongs to, for the access check and the audit log entry. */
 export interface SensitiveOwner {
-  /** The record type, for example `talent.employeeRecord`. */
+  /** The record type as registered (`registerSensitiveReveal`), like `talent.employeeRecord`. */
   type: string;
-  id: string | null;
+  id: string;
 }
 
 export interface RevealSensitiveInput {
-  /** The stored encrypted value. */
-  value: unknown;
-  /** The field's name, logged in the audit entry (never its value), for example `bankAccountNumber`. */
-  field: string;
+  /** The signed-in user who pressed Reveal. Required: there is no anonymous reveal. */
+  actor: RevealActor;
   owner: SensitiveOwner;
-  /** The user revealing it; null only for development pages until sign-in exists (step 1.x). */
-  actorId: Types.ObjectId | null;
+  /** The field's name as registered, logged in the audit entry (never its value). */
+  field: string;
 }
 
 /**
- * Decrypts one sensitive value for a user who asked to see it in full. The masked field component
- * calls it (through a Server Action) only when the user presses Reveal.
+ * Decrypts one sensitive value for a signed-in user who asked to see it in full. The masked field
+ * component calls it (through a Server Action) only when the user presses Reveal. Hands off to
+ * `revealSensitiveField`, which checks access and writes the audit entry first.
  */
-export async function revealSensitive(input: RevealSensitiveInput): Promise<string> {
-  if (process.env.NODE_ENV === 'production') {
-    throw new AccessDeniedError(
-      'Revealing sensitive data has no access check or audit log yet, so it is turned off.',
-    );
-  }
-  return String(await decryptSensitive(input.value));
+export async function revealSensitive({
+  actor,
+  owner,
+  field,
+}: RevealSensitiveInput): Promise<string> {
+  return revealSensitiveField({ actor, ownerType: owner.type, ownerId: owner.id, field });
 }
 
 /**

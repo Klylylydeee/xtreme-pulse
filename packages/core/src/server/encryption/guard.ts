@@ -241,6 +241,16 @@ function inspectSchema(
   return result;
 }
 
+/**
+ * The schema's sensitive paths (fields made with `sensitiveField()`), as dotted paths without
+ * array positions, at any depth: `bankAccountNumber`, `profile.tin`, `accounts.number` for an
+ * array of subdocuments. Read-only: it doesn't check the shapes (the guard does that when the
+ * model is defined). The audit log uses it to hide these fields in snapshots.
+ */
+export function sensitivePathsOf(schema: Schema): string[] {
+  return [...inspectSchema(schema).paths];
+}
+
 /** True when the schema has a sensitive field anywhere, in any shape. */
 function hasSensitiveField(schema: Schema): boolean {
   const { paths, unsupported } = inspectSchema(schema);

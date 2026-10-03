@@ -117,6 +117,16 @@ export const NAV_GROUPS: NavGroup[] = [
   { label: 'Administration', entries: ADMIN_ENTRIES },
 ];
 
+/**
+ * Pages that aren't in the sidebar, for the breadcrumb. Checked before the sidebar entries. Only
+ * pages everyone may open: the breadcrumb comes from the URL, so a restricted page listed here
+ * would name itself on the "not found" page shown to people who can't open it (the audit log stays
+ * under "Administration").
+ */
+export const OTHER_PAGES: { href: string; parent: string; title: string }[] = [
+  { href: '/notifications', parent: 'Pulse Core', title: 'Notifications' },
+];
+
 /** Whether `pathname` is the entry's page or one of the pages under it. */
 export function isEntryActive(entry: NavEntry, pathname: string): boolean {
   if (entry.href === '/') return pathname === '/';

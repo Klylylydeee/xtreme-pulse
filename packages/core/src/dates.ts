@@ -190,3 +190,31 @@ export function formatDateTime(instant: Date): string {
 export function formatTime(instant: Date): string {
   return timeFormat.format(assertInstant(instant));
 }
+
+const relativeFormat = new Intl.RelativeTimeFormat(DISPLAY_LOCALE, { numeric: 'auto' });
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * How long ago an instant was, for lists such as notifications: `"Just now"`, `"5 minutes ago"`,
+ * `"3 hours ago"` (same Manila day), `"yesterday"`, `"4 days ago"`, then the Manila date
+ * (`"Sep 25, 2026"`) from a week back. `reference` is "now" (pass it to keep a list consistent).
+ */
+export function formatRelativeTime(instant: Date, reference: Date = now()): string {
+  const then = assertInstant(instant);
+  const at = assertInstant(reference);
+  const elapsed = at.getTime() - then.getTime();
+  if (elapsed < MINUTE_MS) return 'Just now';
+  const days = Math.round(
+    (startOfBusinessDate(toBusinessDate(at)).getTime() -
+      startOfBusinessDate(toBusinessDate(then)).getTime()) /
+      DAY_MS,
+  );
+  if (days === 0) {
+    if (elapsed < HOUR_MS) return relativeFormat.format(-Math.floor(elapsed / MINUTE_MS), 'minute');
+    return relativeFormat.format(-Math.floor(elapsed / HOUR_MS), 'hour');
+  }
+  if (days < 7) return relativeFormat.format(-days, 'day');
+  return formatDate(then);
+}

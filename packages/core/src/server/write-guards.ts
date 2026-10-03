@@ -10,10 +10,10 @@ import type { Aggregate, Query, Schema, UpdateQuery } from 'mongoose';
 // Also deliberately left unblocked: queries with `{ middleware: false }`, `connection.bulkWrite`,
 // and `$merge`/`$out` from an aggregation on another model into a guarded collection.
 
-// updateMany is never allowed: an allowed update changes one record at a time.
+// updateMany is refused unless the schema opts in with `allowManyUpdates`: an allowed update
+// normally changes one record at a time.
 const UPDATES = ['updateOne', 'findOneAndUpdate'] as const;
 const REPLACES_AND_DELETES = [
-  'updateMany',
   'replaceOne',
   'findOneAndReplace',
   'deleteOne',
@@ -29,22 +29,30 @@ export interface WriteGuardOptions {
    * counter's atomic `$inc`), through updateOne or findOneAndUpdate. Omit it to refuse every update.
    */
   allowUpdate?: (update: UpdateQuery<unknown>, query: Query<unknown, unknown>) => boolean;
+  /**
+   * Also let `updateMany` through when `allowUpdate` accepts its update (for example marking
+   * all of a user's notifications read). Off by default: `updateMany` is refused.
+   */
+  allowManyUpdates?: boolean;
 }
 
 /** Makes the schema's records insert-only, apart from an optional allowed update. */
-export function guardWrites(schema: Schema, { message, allowUpdate }: WriteGuardOptions): void {
-  schema.pre([...REPLACES_AND_DELETES], { document: false, query: true }, function () {
+export function guardWrites(
+  schema: Schema,
+  { message, allowUpdate, allowManyUpdates = false }: WriteGuardOptions,
+): void {
+  const refused = allowManyUpdates
+    ? [...REPLACES_AND_DELETES]
+    : [...REPLACES_AND_DELETES, 'updateMany' as const];
+  const updates = allowManyUpdates ? [...UPDATES, 'updateMany' as const] : [...UPDATES];
+  schema.pre(refused, { document: false, query: true }, function () {
     throw new Error(message);
   });
-  schema.pre(
-    [...UPDATES],
-    { document: false, query: true },
-    function (this: Query<unknown, unknown>) {
-      const update = this.getUpdate();
-      if (allowUpdate && update && !Array.isArray(update) && allowUpdate(update, this)) return;
-      throw new Error(message);
-    },
-  );
+  schema.pre(updates, { document: false, query: true }, function (this: Query<unknown, unknown>) {
+    const update = this.getUpdate();
+    if (allowUpdate && update && !Array.isArray(update) && allowUpdate(update, this)) return;
+    throw new Error(message);
+  });
   // `deleteOne()` and `updateOne()` called on a loaded document.
   schema.pre(['deleteOne', 'updateOne'], { document: true, query: false }, function () {
     throw new Error(message);

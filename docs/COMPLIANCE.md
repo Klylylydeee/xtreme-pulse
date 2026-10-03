@@ -16,6 +16,7 @@ The Philippine legal and regulatory obligations Xtreme Pulse implements. Each ro
 ## Record retention
 
 - Employee records are retained indefinitely. Never delete or auto-archive employees, including separated ones; they remain as deactivated users.
+- Audit log entries and notifications are kept forever, with no expiry (project owner's decision, 2026-10-03, build step 1.3; see [Retention](DATA_MODEL.md#retention)). For this internal app the owner set aside Data Privacy Act retention limits and erasure requests for these two records, so the app has no way to delete them. The audit log still never holds passwords or sensitive values ([Audit logging](../SECURITY.md#audit-logging)).
 
 ## Labor Code and DOLE
 

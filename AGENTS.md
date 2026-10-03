@@ -11,7 +11,7 @@ This file is short on purpose. It says where the rules are. The rules themselves
 - `pnpm lint` / `pnpm typecheck` / `pnpm test`
 - `pnpm seed:admin` — create the bootstrap System Administrator and base data (safe to run again: it skips an existing System Administrator and adds only missing base data)
 
-`pnpm test` runs the sensitive-data guard tests, the only automated tests so far (see [TESTING.md](docs/TESTING.md#sensitive-data-guard-tests)).
+`pnpm test` runs the committed automated tests: the sensitive-data guard tests and, from step 1.3, the audit log, notification and sensitive reveal tests. Everything else is still checked by hand (see [TESTING.md](docs/TESTING.md#what-happens-today)).
 
 ## How to work
 

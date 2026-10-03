@@ -138,6 +138,20 @@ These rules apply the Data Privacy Act of 2012 (RA 10173). See also [COMPLIANCE.
 - Mask in the UI by default (show last 4 digits); revealing the full value is audit-logged.
 - Never log, cache or send these fields to analytics or Pulse Insight in raw form.
 
+**Revealing a value** (build step 1.3). The masked field's Reveal button calls one Server Action, which needs a signed-in user and calls `revealSensitiveField` in `@pulse/core/server`. Each sensitive field that can be revealed is registered by the module that owns it (`registerSensitiveReveal`), with its category (salary, allowances, government ID, bank account, payslip, medical, 201 file, disciplinary) and the employee it belongs to. An unregistered record type or field is refused. Who may reveal:
+
+| Who | May reveal |
+|---|---|
+| System Administrator, HR, Accounting | Any category, any record. For HR this includes other HR staff's records: the rule that HR can't *change* pay and bank details for their own department doesn't limit viewing |
+| The employee | Every category on their own record (medical certificates and disciplinary cases included) |
+| Board of Directors | Salary, allowances, government IDs and bank accounts of employees in the HR department, only |
+| Anyone else | Nothing. Module access never grants a reveal |
+
+- The cases that depend on context are refused until the step that builds them adds them here: the approving supervisor's view of a medical certificate, and the Board's views of payroll runs and disciplinary cases.
+- No reason has to be typed.
+- The `reveal` audit entry is written and committed **before** the value is decrypted and returned. If it can't be written, nothing is returned. The entry names the record and the field, never the value or its last 4 characters.
+- The development sample on `/dev/ui` (`dev.encryptionSample`) is registered in development only, with no employee, so only the System Administrator, HR and Accounting can reveal it, after signing in.
+
 **Encryption choice:** explicit encryption, because the app runs on MongoDB Community (automatic encryption needs Enterprise or Atlas). Services encrypt each sensitive value before saving it, in a `sensitiveField()` schema field that refuses plain values; the data keys live in the `encryptionKeys` key vault, wrapped by `FIELD_ENCRYPTION_LOCAL_KEY`. Screens get only the last 4 characters, and the full value only on reveal. Details in [ADR 0005](docs/adr/0005-field-level-encryption.md).
 
 **Supported shapes:** a `sensitiveField()` may only be a single-value field on a document or on a nested subdocument, or a field inside an array of subdocuments. None of the planned sensitive data (bank accounts, government IDs, salary, 201 files, payroll history, dependents' IDs) needs any other shape. The guard fails closed, as follows ([ADR 0012](docs/adr/0012-fail-closed-sensitive-fields.md)):
@@ -172,6 +186,20 @@ Every create, update and delete on business records writes an audit log entry (s
 - Manual payroll entries, with old value, new value, reason and author ([Manual inputs & adjustments](docs/modules/talent.md#manual-inputs--adjustments))
 - Opening balances at go-live ([Opening balances at go-live](docs/modules/talent.md#opening-balances-at-go-live))
 - Password changes and resets, logged without the password
+
+Viewing the audit log and opening or marking notifications are not logged. Sign-ins are never logged.
+
+**What an entry may hold.** Entries keep full `before` and `after` snapshots of the record ([Audit log](docs/modules/core.md#audit-log)), redacted when they are written (`snapshotForAudit` or `snapshotsForAudit` with the record's schema, and again in `recordAudit`):
+
+- A field with `select: false` in the schema (such as `passwordHash`) is left out.
+- A sensitive path (`sensitiveField()`, at any depth: nested, in a subdocument or in an array of subdocuments) becomes `{ "$hidden": "sensitive" }`.
+- On an update, the service snapshots both sides together (`snapshotsForAudit`). A sensitive field whose stored encrypted value differs from before, or that is new, becomes `{ "$hidden": "sensitive", "changed": true }` in `after`, shown as "Hidden (sensitive), changed". Only the stored bytes are compared, in memory: neither the ciphertext nor the value, nor anything derived from them, goes into the entry or a log. Encryption is randomized, so writing the same value again also shows as changed. Arrays of subdocuments are compared by position.
+- As a backstop, at any depth: an encrypted value, any `Buffer` or `Binary`, and any key matching `/pass(word)?|hash|secret|token|apikey|otp/i` become `{ "$hidden": "redacted" }`. A true/false or null under such a key is kept (it can't hold a secret), so `mustChangePassword` still shows its change.
+- A reveal or export entry lists only field names, never values.
+
+These rules hold whatever the retention: entries are kept forever ([Retention](docs/DATA_MODEL.md#retention)).
+
+**Append-only, and its limits.** The audit log model refuses every Mongoose update, replace and delete, `save()` on a loaded entry, a `bulkWrite` with anything but inserts, and `$out` or `$merge` in its aggregations, and every field is immutable. Core exports only functions that insert and read entries, never the model. As with the sensitive-field guard, the raw driver collection, the `middleware: false` option, `connection.bulkWrite`, and a `$merge` or `$out` from another model's aggregation bypass these hooks. That is accepted: module code never uses them, ESLint bans the option keys and `connection.bulkWrite`, and reviews check the rest.
 
 ## Development-only pages
 

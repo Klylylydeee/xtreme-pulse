@@ -1,10 +1,99 @@
 'use client';
 
-import type { ReactNode, Ref } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Bell, ChevronRight, CircleHelp, CircleUserRound } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './button';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
+
+/** Counts above this show as "99+" on the badge. */
+const BADGE_MAX = 99;
+
+/** The unread count as the badge shows it. */
+export function formatUnreadBadge(count: number): string {
+  return count > BADGE_MAX ? `${BADGE_MAX}+` : String(count);
+}
+
+/** The bell's accessible name: "Notifications", or "Notifications, 3 unread". */
+export function notificationsLabel(unread: number): string {
+  return unread > 0 ? `Notifications, ${unread} unread` : 'Notifications';
+}
+
+/**
+ * Announces changes to the unread count (never the first count) in a polite live region: a
+ * button's changed name isn't announced on its own.
+ */
+function UnreadAnnouncer({ unread }: { unread: number }) {
+  const previous = useRef(unread);
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    if (previous.current === unread) return;
+    previous.current = unread;
+    setMessage(
+      unread === 0
+        ? 'No unread notifications'
+        : `${unread} unread notification${unread === 1 ? '' : 's'}`,
+    );
+  }, [unread]);
+  return (
+    <span role="status" aria-live="polite" className="sr-only">
+      {message}
+    </span>
+  );
+}
+
+/**
+ * The notifications button: a bell with an unread badge (the accent colour, never a semantic one;
+ * hidden at 0, "99+" above 99) and a popover holding the list, which sets its own padding.
+ */
+function NotificationsButton({
+  unread,
+  open,
+  onOpenChange,
+  children,
+}: {
+  unread: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const count = Number.isFinite(unread) ? Math.max(0, Math.trunc(unread)) : 0;
+  return (
+    <>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="plain"
+            size="icon"
+            aria-label={notificationsLabel(count)}
+            className="relative"
+          >
+            <Bell aria-hidden="true" />
+            {count > 0 ? (
+              <span
+                aria-hidden="true"
+                data-slot="notifications-badge"
+                className={cn(
+                  'pointer-events-none absolute top-1 right-0.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1',
+                  'bg-accent text-caption font-semibold text-accent-text numeric ring-2 ring-bg',
+                )}
+              >
+                {formatUnreadBadge(count)}
+              </span>
+            ) : null}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          aria-label="Notifications"
+          className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-96 flex-col overflow-hidden p-0"
+        >
+          {children}
+        </PopoverContent>
+      </Popover>
+      <UnreadAnnouncer unread={count} />
+    </>
+  );
+}
 
 export type ShellBreadcrumb = {
   /** The section the page belongs to, such as "Pulse Core" or "Modules". */
@@ -26,6 +115,9 @@ export function TopToolbar({
   leading,
   commandBar,
   notifications,
+  notificationsUnread = 0,
+  notificationsOpen,
+  onNotificationsOpenChange,
   help,
   account,
   className,
@@ -36,7 +128,13 @@ export function TopToolbar({
   titleInToolbar: boolean;
   leading?: ReactNode;
   commandBar: ReactNode;
+  /** The notifications popover's content. It sets its own padding and scrolls its own list. */
   notifications: ReactNode;
+  /** The unread count for the bell's badge. */
+  notificationsUnread?: number;
+  /** Controls the notifications popover; leave undefined to let it manage itself. */
+  notificationsOpen?: boolean;
+  onNotificationsOpenChange?: (open: boolean) => void;
   help: ReactNode;
   /** The signed-in account's popover content; no account button when omitted. */
   account?: ReactNode;
@@ -86,14 +184,13 @@ export function TopToolbar({
       </nav>
       {commandBar}
       <div className="flex shrink-0 items-center md:gap-1">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="plain" size="icon" aria-label="Notifications">
-              <Bell aria-hidden="true" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent aria-label="Notifications">{notifications}</PopoverContent>
-        </Popover>
+        <NotificationsButton
+          unread={notificationsUnread}
+          open={notificationsOpen}
+          onOpenChange={onNotificationsOpenChange}
+        >
+          {notifications}
+        </NotificationsButton>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="plain" size="icon" aria-label="Help">

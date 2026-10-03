@@ -26,6 +26,7 @@ import {
 } from './gallery-controls';
 import { ChartDemo, DataTableDemo } from './gallery-data';
 import { MaskedFieldDemo } from './masked-field-demo';
+import { NotificationBellDemo } from './gallery-notifications';
 import { AppearanceStatus, TokenValue } from './token-value';
 
 export const metadata: Metadata = {
@@ -323,6 +324,13 @@ export default function DevUiPage() {
             <MaskedFieldDemo />
           </Suspense>
         </div>
+      </Section>
+
+      <Section
+        title="Notifications bell"
+        note="The unread badge uses the accent colour, hides at 0 and caps at 99+. Inside a popover, empty states use the inline variant (no card)."
+      >
+        <NotificationBellDemo />
       </Section>
 
       <Section

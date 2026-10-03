@@ -161,9 +161,39 @@ Every approval in the app, for reference. The linked section is the rule; this t
 - Pulse Core's own events: HR and the System Administrator hear about new users, users still needing access (daily) and position changes to review ([User access page](#user-access-page)), and company details that are still placeholders ([Company details](#company-details-pending-from-the-client)). Every user is notified of ad-hoc holiday declarations, and HR gets the weekly reminder when next year's holidays aren't confirmed ([Holiday calendar](#holiday-calendar)).
 - Each module lists its own events in its spec, for example [Pulse Talent notifications](talent.md#notifications).
 
+Built in step 1.3:
+
+- **Stored** in `notifications`, one record per recipient: the recipient, the module (`core` or a module key), the event (`<module>.<name>`, for example `core.holidayDeclared`), a title, an optional body, a link, the record it is about (optional) and `readAt` (null while unread). Titles are capped at 200 characters and bodies at 1,000, as plain text.
+- **The link is always a path inside the app**: it starts with a single `/`, with no `//` or `\` anywhere and no spaces. A full URL or a `//host` link is refused, so a notification can never send someone off-site.
+- **Sending.** Modules call Core's `notify()` service, never the collection, inside their own transaction when the event comes from a change (so the notification commits or rolls back with it). There is no duplicate check yet; build step 1.7 adds one for the daily reminders.
+- **Reading.** A user only ever sees and changes their own notifications: every query filters on the signed-in user. Marking one or all as read is the only change allowed; nothing else on a stored notification can be edited. Opening the list and marking read are not audit-logged.
+- **The badge** shows the unread count. It refreshes on navigation, when the window regains focus and when the list opens; there is no polling.
+- **Kept forever.** Notifications are never deleted and never expire (see [Retention](../DATA_MODEL.md#retention)).
+
 ## Audit log
 
 The audit log is append-only. Each entry records the actor, module, record, action, old and new values, and a reason (build step 1.3). The System Administrator browses it from `/admin`. What must be logged is listed in [Audit logging](../../SECURITY.md#audit-logging).
+
+Built in step 1.3, in the `auditLogs` collection:
+
+| Field | What it holds |
+|---|---|
+| `actorId`, `actorEmail` | The user who did it (null for a system action), and their email at the time |
+| `module` | `core` or a module key (`MODULES`) |
+| `action` | One of a fixed list in code (`AUDIT_ACTIONS`): `create`, `update`, `delete`, `restore`, `reveal`, `export`, `passwordChange`, `passwordReset`, `accessChange`. Adding one is a spec change |
+| `record` | The record's type (`<module>.<name>`, for example `core.user`), its id, and an optional label to show, such as an email or document number |
+| `before`, `after` | Full snapshots of the record before and after the change, redacted (see below). `before` is null on create; `after` is null on delete. Both are null for a reveal or an export |
+| `fields` | The fields revealed or exported (names only) |
+| `reason` | Why, when the action asks for one (up to 1,000 characters), else null |
+| `createdAt` | When |
+
+- **Append-only.** Every field is fixed once written, and every update, replace and delete is refused, as is `$out` or `$merge` from an aggregation on it. Corrections are new entries. The limits are in [Audit logging](../../SECURITY.md#audit-logging).
+- **Same transaction.** A service writes the entry with `recordAudit()` in the transaction of the change it records, so both commit or neither does. If the entry can't be written, the change fails.
+- **Redacted snapshots.** Snapshots never hold a password, a hash or a sensitive value; the rules are in [Audit logging](../../SECURITY.md#audit-logging). Ids are stored as strings and dates as ISO 8601 strings. On an update, a sensitive field whose stored value changed is marked as changed in `after` (still hidden), so the entry shows that it changed.
+- **Size cap.** A string longer than 2,000 characters is cut there and marked, an array keeps its first 100 items plus a marker with the number left out, nesting deeper than 20 levels is replaced by a marker, and a whole snapshot still larger than 64 KB once serialized is replaced by `{ "$truncated": "snapshot", "bytes": <size> }`. The entry is still written.
+- **Not logged:** sign-ins, seed writes, viewing the audit log, and opening or marking notifications.
+- **Browsing.** Newest first, filtered by Manila date range, actor, module, action, and record type and id. Until module access arrives in step 1.6, the page is for the System Administrator only; anyone else gets "not found".
+- **Kept forever.** Entries are never deleted and never expire (see [Retention](../DATA_MODEL.md#retention)).
 
 ## Company details (pending from the client)
 

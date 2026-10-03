@@ -37,6 +37,7 @@ export {
   DateError,
   formatDate,
   formatDateTime,
+  formatRelativeTime,
   formatTime,
   isBusinessDate,
   now,
@@ -94,3 +95,26 @@ export {
 export { EMPLOYEE_NUMBER_PATTERN, EMPLOYEE_SEQUENCE_MAX } from './employee-number';
 export { isPlaceholder } from './placeholder';
 export { TIMESHEET_TYPES, type TimesheetType } from './timesheet-types';
+export { isModuleKey, type ModuleKey, MODULES } from './modules';
+export {
+  AUDIT_ACTIONS,
+  AUDIT_LABEL_MAX_LENGTH,
+  AUDIT_MODULES,
+  AUDIT_PAGE_MAX,
+  AUDIT_REASON_MAX_LENGTH,
+  type AuditAction,
+  type AuditFilters,
+  auditFiltersSchema,
+  type AuditModule,
+  OBJECT_ID_PATTERN,
+  RECORD_TYPE_MAX_LENGTH,
+  RECORD_TYPE_PATTERN,
+} from './audit';
+export {
+  isInternalHref,
+  NOTIFICATION_BODY_MAX_LENGTH,
+  NOTIFICATION_EVENT_PATTERN,
+  NOTIFICATION_HREF_MAX_LENGTH,
+  NOTIFICATION_PAGE_MAX,
+  NOTIFICATION_TITLE_MAX_LENGTH,
+} from './notifications';

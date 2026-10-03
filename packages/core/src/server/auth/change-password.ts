@@ -1,5 +1,5 @@
 import { isValidObjectId } from 'mongoose';
-import { connectDb } from '@pulse/db';
+import { connectDb, withTransaction } from '@pulse/db';
 import {
   type ChangePasswordInput,
   changePasswordSchema,
@@ -8,6 +8,9 @@ import {
   SAME_AS_EMAIL,
 } from '../../account';
 import { ActionError } from '../../actions';
+import { now } from '../../dates';
+import { recordAudit } from '../audit/service';
+import { snapshotForAudit } from '../audit/snapshot';
 import { UserModel } from '../users/model';
 import { hashPassword, verifyPassword } from './password';
 
@@ -15,6 +18,11 @@ import { hashPassword, verifyPassword } from './password';
 // The new one follows the password rule, differs from the current password and the email, and
 // clears the temporary-password flag. Other sessions are not ended (build step 1.5 decides).
 // Errors never contain a password.
+//
+// The change is audit-logged (SECURITY.md#audit-logging) in the same transaction as the write, so
+// a password never changes without its `passwordChange` entry: if the entry can't be written, the
+// password stays as it was. The entry's snapshots never hold the password or its hash
+// (`passwordHash` has `select: false`, which snapshotForAudit leaves out).
 
 const SIGN_IN_AGAIN = 'Sign in again, then change your password.';
 
@@ -44,9 +52,33 @@ export async function changePassword(userId: string, input: ChangePasswordInput)
     throw new ActionError(SAME_AS_EMAIL, { field: 'newPassword' });
   }
 
-  user.passwordHash = await hashPassword(newPassword);
-  user.mustChangePassword = false;
-  user.updatedBy = user._id;
-  // STEP 1.3 EXTENSION POINT: audit-log "password changed" (never the value)
-  await user.save();
+  const before = snapshotForAudit(UserModel, user);
+  const passwordHash = await hashPassword(newPassword);
+  // The same values go into the write and the `after` snapshot, `updatedAt` included.
+  const changes = {
+    passwordHash,
+    mustChangePassword: false,
+    updatedBy: user._id,
+    updatedAt: now(),
+  };
+  user.set(changes);
+  const after = snapshotForAudit(UserModel, user);
+
+  await withTransaction(async (session) => {
+    // An update, not `user.save()`: `withTransaction` may run this callback again, and a retried
+    // save would find nothing modified and skip the write.
+    await UserModel.updateOne({ _id: user._id }, { $set: changes }, { session, timestamps: false });
+    await recordAudit(
+      {
+        actorId: user._id,
+        actorEmail: user.email,
+        module: 'core',
+        action: 'passwordChange',
+        record: { type: 'core.user', id: user._id, label: user.email },
+        before,
+        after,
+      },
+      { session },
+    );
+  });
 }

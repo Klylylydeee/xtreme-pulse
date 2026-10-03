@@ -40,7 +40,7 @@ Nothing is built until you approve the plan, and nothing is committed until you 
 - **Spec first.** When something in the spec must change, or Claude Code lists something unclear, update the doc that owns the rule first, then continue (see [CONTRIBUTING.md](../CONTRIBUTING.md#change-the-spec-first)).
 - **Phase review.** At the end of each phase, ask Claude Code to review the whole phase against the docs with a review sub-agent. Fix what it finds, then do the phase check.
 - **Commit often.** Commit after every checked step, so any step can be rolled back.
-- **Few automated tests.** The only automated tests are the [sensitive-data guard tests](TESTING.md#sensitive-data-guard-tests), so each step is checked with typecheck, lint, `pnpm test` and your browser check. More tests can be added later (see [TESTING.md](TESTING.md)).
+- **Few automated tests.** The only automated tests are the [sensitive-data guard tests](TESTING.md#sensitive-data-guard-tests) and the [audit, notification and reveal tests](TESTING.md#audit-notification-and-reveal-tests), so each step is checked with typecheck, lint, `pnpm test` and your browser check. More tests can be added later (see [TESTING.md](TESTING.md)).
 - **UI reference.** The [Xtreme Pulse screens](https://claude.ai/artifact/REqSjEy78c7ZQUGwy3dQ9e) design canvas shows the approved look. Point Claude Code to it for any screen it covers.
 - **Data first.** When a step builds a module's main screen, that screen leads with small charts and trend tiles from the user's own data ([Data-rich](DESIGN_SYSTEM.md#data-rich)).
 
@@ -382,3 +382,4 @@ The former open questions, and the follow-ups they raised, are now answered in t
 16. **Step 1.2:** A session lasts 24 hours from sign-in. ([Spec](../SECURITY.md#sign-in-and-passwords))
 17. **Step 1.5:** Only a System Administrator can reset a System Administrator's password. ([Spec](../SECURITY.md#sign-in-and-passwords))
 18. **Step 2.6:** Salary, allowances, government IDs and bank accounts of HR staff are changed only by the System Administrator or a Board member, never by HR. ([Spec](modules/talent.md#self-service--record-changes))
+19. **Step 1.3:** An employee may reveal every sensitive category on their own record, and HR may reveal other HR staff's values (the step 2.6 rule limits changing, not viewing). A true/false or null under a password-like key is kept in audit snapshots. On an update, a sensitive field whose stored value changed is marked as changed in the audit entry, still hidden. ([Spec](../SECURITY.md#sensitive-data), [Audit logging](../SECURITY.md#audit-logging))

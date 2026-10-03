@@ -32,6 +32,9 @@ export function AppShell({
   linkComponent,
   onNavigate,
   notifications,
+  notificationsUnread,
+  notificationsOpen,
+  onNotificationsOpenChange,
   help,
   account,
   children,
@@ -44,7 +47,13 @@ export function AppShell({
   linkComponent?: ShellLinkComponent;
   /** Navigates to a path chosen in the command bar. */
   onNavigate: (href: string) => void;
+  /** The notifications popover's content (it sets its own padding). */
   notifications: ReactNode;
+  /** The unread count for the bell's badge. */
+  notificationsUnread?: number;
+  /** Controls the notifications popover; leave undefined to let it manage itself. */
+  notificationsOpen?: boolean;
+  onNotificationsOpenChange?: (open: boolean) => void;
   help: ReactNode;
   /** The signed-in account: who is signed in and a Sign out button. Omit to hide the button. */
   account?: ReactNode;
@@ -241,6 +250,9 @@ export function AppShell({
           }
           commandBar={<CommandBarTrigger onOpen={openCommand} />}
           notifications={notifications}
+          notificationsUnread={notificationsUnread}
+          notificationsOpen={notificationsOpen}
+          onNotificationsOpenChange={onNotificationsOpenChange}
           help={help}
           account={account}
         />

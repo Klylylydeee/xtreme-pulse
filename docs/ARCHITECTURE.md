@@ -90,7 +90,7 @@ docs/adr/                         architecture decision records
 - Modular monolith. Each module owns its collections.
 - A module **never writes to another module's collections**. Call the owning module's service functions instead.
 - Pages and Server Actions stay thin: validate with Zod, check module access and permissions, call a service in `packages/<module>`.
-- Every create/update/delete on business records writes an audit log entry via `packages/core`.
+- Every create/update/delete on business records writes an audit log entry via `packages/core`. The mutating service does it, not the Server Action: inside its `withTransaction`, it makes the change and calls `recordAudit(…, { session })` with the actor and redacted `before`/`after` snapshots (`snapshotsForAudit` for an update, `snapshotForAudit` for a create or delete), so the change and its entry commit or abort together. A failed audit write fails the change. Modules call Core's audit and notification service functions, never their models ([Audit log](modules/core.md#audit-log), [Notifications](modules/core.md#notifications)).
 - Pulse Insight never changes other modules' data. It only reads them (through their service functions or read-only queries) and writes its own month-end snapshots and targets.
 - Use Server Components by default; add `"use client"` only where interactivity requires it.
 

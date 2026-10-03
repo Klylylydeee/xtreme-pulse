@@ -135,7 +135,11 @@ export {
   type SensitivePlaintext,
   SensitiveValueTypeError,
 } from './encryption/fields';
-export { SensitiveFieldNotEncryptedError, SensitiveFieldShapeError } from './encryption/guard';
+export {
+  SensitiveFieldNotEncryptedError,
+  SensitiveFieldShapeError,
+  sensitivePathsOf,
+} from './encryption/guard';
 export {
   DataKeyInvalidError,
   DataKeyNotFoundError,
@@ -154,4 +158,61 @@ export {
   sensitiveLastFour,
 } from './encryption/reveal';
 export { checkEncryption, type EncryptionCheck, type EncryptionHealth } from './encryption/health';
-export { devEncryptionSampleLastFour, revealDevEncryptionSample } from './encryption/dev-sample';
+export {
+  DEV_SAMPLE_FIELD,
+  DEV_SAMPLE_OWNER_TYPE,
+  devEncryptionSampleForDisplay,
+  devEncryptionSampleLastFour,
+  revealDevEncryptionSample,
+} from './encryption/dev-sample';
+
+// Revealing sensitive values (SECURITY.md#sensitive-data): registered fields, the reveal rules,
+// and the access-checked, audit-logged reveal.
+export {
+  findSensitiveReveal,
+  registerSensitiveReveal,
+  SENSITIVE_CATEGORIES,
+  type SensitiveCategory,
+  type SensitiveRevealDefinition,
+  type SensitiveSubject,
+} from './sensitive/registry';
+export { canRevealSensitive, type RevealActor } from './sensitive/policy';
+export { revealSensitiveField, type RevealSensitiveFieldInput } from './sensitive/service';
+
+// The audit log (docs/modules/core.md#audit-log). Insert and read only; the model is never exported.
+export {
+  AuditEntryInvalidError,
+  type AuditEntryView,
+  type AuditPage,
+  listAuditEntries,
+  type ListAuditOptions,
+  recordAudit,
+  type RecordAuditInput,
+} from './audit/service';
+export {
+  type AuditSnapshot,
+  HIDDEN_REDACTED,
+  HIDDEN_SENSITIVE,
+  HIDDEN_SENSITIVE_CHANGED,
+  redactForAudit,
+  SNAPSHOT_ARRAY_MAX,
+  SNAPSHOT_BYTES_MAX,
+  SNAPSHOT_DEPTH_MAX,
+  SNAPSHOT_STRING_MAX,
+  snapshotForAudit,
+  snapshotsForAudit,
+} from './audit/snapshot';
+
+// In-app notifications (docs/modules/core.md#notifications). The model is never exported.
+export {
+  countUnread,
+  listNotifications,
+  type ListNotificationsOptions,
+  markAllRead,
+  markRead,
+  NotificationInvalidError,
+  type NotificationPage,
+  type NotificationView,
+  notify,
+  type NotifyInput,
+} from './notifications/service';

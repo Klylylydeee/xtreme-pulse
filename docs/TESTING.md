@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **no automated tests yet** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)), except the [sensitive-data guard tests](#sensitive-data-guard-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests) and the [audit, notification and reveal tests](#audit-notification-and-reveal-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Guard tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests) and [Audit, notification and reveal tests](#audit-notification-and-reveal-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,11 +16,11 @@ How changes are checked. The short version: **no automated tests yet** (see [ADR
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests. Today that's only the sensitive-data guard suite.
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite and, from build step 1.3, the audit log, notification and sensitive reveal suites.
 
 ## Sensitive-data guard tests
 
-The guard that keeps sensitive fields encrypted is the one area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. Other areas still have no automated tests until this doc says so.
+The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested area is the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests). Other areas have no automated tests until this doc says so.
 
 - **Scope.** The `sensitiveField()` guard and the `$jsonSchema` validator described in [Sensitive data](../SECURITY.md#sensitive-data). Nothing else.
 - **Where.** Next to the code they test, as `*.test.ts`: the guard's tests in `packages/core/src/server/encryption/`, and the validator's beside the code that builds and installs it.
@@ -39,6 +39,17 @@ The guard that keeps sensitive fields encrypted is the one area with committed a
   - The validator is installed on every collection with sensitive paths, and installing it again changes nothing, also when another process creates the collection first.
   - Known limits ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md#consequences)): tests named "known limitation" pin what happens today with `middleware: false` and `connection.bulkWrite`, which skip the guard. They store plain text with `bypassDocumentValidation`, and otherwise fail at the validator (update pipelines) or store an empty placeholder in place of a plain value or `null`. When a fix closes a gap, its test fails: change it to expect a refusal.
 
+## Audit, notification and reveal tests
+
+Added in build step 1.3. A broken audit log fails silently: a change without its entry, an entry that can be edited, or a password or sensitive value written into an entry all look fine on screen. So these rules have automated tests too. They use the framework, database setup and rules of the guard tests above (Vitest, a throwaway `mongodb-memory-server` replica set, one database per file, made-up data only).
+
+- **Where.** Next to the code they test, as `*.test.ts`: in `packages/core/src/server/audit/`, `notifications/`, `sensitive/` and `auth/`.
+- **What they cover.**
+  - **Audit log ([Audit log](modules/core.md#audit-log)).** An entry can be inserted. Every other write is refused and changes nothing: `updateOne`, `updateMany`, `findOneAndUpdate`, `replaceOne`, `deleteOne`, `deleteMany`, a `bulkWrite` with anything but inserts, `save()` on a loaded entry, and `$out`. Snapshot redaction: password-like keys, encrypted values, `Buffer` and `Binary` values, sensitive schema paths (top level, nested, in a subdocument and in an array of subdocuments) and `select: false` fields never reach an entry. On an update, a sensitive field whose stored value changed (or is new) is marked as changed in `after`, an unchanged one is not, and neither the value nor its ciphertext reaches the snapshot or the stored entry.
+  - **Password change.** Exactly one `passwordChange` entry per change. The stored entry contains neither password nor either hash. When the audit insert fails, the password is unchanged.
+  - **Sensitive reveal ([Sensitive data](../SECURITY.md#sensitive-data)).** A role × subject matrix of who may reveal what. An unregistered owner type or field is refused. The `reveal` entry names the field and holds neither the value nor its last 4 characters. When the audit write fails, no value is returned.
+  - **Notifications ([Notifications](modules/core.md#notifications)).** Marking read ignores other users' notifications. The unread count is right. An external or `//` link is refused. Only `readAt` can change on a stored notification.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -50,7 +61,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests) and the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts, the approvals engine.
