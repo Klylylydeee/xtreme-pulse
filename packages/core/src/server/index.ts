@@ -30,6 +30,7 @@ export {
   authenticate,
   type AuthenticateFailure,
   type AuthenticateResult,
+  needsPasswordChange,
 } from './auth/authenticate';
 export { changePassword } from './auth/change-password';
 export {

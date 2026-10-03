@@ -63,3 +63,17 @@ export async function authenticate({
 
   return { ok: true, userId: user._id.toString() };
 }
+
+/**
+ * Whether the account behind `email` still has a temporary password. Call it only after a
+ * successful sign-in, to send the user straight to the change-password page; an unknown email
+ * answers false.
+ */
+export async function needsPasswordChange(email: string): Promise<boolean> {
+  await connectDb();
+  const user = await UserModel.findOne(
+    { email: normalizeEmail(email) },
+    { mustChangePassword: 1 },
+  ).lean();
+  return user?.mustChangePassword === true;
+}

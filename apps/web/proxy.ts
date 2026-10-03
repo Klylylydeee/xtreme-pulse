@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { loadSessionUser } from '@pulse/core/server';
-import { safeCallbackUrl } from '@/lib/callback-url';
+import { changePasswordPath, safeCallbackUrl } from '@/lib/callback-url';
 
 // Spec: SECURITY.md#account-status — the status check on every request. JWT sessions can't be
 // revoked on their own, so each request reloads the account (`loadSessionUser`): a deactivated
@@ -70,7 +70,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (user.mustChangePassword && pathname !== '/change-password') {
-    return NextResponse.redirect(new URL('/change-password', request.url));
+    return NextResponse.redirect(new URL(changePasswordPath(`${pathname}${search}`), request.url));
   }
   return NextResponse.next();
 }

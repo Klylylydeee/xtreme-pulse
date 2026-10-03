@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Button } from '@pulse/ui/components/button';
 import { requireCurrentUser } from '@/lib/auth';
+import { safeCallbackUrl } from '@/lib/callback-url';
 import { signOutAction } from '@/lib/sign-out';
 import { ChangePasswordForm } from './change-password-form';
 
@@ -10,8 +11,10 @@ export const metadata: Metadata = { title: 'Set a new password' };
  * Change password, outside the signed-in shell (SECURITY.md#sign-in-and-passwords). A user with a
  * temporary password is sent here first and can open nothing else until they set a new one.
  */
-export default async function ChangePasswordPage() {
+export default async function ChangePasswordPage({ searchParams }: PageProps<'/change-password'>) {
   const user = await requireCurrentUser({ allowPasswordChange: true });
+  // Where to go after the change; the action makes it safe again before redirecting.
+  const callbackUrl = safeCallbackUrl((await searchParams).callbackUrl);
 
   return (
     <>
@@ -23,7 +26,7 @@ export default async function ChangePasswordPage() {
             : `Choose a new password for ${user.email}.`}
         </p>
       </div>
-      <ChangePasswordForm email={user.email} />
+      <ChangePasswordForm email={user.email} callbackUrl={callbackUrl} />
       <form action={signOutAction} className="flex justify-center">
         <Button type="submit" variant="plain">
           Sign out

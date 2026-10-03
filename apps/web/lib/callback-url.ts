@@ -50,3 +50,14 @@ export function safeCallbackUrl(value: unknown): string {
   );
   return isExcluded ? '/' : result;
 }
+
+/**
+ * The change-password page, carrying where the user was going (made safe) so they land there
+ * after setting a new password.
+ */
+export function changePasswordPath(callbackUrl: unknown): string {
+  const destination = safeCallbackUrl(callbackUrl);
+  return destination === '/'
+    ? '/change-password'
+    : `/change-password?${new URLSearchParams({ callbackUrl: destination })}`;
+}

@@ -1,11 +1,12 @@
 'use server';
 
+import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { ActionError, defineAction, publicAction, signInSchema } from '@pulse/core';
-import { checkEmailDomain } from '@pulse/core/server';
+import { checkEmailDomain, needsPasswordChange } from '@pulse/core/server';
 import { signIn, signInFailureCode } from '@/auth';
 import { APP_NAME } from '@/lib/app';
-import { safeCallbackUrl } from '@/lib/callback-url';
+import { changePasswordPath, safeCallbackUrl } from '@/lib/callback-url';
 
 // Spec: SECURITY.md#sign-in-and-passwords — signing in. The only action open without signing in.
 // Nothing here logs, and the result never carries the password back to the form.
@@ -26,9 +27,11 @@ export const signInAction = defineAction({
     const domain = await checkEmailDomain(email);
     if (!domain.allowed) throw wrongDomain(domain.domain);
 
+    const destination = safeCallbackUrl(callbackUrl);
     try {
-      // Redirects on success (a NEXT_REDIRECT error, re-thrown below).
-      await signIn('credentials', { email, password, redirectTo: safeCallbackUrl(callbackUrl) });
+      // `redirect: false` sets the session cookie and returns, so the destination can depend on
+      // the account. Failures still throw (mapped below).
+      await signIn('credentials', { email, password, redirect: false, redirectTo: destination });
     } catch (error) {
       switch (signInFailureCode(error)) {
         case 'bad-domain':
@@ -41,5 +44,8 @@ export const signInAction = defineAction({
           throw error;
       }
     }
+    // Signed in. A temporary password goes straight to the change-password page, so the address
+    // bar shows it (a redirect the proxy adds to an action's redirect isn't shown).
+    redirect((await needsPasswordChange(email)) ? changePasswordPath(destination) : destination);
   },
 });

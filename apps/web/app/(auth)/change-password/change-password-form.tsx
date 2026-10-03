@@ -11,13 +11,14 @@ import { changePasswordAction } from './actions';
  * Current, new and confirm password on one inset section, with the rule as footer help. The
  * fields clear after a failed attempt, so no password stays on screen.
  */
-export function ChangePasswordForm({ email }: { email: string }) {
+export function ChangePasswordForm({ email, callbackUrl }: { email: string; callbackUrl: string }) {
   const [result, action, pending] = useActionState(changePasswordAction, null);
 
   return (
     <form action={action} noValidate className="flex flex-col gap-4">
       {/* Tells password managers which account the new password belongs to. */}
       <input type="text" name="username" autoComplete="username" value={email} readOnly hidden />
+      <input type="hidden" name="callbackUrl" value={callbackUrl} />
       <FormAlert message={result && !result.ok ? result.formError : null} />
       <FormSection footer={PASSWORD_RULE_HELP}>
         <FormField label="Current password" error={fieldError(result, 'currentPassword')} required>
