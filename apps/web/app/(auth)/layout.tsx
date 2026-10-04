@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react';
 import { Lock } from 'lucide-react';
-import { LogoPlaceholder } from '@/components/logo-placeholder';
+import { CompanyLogo } from '@/components/company-logo';
 import { APP_NAME } from '@/lib/app';
+import { getCompanyLogoUrl } from '@/lib/company-logo';
 import { MODULE_ENTRIES } from '@/lib/navigation';
 
 /**
  * The hero layout outside the signed-in shell: the solid cobalt hero beside a panel holding the
  * page (DESIGN_SYSTEM.md › Bolder identity). Used by the login and change-password pages.
  */
-export default function AuthLayout({ children }: { children: ReactNode }) {
+export default async function AuthLayout({ children }: { children: ReactNode }) {
+  // The page is public: read only the logo's URL, never the other company details.
+  const logoUrl = await getCompanyLogoUrl();
   return (
     <div className="flex min-h-dvh flex-col bg-bg lg:flex-row">
       <section
@@ -16,7 +19,11 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         className="flex flex-col gap-8 bg-hero px-6 py-8 text-hero-text md:px-12 lg:w-1/2 lg:justify-between lg:px-16 lg:py-14"
       >
         <div className="flex items-center gap-3">
-          <LogoPlaceholder className="size-10 border-hero-text-secondary text-hero-text-secondary" />
+          <CompanyLogo
+            logoUrl={logoUrl}
+            className="size-10"
+            placeholderClassName="border-hero-text-secondary text-hero-text-secondary"
+          />
           <span className="text-title-2">{APP_NAME}</span>
         </div>
         <div className="flex max-w-xl flex-col gap-4">

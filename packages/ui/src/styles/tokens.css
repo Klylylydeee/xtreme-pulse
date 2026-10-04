@@ -40,6 +40,9 @@
   --on-semantic-text: #ffffff;
   /* Dims the page behind modal layers (command bar, navigation drawer, dialogs). */
   --scrim: color-mix(in srgb, var(--text-primary) 32%, transparent);
+  /* Tile behind an uploaded company logo: the same white in both appearances (not redefined for
+     dark), so a logo drawn for a light background stays legible on dark surfaces and the hero. */
+  --logo-tile: #ffffff;
 
   /* Motion durations (DESIGN_SYSTEM.md › Feedback & motion: about 200–300ms, ease-out). */
   --duration-fast: 200ms;
@@ -202,6 +205,7 @@
   --color-chart-context: var(--chart-context);
   --color-on-semantic-text: var(--on-semantic-text);
   --color-scrim: var(--scrim);
+  --color-logo-tile: var(--logo-tile);
 
   --shadow-card: var(--elevation-card);
   --shadow-float: var(--elevation-float);

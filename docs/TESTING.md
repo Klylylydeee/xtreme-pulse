@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests) and the [audit, notification and reveal tests](#audit-notification-and-reveal-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests) and the [Core administration tests](#core-administration-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests) and [Audit, notification and reveal tests](#audit-notification-and-reveal-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests) and [Core administration tests](#core-administration-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,11 +16,11 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite and, from build step 1.3, the audit log, notification and sensitive reveal suites.
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; and from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites.
 
 ## Sensitive-data guard tests
 
-The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested area is the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests). Other areas have no automated tests until this doc says so.
+The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested areas are the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests) and [Core administration](#core-administration-tests). Other areas have no automated tests until this doc says so.
 
 - **Scope.** The `sensitiveField()` guard and the `$jsonSchema` validator described in [Sensitive data](../SECURITY.md#sensitive-data). Nothing else.
 - **Where.** Next to the code they test, as `*.test.ts`: the guard's tests in `packages/core/src/server/encryption/`, and the validator's beside the code that builds and installs it.
@@ -50,6 +50,18 @@ Added in build step 1.3. A broken audit log fails silently: a change without its
   - **Sensitive reveal ([Sensitive data](../SECURITY.md#sensitive-data)).** A role × subject matrix of who may reveal what. An unregistered owner type or field is refused. The `reveal` entry names the field and holds neither the value nor its last 4 characters. When the audit write fails, no value is returned.
   - **Notifications ([Notifications](modules/core.md#notifications)).** Marking read ignores other users' notifications. The unread count is right. An external or `//` link is refused. Only `readAt` can change on a stored notification.
 
+## Core administration tests
+
+Added in build step 1.4. Departments, positions and company settings decide who holds the HR, Accounting and Board roles, who can sign in, and what every document prints, and their rules (retire safeguards, domain safeguards, the once-a-day reminder) are easy to break without anything showing on screen. They use the framework, database setup and rules of the guard tests above (Vitest, a throwaway `mongodb-memory-server` replica set, one database per file, made-up data only).
+
+- **Where.** Next to the code they test, as `*.test.ts`: in `packages/core/src/server/departments/`, `positions/`, `company-settings/`, `allowed-email-domains/` and `files/`, and `apps/web/app/company-logo/route.test.ts` for the logo route.
+- **What they cover.**
+  - **Departments and positions ([Managing departments and positions](modules/core.md#managing-departments-and-positions)).** Only HR and the System Administrator can add, edit, retire or restore; anyone else is refused and nothing changes. Each change writes exactly one audit entry of the right type and action in the same transaction (`delete` with `after` null for a retire, `restore` for a restore), and a failed audit write leaves the record unchanged. A department with live positions or active employees, and a position held by active employees, can't be retired; `HR`, `ACCT` and `BOD` follow the same rules as any other department. A department code is never reused, retired departments included, and can't be changed. A position can't be added to a retired department, and its department can't be changed. Position names are unique within a department ignoring case, retired positions included, and the unique index itself refuses `driver` next to `Driver`. Adding or restoring a position while the department is being retired in an overlapping transaction never leaves a live position in a retired department. The department head must be an employee whose account resolves to active.
+  - **Company settings ([Company settings page](modules/core.md#company-settings-page)).** Only the System Administrator can change the details or the logo, each with its audit entry. The pending list includes every placeholder detail and the logo while `logoFileId` is null, and is empty once all are filled in. The logo accepts PNG, JPEG and WebP only. The `/company-logo` lookup serves only the file set as the logo.
+  - **The company details reminder.** It notifies active HR users and System Administrators only, with the right link for each, sends nothing when no detail is pending, and a second run on the same Manila day sends nothing more.
+  - **Allowed email domains.** Only the System Administrator can add or remove one. Re-adding a removed domain restores that record (audit `restore`). Removing the last remaining domain, or the acting System Administrator's own domain, is refused, also when two removals run at the same time. A removed domain no longer passes the sign-in domain check.
+  - **Upload settings.** Only the System Administrator can change them. A change adds a version effective from today in Manila with its audit entry, in one transaction; a second change on the same Manila day is refused and changes nothing.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -61,7 +73,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests) and the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests) and the [Core administration tests](#core-administration-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts, the approvals engine.

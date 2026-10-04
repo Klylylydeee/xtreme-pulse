@@ -1,13 +1,18 @@
 import { Inbox } from 'lucide-react';
 import { EmptyState } from '@pulse/ui/components/empty-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
+import { CompanyDetailsReminder } from '@/components/company-details-reminder';
 import { APP_NAME } from '@/lib/app';
 
-/** Pulse Core home. A placeholder until Phase 1 and 2 fill it with the user's own data. */
+/**
+ * Pulse Core home. A placeholder until Phase 1 and 2 fill it with the user's own data. HR and the
+ * System Administrator also see the company details reminder while any detail is a placeholder.
+ */
 export default function HomePage() {
   return (
     <>
       <PageHeader title="Home" description={`Welcome to ${APP_NAME}`} />
+      <CompanyDetailsReminder />
       <section
         aria-labelledby="home-hero-title"
         className="flex flex-col gap-2 rounded-3xl bg-hero px-6 py-8 text-hero-text shadow-accent md:px-8 md:py-10"

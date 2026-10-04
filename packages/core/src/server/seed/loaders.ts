@@ -4,7 +4,7 @@ import { now } from '../../dates';
 import { AllowedEmailDomainModel } from '../allowed-email-domains/model';
 import { COMPANY_SETTINGS_KEY, CompanySettingsModel } from '../company-settings/model';
 import { DepartmentModel } from '../departments/model';
-import { PositionModel } from '../positions/model';
+import { LEGACY_POSITION_NAME_INDEX, POSITION_NAME_INDEX, PositionModel } from '../positions/model';
 import { COMPANY_DETAIL_PLACEHOLDERS, SEED_DEPARTMENTS, SEED_POSITIONS } from './core-data';
 import { isDuplicateKeyError } from './duplicate-key';
 
@@ -96,9 +96,38 @@ const departmentsLoader: SeedLoader = {
     ),
 };
 
+/**
+ * Drops the case-sensitive `{ departmentId, name }` index that databases created before the
+ * 2026-10-05 change still have, but only once `connectDb()` has built the case-insensitive one
+ * beside it (positions/model.ts), so names stay unique throughout. When that one is missing (it
+ * can't be built while a department holds two names that differ only in case), the old index is
+ * kept and a warning printed straight away (writing the positions may then fail, ending the
+ * seed). Does nothing once the old index is gone.
+ */
+async function dropLegacyPositionNameIndex(): Promise<void> {
+  const indexes = await PositionModel.collection.indexes().catch((error: unknown) => {
+    // NamespaceNotFound: no positions collection yet, so no old index either.
+    if ((error as { code?: unknown }).code === 26) return [];
+    throw error;
+  });
+  const names = new Set(indexes.map((index) => index.name));
+  if (!names.has(LEGACY_POSITION_NAME_INDEX)) return;
+  if (!names.has(POSITION_NAME_INDEX)) {
+    console.warn(
+      `positions: kept the old case-sensitive index ${LEGACY_POSITION_NAME_INDEX}, because the ` +
+        `case-insensitive ${POSITION_NAME_INDEX} is missing. Rename any two positions in one ` +
+        'department whose names differ only in case, then run the seed again.',
+    );
+    return;
+  }
+  await PositionModel.collection.dropIndex(LEGACY_POSITION_NAME_INDEX);
+  console.log(`positions: dropped the old case-sensitive index ${LEGACY_POSITION_NAME_INDEX}`);
+}
+
 const positionsLoader: SeedLoader = {
   name: 'positions',
   async run() {
+    await dropLegacyPositionNameIndex();
     const codes = [...new Set(SEED_POSITIONS.map((item) => item.departmentCode))];
     // Retired departments count too, so their seeded positions are found rather than re-added.
     const departments = await DepartmentModel.find({ code: { $in: codes } }, { code: 1 })
@@ -117,9 +146,10 @@ const positionsLoader: SeedLoader = {
             `Department ${departmentCode} is missing. Run the departments loader first.`,
           );
         }
-        // A position an admin added by hand with the same name counts as this one. MongoDB
-        // doesn't retry an upsert with an `$or` filter on a duplicate key, so when another seed
-        // run inserts the same position at the same moment, count it as kept.
+        // A position an admin added by hand with the same name counts as this one; one that
+        // differs only in case is refused by the case-insensitive unique index, and counts too.
+        // MongoDB doesn't retry an upsert with an `$or` filter on a duplicate key, so when
+        // another seed run inserts the same position at the same moment, count it as kept.
         return insertIfMissing(
           PositionModel,
           { $or: [{ seedKey }, { departmentId, name }] },

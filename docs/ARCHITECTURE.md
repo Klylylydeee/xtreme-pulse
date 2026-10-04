@@ -58,12 +58,13 @@ Shared packages: `packages/db` (connection, transactions, model helpers, and the
 
 ```
 apps/web/                         the single Xtreme Pulse Next.js app
-  app/(auth)/login/               Pulse Core login (the only public route; forgot/reset password later)
+  app/(auth)/login/               Pulse Core login (the only public page; forgot/reset password later)
   app/(pulse)/layout.tsx          signed-in shell: sidebar with the user's modules, session + status check
   app/(pulse)/page.tsx            Pulse Core home
   app/(pulse)/admin/              system administration (HR and System Administrator), e.g. /admin/access for user access
   app/(pulse)/<module>/           one folder per module: engage, ops, supply, desk, fiscal, talent, insight
   app/files/[fileId]/             the one file route: checks access, then streams a stored file
+  app/company-logo/               public route for the company logo only (the one exception, step 1.4)
 apps/worker/                      the BullMQ worker process (background and scheduled jobs)
 packages/core/                    auth, module access, audit log, approvals, notifications, directory, org chart, holidays
 packages/db/                      Mongo connection, model helpers, shared master-data schemas (step 1.8)
@@ -100,6 +101,7 @@ Uploaded and generated files live in a folder with the app, not in a separate st
 
 - **One folder.** Files go under `storage/` at the repo root by default. The path comes from `FILE_STORAGE_DIR`, so production can use another folder without a code change.
 - **Never public.** The folder sits outside `apps/web/public/`, and nothing serves it directly. A file opens only through one Route Handler, which checks that the viewer may see the record the file belongs to and then streams it. A copied link is useless to anyone who couldn't open the record.
+- **One exception: the company logo.** The login page is public, so `/company-logo` (build step 1.4) serves the company logo without a sign-in. It serves only the file whose id equals `companySettings.logoFileId`, PNG, JPEG or WebP only, with the same hardening headers as the file route, and never takes a file id from the request; `?v=<fileId>` is only a cache buster. The rule is in [Exceptions to module access](../SECURITY.md#exceptions-to-module-access).
 - **Never committed.** `storage/` is in `.gitignore`, so employee files never end up in Git.
 - **One storage service.** Modules save and read files only through the storage service built in step 0.7. Moving to S3 or a network drive later means changing that service alone.
 - **Safe names.** Files are saved under generated IDs, never under the uploaded name or a path taken from the user. The original name, type, size and owning record are kept in the database. Uploads are checked against allowed file types and a maximum size, both settings.
@@ -167,6 +169,7 @@ All scheduled work runs in the BullMQ worker on Asia/Manila time. Where the spec
 | Next year's holidays drafted | Every October 1 | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Unconfirmed holidays reminder to HR | Weekly from December 1 until confirmed | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Users still needing access | Daily | [User access page](modules/core.md#user-access-page) |
+| Company details reminder (`core.companyDetailsReminder`) to HR and the System Administrator | Weekly, Mondays 8:00 AM, while any company detail is a placeholder; at most once per recipient per Manila day | [Company settings page](modules/core.md#company-settings-page) |
 | Timesheet reminders and missing list | Before and at the deadline | [Submission & approval](modules/talent.md#submission--approval) |
 | 201 document and certification expiry | Daily, 30 days ahead by default | [Documents (201 file)](modules/talent.md#documents-201-file), [Skills & certifications](modules/talent.md#skills--certifications) |
 | Probation and contract alerts | 30 days ahead; daily escalation after an undecided probation ends | [Probation & contract tracking](modules/talent.md#probation--contract-tracking) |

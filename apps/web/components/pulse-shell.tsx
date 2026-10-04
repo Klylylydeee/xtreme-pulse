@@ -12,7 +12,7 @@ import { Button } from '@pulse/ui/components/button';
 import { APP_NAME } from '@/lib/app';
 import { NAV_GROUPS, OTHER_PAGES, isEntryActive } from '@/lib/navigation';
 import { signOutAction } from '@/lib/sign-out';
-import { LogoPlaceholder } from './logo-placeholder';
+import { CompanyLogo } from './company-logo';
 import { NotificationRouteWatcher, useNotificationBell } from './notification-bell';
 
 function sectionsFor(pathname: string): ShellNavSection[] {
@@ -80,15 +80,19 @@ function AccountContent({ email }: { email: string }) {
 /**
  * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing. The
  * (pulse) layout has already checked the signed-in user and passes their email and unread
- * notification count. It lists every section for now; step 1.6 passes in the user's modules instead.
+ * notification count, and the company logo URL (null shows the placeholder mark). It lists every
+ * section for now; step 1.6 passes in the user's modules instead.
  */
 export function PulseShell({
   email,
   unreadNotifications,
+  logoUrl,
   children,
 }: {
   email: string;
   unreadNotifications: number;
+  /** The public company logo URL, or null while none is uploaded. */
+  logoUrl: string | null;
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -99,7 +103,7 @@ export function PulseShell({
   return (
     <AppShell
       appName={APP_NAME}
-      logo={<LogoPlaceholder />}
+      logo={<CompanyLogo logoUrl={logoUrl} />}
       sections={sections}
       breadcrumb={breadcrumbFor(pathname)}
       linkComponent={Link}

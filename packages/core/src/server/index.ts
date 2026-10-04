@@ -34,6 +34,8 @@ export {
 } from './auth/authenticate';
 export { changePassword } from './auth/change-password';
 export {
+  assertSystemAdministrator,
+  canManageOrgStructure,
   type DepartmentRole,
   departmentRolesFor,
   hasRole,
@@ -216,3 +218,61 @@ export {
   notify,
   type NotifyInput,
 } from './notifications/service';
+
+// Company settings (docs/modules/core.md#company-settings-page): the details, the logo, allowed
+// email domains and upload settings. System Administrator only until step 1.6.
+export {
+  COMPANY_LOGO_OWNER_TYPE,
+  COMPANY_LOGO_TYPES,
+  COMPANY_SETTINGS_RECORD_TYPE,
+  type CompanyDetailsStatus,
+  companyLogoUrl,
+  CompanySettingsMissingError,
+  type CompanySettingsView,
+  getCompanyDetailsStatus,
+  getCompanyLogoFile,
+  getCompanySettings,
+  removeCompanyLogo,
+  setCompanyLogo,
+  updateCompanyDetails,
+} from './company-settings/service';
+export {
+  COMPANY_DETAILS_PENDING_EVENT,
+  COMPANY_DETAILS_REMINDER_JOB,
+  COMPANY_DETAILS_REMINDER_SCHEDULE,
+  type CompanyDetailsReminderResult,
+  runCompanyDetailsReminder,
+} from './company-settings/reminder-job';
+export {
+  addAllowedEmailDomain,
+  ALLOWED_EMAIL_DOMAIN_RECORD_TYPE,
+  type AllowedEmailDomainView,
+  listAllowedEmailDomains,
+  removeAllowedEmailDomain,
+} from './allowed-email-domains/service';
+export {
+  type FileUploadSettingsInfo,
+  getFileUploadSettingsInfo,
+  updateFileUploadSettings,
+} from './files/settings';
+
+// Departments and positions (docs/modules/core.md#managing-departments-and-positions)
+export {
+  createDepartment,
+  type DepartmentHeadOption,
+  type DepartmentView,
+  listDepartments,
+  listEligibleDepartmentHeads,
+  type OrgStructureActor,
+  restoreDepartment,
+  retireDepartment,
+  updateDepartment,
+} from './departments/service';
+export {
+  createPosition,
+  listPositions,
+  type PositionView,
+  restorePosition,
+  retirePosition,
+  updatePosition,
+} from './positions/service';

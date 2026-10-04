@@ -1,0 +1,18 @@
+# Text files are stored and checked out with LF line endings on every OS, so Windows checkouts
+# (core.autocrlf=true) don't produce CRLF warnings or whole-file diffs. Prettier writes LF too.
+* text=auto eol=lf
+
+# Binary files: never converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.xlsx binary

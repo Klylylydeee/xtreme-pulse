@@ -25,12 +25,30 @@ export interface PositionRecord {
 
 const positionSchema = new Schema<PositionRecord>({
   name: { type: String, required: true, trim: true, maxlength: 100 },
-  departmentId: { type: Schema.Types.ObjectId, required: true },
+  // A position's department is fixed once created (to move one, add a new position).
+  departmentId: { type: Schema.Types.ObjectId, required: true, immutable: true },
   timesheetType: { type: String, required: true, enum: TIMESHEET_TYPES },
   seedKey: { type: String, default: null, immutable: true },
 });
 
-positionSchema.index({ departmentId: 1, name: 1 }, { unique: true });
+/** Position names are compared ignoring case, so `Driver` and `driver` can't both exist. */
+export const POSITION_NAME_COLLATION = { locale: 'en', strength: 2 } as const;
+
+/**
+ * The name of the unique `{ departmentId, name }` index. It was case-sensitive under the default
+ * name `departmentId_1_name_1`; the case-insensitive one has its own name, so a database that
+ * still has the old index builds the new one beside it instead of failing with an options
+ * conflict. `pnpm seed:admin` then drops the old one ({@link LEGACY_POSITION_NAME_INDEX}).
+ */
+export const POSITION_NAME_INDEX = 'departmentId_1_name_1_ci';
+/** The earlier case-sensitive index, dropped by `pnpm seed:admin` where it still exists. */
+export const LEGACY_POSITION_NAME_INDEX = 'departmentId_1_name_1';
+
+// Retired positions are included, so a retired position's name isn't reused in its department.
+positionSchema.index(
+  { departmentId: 1, name: 1 },
+  { unique: true, name: POSITION_NAME_INDEX, collation: POSITION_NAME_COLLATION },
+);
 positionSchema.index(
   { seedKey: 1 },
   { unique: true, partialFilterExpression: { seedKey: { $type: 'string' } } },

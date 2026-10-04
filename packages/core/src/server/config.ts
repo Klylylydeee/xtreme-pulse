@@ -1,4 +1,4 @@
-import { Schema, type ClientSession, type Types } from 'mongoose';
+import { Schema, type ClientSession, Types } from 'mongoose';
 import type { z } from 'zod';
 import { baseSchemaPlugin, defineModel } from '@pulse/db';
 import { guardWrites } from './write-guards';
@@ -28,6 +28,8 @@ export interface ConfigSetting<TSchema extends z.ZodType> {
 }
 
 export interface ConfigVersion<TValue> {
+  /** The stored version's id (an audit entry's record id). */
+  id: string;
   key: string;
   /** The Manila calendar day this version takes effect. */
   effectiveFrom: BusinessDate;
@@ -37,6 +39,7 @@ export interface ConfigVersion<TValue> {
 }
 
 interface ConfigVersionRecord {
+  _id: Types.ObjectId;
   key: string;
   /** 00:00 Manila on the effective date, stored in UTC (docs/DATA_MODEL.md#general). */
   effectiveFrom: Date;
@@ -122,7 +125,7 @@ function toDay(on: ConfigDate): BusinessDate {
 
 function toVersion<TSchema extends z.ZodType>(
   setting: ConfigSetting<TSchema>,
-  record: Pick<ConfigVersionRecord, 'effectiveFrom' | 'value' | 'source'>,
+  record: Pick<ConfigVersionRecord, '_id' | 'effectiveFrom' | 'value' | 'source'>,
 ): ConfigVersion<z.output<TSchema>> {
   const parsed = setting.schema.safeParse(record.value);
   if (!parsed.success || findFractionalNumber(parsed.data)) {
@@ -132,6 +135,7 @@ function toVersion<TSchema extends z.ZodType>(
     );
   }
   return {
+    id: record._id.toHexString(),
     key: setting.key,
     effectiveFrom: toBusinessDate(record.effectiveFrom),
     value: parsed.data,
@@ -237,10 +241,12 @@ export async function addConfigVersion<TSchema extends z.ZodType>(
   }
   const fractional = findFractionalNumber(value) ?? findFractionalNumber(parsed.data);
   if (fractional) throw new Error(fractionalNumberMessage(setting.key, fractional));
+  const id = new Types.ObjectId();
   try {
     await ConfigVersionModel.create(
       [
         {
+          _id: id,
           key: setting.key,
           effectiveFrom: startOfBusinessDate(day),
           value: parsed.data,
@@ -260,5 +266,5 @@ export async function addConfigVersion<TSchema extends z.ZodType>(
     }
     throw error;
   }
-  return { key: setting.key, effectiveFrom: day, value: parsed.data, source };
+  return { id: id.toHexString(), key: setting.key, effectiveFrom: day, value: parsed.data, source };
 }

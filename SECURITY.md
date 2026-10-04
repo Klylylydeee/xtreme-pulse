@@ -78,7 +78,7 @@ Record-level roles, such as deal owner, deal team, project lead, project team an
 ### System Administrator
 
 - The **System Administrator** role is granted only by an existing System Administrator (the first one is the bootstrap account); HR cannot grant it. It is normally given to the Web Administrator – Developer, but never automatically: a new Developer account starts with no module access like every other new user.
-- Manages user accounts (create, reset password, deactivate), module access (shared with HR), departments and positions, allowed email domains, and system-wide settings.
+- Manages user accounts (create, reset password, deactivate), module access (shared with HR), departments and positions (shared with HR), company details, allowed email domains, and system-wide settings, which are the upload limits ([Company settings page](docs/modules/core.md#company-settings-page)).
 - The System Administrator has **full access to everything**, including sensitive data (salary, payslips, government IDs, bank accounts, 201 files, disciplinary cases). Revealing and changing sensitive data is still audit-logged like any other user.
 
 ## Module access (RWO)
@@ -125,6 +125,7 @@ These actions don't need module access. Each one still needs a server-side check
 - **PO approvers can open the PO.** A Board of Directors member asked to approve a purchase order can open it (and its linked purchase requests and project summary) read-only, even without Pulse Supply access.
 - **Payment approvers can open the payment.** The Managing Director and the Sales Director, when asked to approve a payment, can open it, with its supplier bills and supporting documents, read-only, even without Pulse Fiscal access.
 - **Confirming non-stock purchases.** When a bill includes non-stock PO lines (services, subcontractors, licenses), the project lead confirms that the work or item was delivered, or returns it with remarks, from their Approvals list or on the project. For a PO with no project, the purchase request's requester confirms the same way. When the PO links several purchase requests, any one of their requesters can confirm, and the first decision settles it (as with any one supervisor). The confirmer can open that PO and bill read-only, even without Pulse Supply or Pulse Fiscal access.
+- **The company logo is public.** The login page shows the company logo before anyone signs in, so one narrow Route Handler, `/company-logo`, needs no sign-in (build step 1.4). It serves only the stored file whose id equals `companySettings.logoFileId`, and only when that file is a PNG, JPEG or WebP image; anything else, including no logo being set, gets "not found". It takes no file id from the request (its `?v=<fileId>` parameter is only a cache buster) and sends the same hardening headers as the file route (`X-Content-Type-Options: nosniff` and the stored content type). It is the only stored file served outside the access-checked [file route](docs/ARCHITECTURE.md#file-storage).
 
 ## Sensitive data
 
@@ -186,6 +187,7 @@ Every create, update and delete on business records writes an audit log entry (s
 - Manual payroll entries, with old value, new value, reason and author ([Manual inputs & adjustments](docs/modules/talent.md#manual-inputs--adjustments))
 - Opening balances at go-live ([Opening balances at go-live](docs/modules/talent.md#opening-balances-at-go-live))
 - Password changes and resets, logged without the password
+- Department and position changes, including retiring (`delete`) and restoring (`restore`); company details and logo changes; allowed email domain changes; new upload settings versions ([Managing departments and positions](docs/modules/core.md#managing-departments-and-positions), [Company settings page](docs/modules/core.md#company-settings-page)). The company TIN and employer numbers are company data, not sensitive personal data, so they appear in snapshots
 
 Viewing the audit log and opening or marking notifications are not logged. Sign-ins are never logged.
 
@@ -216,7 +218,7 @@ Use this list in every phase review and in the whole-app review (build step 7.8)
 - [ ] Sensitive fields are encrypted, masked in the UI, and never raw in logs, Insight or snapshots ([Sensitive data](#sensitive-data)).
 - [ ] Sensitive fields use only the supported shapes, and their collections have the `$jsonSchema` validator ([Sensitive data](#sensitive-data)).
 - [ ] No write passes `middleware` or `bypassDocumentValidation` (also through a computed key or an options object built elsewhere), and nothing calls `connection.bulkWrite` ([known limits](#sensitive-data)).
-- [ ] Uploaded and generated files are in `storage/`, never under `public/` or in Git, and open only through the access-checked file route ([File storage](docs/ARCHITECTURE.md#file-storage)).
+- [ ] Uploaded and generated files are in `storage/`, never under `public/` or in Git, and open only through the access-checked file route, apart from the company logo on `/company-logo` ([File storage](docs/ARCHITECTURE.md#file-storage), [exceptions](#exceptions-to-module-access)).
 - [ ] Every mutation is audit-logged ([Audit logging](#audit-logging)).
 - [ ] No secrets in the diff, and `/dev/*` pages are excluded from production builds.
 

@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { AccessDeniedError, type AccessCheck } from '@pulse/core';
 import {
   assertSignedIn,
+  canManageOrgStructure,
   type CurrentUser,
   isSystemAdministrator,
   loadSessionUser,
@@ -69,11 +70,36 @@ export async function requireSystemAdministrator(): Promise<CurrentUser> {
   return user;
 }
 
-/** The access check for a Server Action only the System Administrator may call. */
-export function systemAdministratorOnly(): AccessCheck {
+/**
+ * The access check for a Server Action only the System Administrator may call. The refusal says
+ * so, rather than the default "Ask HR or the System Administrator", which HR can't act on.
+ */
+export function systemAdministratorOnly(
+  message = 'Only the System Administrator can do this.',
+): AccessCheck {
   return async () => {
     const user = await getCurrentUser();
     assertSignedIn(user);
-    if (!isSystemAdministrator(user)) throw new AccessDeniedError();
+    if (!isSystemAdministrator(user)) throw new AccessDeniedError(message);
+  };
+}
+
+/**
+ * The signed-in HR user or System Administrator, for a page only they may open (departments and
+ * positions until module access arrives in step 1.6). Anyone else gets "not found", like
+ * {@link requireSystemAdministrator}.
+ */
+export async function requireHROrSystemAdministrator(): Promise<CurrentUser> {
+  const user = await requireCurrentUser();
+  if (!canManageOrgStructure(user)) notFound();
+  return user;
+}
+
+/** The access check for a Server Action only HR and the System Administrator may call. */
+export function hrOrSystemAdministratorOnly(): AccessCheck {
+  return async () => {
+    const user = await getCurrentUser();
+    assertSignedIn(user);
+    if (!canManageOrgStructure(user)) throw new AccessDeniedError();
   };
 }

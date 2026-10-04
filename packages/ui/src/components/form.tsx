@@ -21,8 +21,11 @@ type FieldContextValue = {
 
 const FieldContext = createContext<FieldContextValue | null>(null);
 
-/** Wires a control to its FormField: id, aria-describedby, aria-invalid and required. */
-function useFieldProps<T extends { id?: string; 'aria-describedby'?: string }>(props: T) {
+/**
+ * Wires a control to its FormField: id, aria-describedby, aria-invalid and required. Exported for
+ * custom controls, such as a searchable picker's trigger button.
+ */
+export function useFieldProps<T extends { id?: string; 'aria-describedby'?: string }>(props: T) {
   const field = useContext(FieldContext);
   if (!field) return props;
   const describedBy = [field.describedBy, props['aria-describedby']].filter(Boolean).join(' ');

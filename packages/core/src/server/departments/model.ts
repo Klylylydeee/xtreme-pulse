@@ -1,5 +1,10 @@
 import { Schema, type Types } from 'mongoose';
 import { baseSchemaPlugin, defineModel } from '@pulse/db';
+import {
+  DEPARTMENT_CODE_HELP,
+  DEPARTMENT_CODE_PATTERN,
+  DEPARTMENT_NAME_MAX_LENGTH,
+} from '../../org-structure';
 
 // Spec: docs/modules/core.md#departments-and-positions — departments are data, managed by HR and
 // the System Administrator (screens in build step 1.4). The code is fixed once created: the HR,
@@ -19,20 +24,18 @@ export interface DepartmentRecord {
   deletedAt: Date | null;
 }
 
-export const DEPARTMENT_CODE_PATTERN = /^[A-Z][A-Z0-9]{1,9}$/;
+// The pattern lives in the pure org-structure module, so the form checks the same rule.
+export { DEPARTMENT_CODE_PATTERN };
 
 const departmentSchema = new Schema<DepartmentRecord>({
-  name: { type: String, required: true, trim: true, maxlength: 100 },
+  name: { type: String, required: true, trim: true, maxlength: DEPARTMENT_NAME_MAX_LENGTH },
   code: {
     type: String,
     required: true,
     trim: true,
     uppercase: true,
     immutable: true,
-    match: [
-      DEPARTMENT_CODE_PATTERN,
-      'Use 2 to 10 capital letters or digits, starting with a letter.',
-    ],
+    match: [DEPARTMENT_CODE_PATTERN, DEPARTMENT_CODE_HELP],
   },
   headEmployeeId: { type: Schema.Types.ObjectId, default: null },
 });

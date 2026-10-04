@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { countUnread } from '@pulse/core/server';
 import { PulseShell } from '@/components/pulse-shell';
 import { requireCurrentUser } from '@/lib/auth';
+import { getCompanyLogoUrl } from '@/lib/company-logo';
 
 /**
  * The signed-in shell. The proxy checks the session and account status on every request; this
@@ -21,8 +22,9 @@ export default async function PulseLayout({ children }: { children: ReactNode })
     // The badge is a convenience: the page still opens, and the bell retries on the next
     // navigation, focus or open.
   }
+  const logoUrl = await getCompanyLogoUrl();
   return (
-    <PulseShell email={user.email} unreadNotifications={unread}>
+    <PulseShell email={user.email} unreadNotifications={unread} logoUrl={logoUrl}>
       {children}
     </PulseShell>
   );

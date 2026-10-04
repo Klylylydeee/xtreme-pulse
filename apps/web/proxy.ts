@@ -11,9 +11,10 @@ import { changePasswordPath, safeCallbackUrl } from '@/lib/callback-url';
 // This is the first check, not the only one: the signed-in layout, the file route and every
 // Server Action check the user again (apps/web/lib/auth.ts). Next 16 runs the proxy on Node.js.
 
-// Open without signing in: the login page, Auth.js's own endpoints, and the development-only pages
+// Open without signing in: the login page, Auth.js's own endpoints, the company logo (the one
+// public stored file, SECURITY.md#exceptions-to-module-access) and the development-only pages
 // (never served in production, see SECURITY.md#development-only-pages).
-const PUBLIC_PATHS = ['/login', '/api/auth', '/dev'];
+const PUBLIC_PATHS = ['/login', '/api/auth', '/company-logo', '/dev'];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

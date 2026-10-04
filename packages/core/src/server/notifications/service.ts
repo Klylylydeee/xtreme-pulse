@@ -126,6 +126,28 @@ export async function notify(
   return created.length;
 }
 
+/**
+ * Of `recipients`, the user ids (hex strings) that already got a notification for `event` at or
+ * after `since`. For a sender's own once-a-day check, such as the company details reminder
+ * (docs/modules/core.md#company-settings-page); `notify()` itself has no duplicate check until
+ * build step 1.7.
+ */
+export async function recipientsNotifiedSince(
+  event: string,
+  since: Date,
+  recipients: readonly (Types.ObjectId | string)[],
+): Promise<Set<string>> {
+  const ids = recipients.map((id) => toObjectId(id)).filter((id) => id !== null);
+  if (ids.length === 0 || !NOTIFICATION_EVENT_PATTERN.test(event)) return new Set();
+  await connectDb();
+  const found = await NotificationModel.distinct('recipientUserId', {
+    recipientUserId: { $in: ids },
+    event,
+    createdAt: { $gte: since },
+  });
+  return new Set(found.map((id) => String(id)));
+}
+
 /** How many unread notifications the user has (the badge). */
 export async function countUnread(userId: string): Promise<number> {
   const recipientUserId = toObjectId(userId);

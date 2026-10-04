@@ -42,12 +42,14 @@ The app uses the **Cobalt** palette: a saturated cobalt accent with a violet cas
 | `hero` | `#3040CD` | `#16207A` | Solid cobalt hero areas (Home, Login) |
 | `hero-text` | `#FFFFFF` | `#EBF0FC` | Text on `hero` |
 | `hero-text-secondary` | `#D6DCFF` | `#B8C3F0` | Supporting text on `hero` |
+| `logo-tile` | `#FFFFFF` | `#FFFFFF` | Tile behind an uploaded company logo (the same in both appearances) |
 
 - **One accent:** cobalt is the only color for interactive elements. Semantic colors are used only for meaning (success, warning, destructive), never for decoration, and never as the only signal; always pair them with a label or icon.
 - Use the `*-text` tokens for status text and status icons. The plain `success`, `warning` and `destructive` tokens are only for small dots placed next to a text label.
 - On `accent-subtle` (selected sidebar item, accent badges), use `text-secondary` or `accent` for small text, never `text-tertiary`.
 - Text on a semantic fill (e.g. a red "Delete draft" button or a status badge): use the matching `*-text` token as the fill, with white text in light mode and `#0D1329` text in dark mode.
 - In dark mode, text on accent-filled buttons is dark (`accent-text`), not white, so it meets contrast.
+- An uploaded company logo always sits on a `logo-tile` square with a hairline `separator` border, a small inner padding and the placeholder mark's radius, wherever it appears (login hero, sidebar, settings preview). The tile doesn't change with appearance, because most logos are drawn for a light background. The placeholder mark keeps its own styling.
 - Support **light and dark appearance**, following the operating system setting.
 - All colors, type sizes, radii and spacing live as design tokens (CSS variables in the Tailwind theme, in `packages/ui`). Never hardcode them in components. Changing the palette later means changing only these tokens.
 

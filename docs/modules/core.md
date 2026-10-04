@@ -43,6 +43,20 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - **Position is not permission.** Positions carry no module access; access is set and checked per user (see [Module access](../../SECURITY.md#module-access-rwo)).
 - Each position also has a **timesheet type** (`overtime` or `standard`, see [Timesheet types](talent.md#timesheet-types)), set by HR or the System Administrator.
 
+### Managing departments and positions
+
+Built in step 1.4.
+
+- **Routes:** `/admin/departments` and `/admin/positions`. Until module access arrives in step 1.6, both pages are for HR and the System Administrator only; anyone else gets "not found". Like `/admin/audit`, that not-found page currently answers with HTTP 200 (the streaming loading boundary starts the response first); this is accepted until step 1.6 brings the designed no-access state. They are not in the sidebar until step 1.6; the `/admin` overview links to them. Each service checks the role again itself.
+- **Departments** have a name, a code and an optional department head. The code (2 to 10 capital letters or digits, starting with a letter) is set when the department is added and can't be changed afterwards; only the name and the head can be edited. Codes are never reused: the unique index includes retired departments.
+- **Department head:** any employee whose account resolves to active, from any department. It is optional and can be cleared.
+- **Positions** have a name, a department and a timesheet type. A position is added only to a live (not retired) department. Its department is fixed once created; to move a position, add a new one in the other department. Only the name and the timesheet type can be edited. Position names are unique within a department ignoring case (`Driver` and `driver` count as the same name), retired positions included.
+- **Changing the timesheet type** saves at once and takes effect from the next cut-off, never in the middle of one: each timesheet stores the type that applied when its cut-off started (see [Timesheet types](talent.md#timesheet-types)).
+- **Retiring** is a soft delete (`deletedAt` set), never a hard delete, after a confirmation. A department can't be retired while it has live positions or active employees. A position can't be retired while active employees hold it.
+- **No protected departments.** `HR`, `ACCT` and `BOD` can be retired like any other department, under the same rules. The HR, Accounting and Board [roles](../../SECURITY.md#roles) follow those codes, so a department a role depends on can't be retired while anyone is still in it.
+- **Restoring** a retired department or position brings it back unchanged. Retired departments and positions can't be picked for new records.
+- **Audit:** every add, edit, retire and restore writes its change and its audit entry in one transaction (record types `core.department` and `core.position`; actions `create`, `update`, `delete` for a retire, with `after` null, and `restore`). Each entry's record label is `<department code> · <department name>` for a department (for example `HR · Human Resource`) and `<department code> · <position name>` for a position (for example `HR · Human Resource Officer`), using the name after the change (before it, for a retire). A position whose department can't be found is labelled with its name alone.
+
 ## Reporting lines
 
 - `reportingTo` is an **array** of employee IDs: an employee can have one or multiple supervisors.
@@ -165,7 +179,7 @@ Built in step 1.3:
 
 - **Stored** in `notifications`, one record per recipient: the recipient, the module (`core` or a module key), the event (`<module>.<name>`, for example `core.holidayDeclared`), a title, an optional body, a link, the record it is about (optional) and `readAt` (null while unread). Titles are capped at 200 characters and bodies at 1,000, as plain text.
 - **The link is always a path inside the app**: it starts with a single `/`, with no `//` or `\` anywhere and no spaces. A full URL or a `//host` link is refused, so a notification can never send someone off-site.
-- **Sending.** Modules call Core's `notify()` service, never the collection, inside their own transaction when the event comes from a change (so the notification commits or rolls back with it). There is no duplicate check yet; build step 1.7 adds one for the daily reminders.
+- **Sending.** Modules call Core's `notify()` service, never the collection, inside their own transaction when the event comes from a change (so the notification commits or rolls back with it). There is no duplicate check in `notify()` yet; build step 1.7 adds one for the daily reminders. The company details reminder (step 1.4) does its own check, skipping a recipient who already got it that Manila day ([Company settings page](#company-settings-page)).
 - **Reading.** A user only ever sees and changes their own notifications: every query filters on the signed-in user. Marking one or all as read is the only change allowed; nothing else on a stored notification can be edited. Opening the list and marking read are not audit-logged.
 - **The badge** shows the unread count. It refreshes on navigation, when the window regains focus and when the list opens; there is no polling.
 - **Kept forever.** Notifications are never deleted and never expire (see [Retention](../DATA_MODEL.md#retention)).
@@ -209,3 +223,17 @@ The client will provide these later. Until then, keep them in one **company sett
 - BIR registration details for system-generated invoices and computerized books (e.g. the CAS/CBA acknowledgment or permit details, and the registered invoice number series)
 
 Quotations, purchase orders, delivery receipts, sales invoices, vouchers, service reports, support contracts, payslips, HR documents and remittance reports read these from company settings, so they update everywhere once filled in. HR and the System Administrator see a reminder while any are still placeholders.
+
+The company TIN and the employer numbers are company data, not [sensitive personal data](../../SECURITY.md#sensitive-data): they are stored and shown in full, and appear in audit snapshots.
+
+### Company settings page
+
+Built in step 1.4, at `/admin/settings`. Until module access arrives in step 1.6, the page and everything on it (company details, the logo, allowed email domains and upload settings) are for the System Administrator only; anyone else gets "not found" (with HTTP 200 until step 1.6, see [Managing departments and positions](#managing-departments-and-positions)). Each service checks the role again itself. The page is not in the sidebar until step 1.6; the `/admin` overview links to it.
+
+- **Placeholders.** A company detail counts as a placeholder while its value is still a marked placeholder (`[Company TIN]`, see `isPlaceholder`). The logo counts too: it is pending while no logo is uploaded (`logoFileId` is null). The page labels each pending detail "Placeholder".
+- **Reminder banner.** While any detail is pending, Home and `/admin` show HR and the System Administrator a banner listing the missing details. Nobody else sees it. It clears once every detail, the logo included, is filled in.
+- **Reminder notification.** A [background job](../ARCHITECTURE.md#background-jobs) runs weekly, Mondays at 08:00 Asia/Manila, while any detail is pending. It notifies every active HR user and System Administrator (event `core.companyDetailsPending`), linking the System Administrator to `/admin/settings` and HR to `/admin`. It is idempotent per Manila day: a recipient who already got that event that day is skipped, so a rerun sends nothing twice.
+- **Logo.** PNG, JPEG or WebP only, saved through the [storage service](../ARCHITECTURE.md#file-storage) under the owner `core.companySettings`, then set on the settings record. The file is saved before the transaction that sets it, so if that transaction fails the file is left orphaned in storage; this is accepted. The login page, the sidebar and other screens show it through the public `/company-logo` route (see [Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)), and show the placeholder mark until a logo exists. The logo can also be removed.
+- **Allowed email domains.** The list shows how many users are on each domain. Adding a domain that was removed restores that record (audit `restore`). Removing one is a soft delete, after a confirmation that shows how many users are on it. Removing the last remaining domain, or the domain of the acting System Administrator's own email, is refused.
+- **System-wide settings** are the upload limits only: the maximum upload size and the allowed file types (the `core.fileUploads` setting, see [File storage](../ARCHITECTURE.md#file-storage)). They are [versioned configuration](../DATA_MODEL.md#versioned-configuration): a change adds a new version effective from today in Manila, never an edit. Only one version can take effect per day, so a second change on the same Manila day is refused with a clear error.
+- **Audit:** every change writes its audit entry in the same transaction (record types `core.companySettings`, `core.allowedEmailDomain` and `core.configVersion`). Setting or removing the logo is an `update` of the settings record.
