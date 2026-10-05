@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { DESKTOP_QUERY } from '../hooks/use-media-query';
 import { useReturnFocus } from '../hooks/use-return-focus';
@@ -30,6 +38,8 @@ export function AppShell({
   sections,
   breadcrumb,
   linkComponent,
+  linkHint,
+  routeKey,
   onNavigate,
   notifications,
   notificationsUnread,
@@ -45,6 +55,14 @@ export function AppShell({
   sections: ShellNavSection[];
   breadcrumb: ShellBreadcrumb;
   linkComponent?: ShellLinkComponent;
+  /** A fixed-size hint at the end of every sidebar link, such as a pending indicator. */
+  linkHint?: ReactNode;
+  /**
+   * The current route (such as the pathname). When given, the phone drawer stays open after a link
+   * is clicked, so its pending hint shows, and closes once the route changes. Without it, the
+   * drawer closes on the click.
+   */
+  routeKey?: string;
   /** Navigates to a path chosen in the command bar. */
   onNavigate: (href: string) => void;
   /** The notifications popover's content (it sets its own padding). */
@@ -66,6 +84,7 @@ export function AppShell({
   const toolbarRef = useRef<HTMLElement>(null);
   const hideButtonRef = useRef<HTMLButtonElement>(null);
   const showButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const moveFocusAfterToggle = useRef(false);
   // What had focus when the command bar or drawer opened, to return focus there on close.
   // The shell opens both by state (and by ⌘K / Ctrl+K), not by a Radix trigger.
@@ -98,6 +117,25 @@ export function AppShell({
       setDrawerOpen(true);
     },
     [drawerReturnFocus],
+  );
+
+  // Close the drawer once the route changes (adjusting state during render, not in an effect).
+  const [drawerRoute, setDrawerRoute] = useState(routeKey);
+  if (drawerRoute !== routeKey) {
+    setDrawerRoute(routeKey);
+    setDrawerOpen(false);
+  }
+
+  // A drawer link click: with `routeKey`, wait for the route to change so the link's pending hint
+  // shows in the drawer; the current page's link, which changes nothing, closes it at once. A click
+  // that opens a new tab or window leaves the drawer open.
+  const onDrawerLinkClick = useCallback(
+    (item: ShellNavItem, event: MouseEvent<HTMLAnchorElement>) => {
+      const newTab = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+      if (routeKey === undefined) setDrawerOpen(false);
+      else if (item.current && !newTab) setDrawerOpen(false);
+    },
+    [routeKey],
   );
 
   const commandItems = useMemo<ShellNavItem[]>(
@@ -140,6 +178,32 @@ export function AppShell({
     setSidebarHidden(hidden);
   }, []);
 
+  // Returns focus to what opened the command bar. If that is now hidden (the search field after the
+  // window narrows below `md`), focus the visible command bar trigger or the Menu button instead.
+  const onCommandCloseAutoFocus = useCallback(
+    (event: Event) => {
+      const hadTarget = commandReturnFocus.get() !== null;
+      if (commandReturnFocus.restore()) {
+        event.preventDefault();
+        return;
+      }
+      if (!hadTarget) return;
+      const fallbacks = [
+        ...(toolbarRef.current?.querySelectorAll<HTMLElement>('button[aria-keyshortcuts]') ?? []),
+        menuButtonRef.current,
+      ];
+      for (const element of fallbacks) {
+        if (!element) continue;
+        element.focus();
+        if (document.activeElement === element) {
+          event.preventDefault();
+          return;
+        }
+      }
+    },
+    [commandReturnFocus],
+  );
+
   const shellContext = useMemo<ShellContextValue>(() => ({ toolbarRef, setTitleInToolbar }), []);
 
   const brand = (
@@ -173,6 +237,7 @@ export function AppShell({
           brand={brand}
           sections={sections}
           linkComponent={linkComponent}
+          linkHint={linkHint}
           headerAction={
             <Button
               ref={hideButtonRef}
@@ -199,7 +264,8 @@ export function AppShell({
             brand={brand}
             sections={sections}
             linkComponent={linkComponent}
-            onNavigate={() => setDrawerOpen(false)}
+            linkHint={linkHint}
+            onNavigate={onDrawerLinkClick}
             headerAction={
               <SheetClose asChild>
                 <Button variant="plain" size="icon" aria-label="Close menu">
@@ -225,6 +291,7 @@ export function AppShell({
           leading={
             <>
               <Button
+                ref={menuButtonRef}
                 variant="plain"
                 size="icon"
                 aria-label="Open menu"
@@ -268,7 +335,7 @@ export function AppShell({
       <CommandBar
         open={commandOpen}
         onOpenChange={setCommandOpen}
-        onCloseAutoFocus={commandReturnFocus.onCloseAutoFocus}
+        onCloseAutoFocus={onCommandCloseAutoFocus}
         items={commandItems}
         onSelect={onNavigate}
       />

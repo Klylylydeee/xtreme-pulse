@@ -3,14 +3,17 @@
 import { z } from 'zod';
 import { AUDIT_PAGE_MAX, auditFiltersSchema, defineAction } from '@pulse/core';
 import { listAuditEntries } from '@pulse/core/server';
-import { systemAdministratorOnly } from '@/lib/auth';
+import { adminOnly } from '@/lib/auth';
 
-// Spec: docs/modules/core.md#audit-log — the audit log, for the System Administrator only until
-// module access arrives in step 1.6. Viewing it is not audit-logged.
+// Spec: docs/modules/core.md#audit-log — the audit log, for the System Administrator only (an admin
+// area role, checked here rather than module access: SECURITY.md#resolving-and-enforcing-build-step-16).
+// Viewing it is not audit-logged.
+
+const ONLY_SYSTEM_ADMINISTRATOR = 'Only the System Administrator can do this.';
 
 /** One page of the audit log, newest first, with the page's filters. */
 export const listAuditEntriesAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: z.intersection(
     auditFiltersSchema,
     z.object({

@@ -221,8 +221,9 @@ export class ConfigVersionExistsError extends Error {
  * Adds a new version of `setting`, taking effect on `effectiveFrom` (a Manila calendar day). The
  * value is checked against the setting's schema first.
  *
- * This is a service function: the caller checks module access and permissions first (step 1.6)
- * and writes the audit log entry (step 1.3), in the same transaction when there is one.
+ * This is a service function: the caller checks module access and permissions first
+ * (`assertModuleAccess`) and writes the audit log entry (step 1.3), in the same transaction when
+ * there is one.
  */
 export async function addConfigVersion<TSchema extends z.ZodType>(
   setting: ConfigSetting<TSchema>,

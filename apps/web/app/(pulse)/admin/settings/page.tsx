@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { COMPANY_DETAIL_FIELDS, formatDate, pendingCompanyDetails } from '@pulse/core';
 import {
   COMPANY_LOGO_TYPES,
   CompanySettingsMissingError,
   type CompanySettingsView,
+  type CurrentUser,
   getCompanySettings,
   getFileUploadSettingsInfo,
   listAllowedEmailDomains,
@@ -12,9 +14,10 @@ import {
 } from '@pulse/core/server';
 import { ErrorState } from '@pulse/ui/components/error-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
-import { requireSystemAdministrator } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { AllowedDomainsSection } from './allowed-domains-section';
 import { CompanyDetailsForm, type CompanyDetailValues } from './company-details-form';
+import { CompanySettingsLoading } from './company-settings-loading';
 import { FileUploadsForm } from './file-uploads-form';
 import { LogoSection } from './logo-section';
 
@@ -61,11 +64,20 @@ function logoUploadHint(allowedTypes: readonly UploadType[], maxMegabytes: numbe
 
 // Spec: docs/modules/core.md#company-settings-page — the company details, the logo, the allowed
 // email domains and the upload limits, on one page of inset grouped sections. The System
-// Administrator only until module access arrives in step 1.6; anyone else gets "not found". The
-// reads below don't check the role themselves, so this guard must stay first.
+// Administrator only; anyone else, HR included, gets the no-access state (HTTP 403). The reads
+// below don't check the role themselves, so this guard must stay first, before anything that can
+// suspend; the sections load inside the page's own boundary
+// (docs/CODE_STYLE.md#pages-server-actions-and-route-handlers).
 export default async function CompanySettingsPage() {
-  const user = await requireSystemAdministrator();
+  const user = await requireAdminPage('systemAdministrator');
+  return (
+    <Suspense fallback={<CompanySettingsLoading />}>
+      <CompanySettings user={user} />
+    </Suspense>
+  );
+}
 
+async function CompanySettings({ user }: { user: CurrentUser }) {
   let settings: CompanySettingsView;
   try {
     settings = await getCompanySettings();

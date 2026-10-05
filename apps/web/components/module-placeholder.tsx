@@ -4,7 +4,10 @@ import { EmptyState } from '@pulse/ui/components/empty-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { getNavEntry } from '@/lib/navigation';
 
-/** The placeholder screen for a section of the app that isn't built yet. */
+/**
+ * The placeholder screen for a section of the app that isn't built yet. It reads nothing: the
+ * page calls its guard (`requireModulePage`) before rendering it.
+ */
 export function ModulePlaceholder({ href }: { href: string }) {
   const { title, description, Icon } = getNavEntry(href);
   return (

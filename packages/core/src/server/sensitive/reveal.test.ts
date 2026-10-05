@@ -25,7 +25,9 @@ import { revealSensitiveField } from './service';
 // Revealing sensitive values (SECURITY.md#sensitive-data,
 // docs/TESTING.md#audit-notification-and-reveal-tests). Made-up data only.
 
-const SALARY = 'MADE-UP-SALARY-4455667788';
+// The salary ends in upper-case letters, so its last four ("QXZJ") can't turn up by chance in the
+// raw audit JSON: timestamps and numbers are digits, and ObjectIds are lower-case hex.
+const SALARY = 'MADE-UP-SALARY-4455667788-QXZJ';
 const BANK = 'MADE-UP-BANK-1122334455';
 const OWNER_TYPE = 'talent.revealTest';
 

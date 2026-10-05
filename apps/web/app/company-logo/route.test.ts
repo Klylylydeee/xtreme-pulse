@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import type { CurrentUser } from '@pulse/core/server';
-import { removeCompanyLogo, saveUpload, setCompanyLogo } from '@pulse/core/server';
+import {
+  removeCompanyLogo,
+  resolveModuleAccess,
+  saveUpload,
+  setCompanyLogo,
+} from '@pulse/core/server';
 import { coreSeedLoaders } from '@pulse/core/server/seed';
 import { GET } from './route';
 
@@ -22,6 +27,7 @@ const admin: CurrentUser = {
   isSystemAccount: false,
   employee: null,
   roles: [],
+  moduleAccess: resolveModuleAccess({ isSystemAdministrator: true }),
 };
 
 let storageDir: string;

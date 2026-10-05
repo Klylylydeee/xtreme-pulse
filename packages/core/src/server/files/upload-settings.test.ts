@@ -4,6 +4,7 @@ import { connectDb } from '@pulse/db';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { businessToday, startOfBusinessDate } from '../../dates';
 import { AuditLogModel } from '../audit/model';
+import { resolveModuleAccess } from '../auth/module-access';
 import type { CurrentUser } from '../auth/session-user';
 import {
   currentFileUploadSettings,
@@ -24,6 +25,10 @@ function actor(overrides: Partial<CurrentUser> = {}): CurrentUser {
     isSystemAccount: false,
     employee: null,
     roles: [],
+    // The effective map, as loadSessionUser resolves it.
+    moduleAccess: resolveModuleAccess({
+      isSystemAdministrator: overrides.isSystemAdministrator ?? true,
+    }),
     ...overrides,
   };
 }

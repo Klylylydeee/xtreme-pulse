@@ -17,14 +17,18 @@ import {
   updateCompanyDetails,
   updateFileUploadSettings,
 } from '@pulse/core/server';
-import { signedInUser, systemAdministratorOnly } from '@/lib/auth';
+import { adminOnly, signedInUser } from '@/lib/auth';
 
 // Spec: docs/modules/core.md#company-settings-page — the company details, the logo, the allowed
-// email domains and the upload settings. The System Administrator only until module access arrives
-// in step 1.6: each action checks the role first (`systemAdministratorOnly`), and each service
-// checks it again and writes its audit entry in the same transaction as the change.
+// email domains and the upload settings. The System Administrator only (an admin area role, not
+// module access: SECURITY.md#resolving-and-enforcing-build-step-16): each action checks the role
+// first (`adminOnly('systemAdministrator')`), and each service checks it again and writes its audit
+// entry in the same transaction as the change.
 
 const SETTINGS_PATH = '/admin/settings';
+
+/** The refusal names who can, rather than the default "Ask HR…", which HR can't act on. */
+const ONLY_SYSTEM_ADMINISTRATOR = 'Only the System Administrator can do this.';
 
 /**
  * The details form posts the BIR fields under dotted names (`birRegistration.invoiceSeries`), so
@@ -43,7 +47,7 @@ const companyDetailsFormSchema = z.preprocess((raw) => {
 
 /** Saves the company details. A detail may keep its placeholder; it then stays pending. */
 export const updateCompanyDetailsAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: companyDetailsFormSchema,
   handler: async (input) => {
     await updateCompanyDetails(await signedInUser(), input);
@@ -54,7 +58,7 @@ export const updateCompanyDetailsAction = defineAction({
 
 /** Uploads a new company logo (PNG, JPEG or WebP) and sets it. Errors come back on `logo`. */
 export const setCompanyLogoAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: z.object({
     logo: z
       .instanceof(File, { message: 'Choose a PNG, JPEG or WebP image.' })
@@ -69,7 +73,7 @@ export const setCompanyLogoAction = defineAction({
 
 /** Removes the company logo; screens show the placeholder mark again. */
 export const removeCompanyLogoAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: z.object({}),
   handler: async () => {
     await removeCompanyLogo(await signedInUser());
@@ -79,7 +83,7 @@ export const removeCompanyLogoAction = defineAction({
 
 /** Allows an email domain, restoring it when it was removed before. */
 export const addAllowedEmailDomainAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: emailDomainSchema,
   handler: async (input) => {
     const added = await addAllowedEmailDomain(await signedInUser(), input);
@@ -93,7 +97,7 @@ export const addAllowedEmailDomainAction = defineAction({
  * and the acting System Administrator's own domain.
  */
 export const removeAllowedEmailDomainAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: z.object({
     id: z.string().regex(OBJECT_ID_PATTERN, 'This domain was already removed. Reload the page.'),
   }),
@@ -105,7 +109,7 @@ export const removeAllowedEmailDomainAction = defineAction({
 
 /** Adds a new upload settings version, effective today in Manila. One change per day. */
 export const updateFileUploadSettingsAction = defineAction({
-  access: systemAdministratorOnly(),
+  access: adminOnly('systemAdministrator', ONLY_SYSTEM_ADMINISTRATOR),
   schema: fileUploadSettingsInputSchema,
   handler: async (input) => {
     await updateFileUploadSettings(await signedInUser(), input);

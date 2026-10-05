@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
+import { type ReactNode, Suspense } from 'react';
 import Link from 'next/link';
 import {
   BriefcaseBusiness,
@@ -9,12 +9,11 @@ import {
   Settings,
   Users,
 } from 'lucide-react';
-import { canManageOrgStructure, isSystemAdministrator } from '@pulse/core/server';
+import { isSystemAdministrator } from '@pulse/core/server';
 import { IconTile } from '@pulse/ui/components/icon-tile';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { CompanyDetailsReminder } from '@/components/company-details-reminder';
-import { ModulePlaceholder } from '@/components/module-placeholder';
-import { requireCurrentUser } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { getNavEntry } from '@/lib/navigation';
 
 export const metadata: Metadata = { title: 'Administration' };
@@ -62,13 +61,14 @@ const SYSTEM_ADMINISTRATOR_LINKS: AdminPageLink[] = [
   },
 ];
 
-// Spec: docs/modules/core.md. HR and the System Administrator only (module access arrives in step
-// 1.6). HR sees users, departments and positions; the System Administrator also sees company settings
-// and the audit log. Checked here on the server, and each page checks again: hiding a link is
-// never access control. Anyone else keeps the placeholder.
+// Spec: docs/modules/core.md#administration-area — HR and the System Administrator only, checked by
+// role (SECURITY.md#resolving-and-enforcing-build-step-16). HR sees users, departments and
+// positions; the System Administrator also sees company settings and the audit log. Anyone else
+// gets the no-access state (HTTP 403). Checked here on the server, and each page checks again:
+// hiding a link is never access control. The guard comes first, before anything that can suspend;
+// the reminder, the page's only read, streams in its own boundary.
 export default async function AdminPage() {
-  const user = await requireCurrentUser();
-  if (!canManageOrgStructure(user)) return <ModulePlaceholder href="/admin" />;
+  const user = await requireAdminPage('hrOrSystemAdministrator');
 
   const links = isSystemAdministrator(user)
     ? [...ORG_STRUCTURE_LINKS, ...SYSTEM_ADMINISTRATOR_LINKS]
@@ -77,7 +77,9 @@ export default async function AdminPage() {
   return (
     <>
       <PageHeader title={title} description={description} />
-      <CompanyDetailsReminder />
+      <Suspense fallback={null}>
+        <CompanyDetailsReminder />
+      </Suspense>
       <nav aria-label="Administration pages">
         <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
           {links.map((link) => (

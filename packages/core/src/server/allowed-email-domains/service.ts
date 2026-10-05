@@ -17,7 +17,7 @@ import { AllowedEmailDomainModel } from './model';
 // stored allowed email domains. A removed (soft-deleted) domain no longer counts.
 //
 // Spec: docs/modules/core.md#company-settings-page — the System Administrator manages the list
-// (until module access in step 1.6). Removing a domain is a soft delete (audit `delete`); adding
+// (by role, not module access). Removing a domain is a soft delete (audit `delete`); adding
 // a removed domain again restores that record (audit `restore`). The last remaining domain, and
 // the acting System Administrator's own domain, can't be removed. Record type
 // `core.allowedEmailDomain`.

@@ -1,6 +1,7 @@
 // Spec: SECURITY.md#module-access-rwo — the ERP modules, a fixed set in code
 // (docs/CODE_STYLE.md#constants-versus-data). Pulse Core is not one of them: it has no access
-// level. Build step 1.6 adds the access levels and `requireModuleAccess` on top of this list.
+// level. The access levels each module takes are in module-access.ts, and the server-side check
+// (`hasModuleAccess`, `assertModuleAccess`) in server/auth/module-access.ts.
 
 /** Every ERP module's key, in the order SECURITY.md lists them. */
 export const MODULES = ['engage', 'ops', 'supply', 'desk', 'fiscal', 'talent', 'insight'] as const;

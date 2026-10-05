@@ -13,7 +13,7 @@ import { z } from 'zod';
 // ```ts
 // 'use server';
 // export const createDeal = defineAction({
-//   access: requireModuleAccess('engage', 'write'),   // step 1.6 adds requireModuleAccess
+//   access: requireModuleAccess('engage', 'write'),   // from apps/web/lib/auth.ts
 //   schema: createDealSchema,
 //   handler: (input) => dealService.create(input),
 // });
@@ -63,8 +63,10 @@ export class AccessDeniedError extends Error {
 
 /**
  * The access check slot. It runs first and throws {@link AccessDeniedError} to refuse. The app
- * supplies `requireSignedIn()` (step 1.2, in apps/web/lib/auth.ts, since it reads the session);
- * step 1.6 adds `requireModuleAccess(module, level)`. {@link publicAction} is the one explicit
+ * supplies the checks in apps/web/lib/auth.ts, since they read the session:
+ * `requireModuleAccess(module, level)` for a module's actions, and `requireSignedIn()` for Pulse
+ * Core's, which has no access level; an admin area service checks the role again itself
+ * (SECURITY.md#resolving-and-enforcing-build-step-16). {@link publicAction} is the one explicit
  * exception.
  */
 export type AccessCheck = () => void | Promise<void>;
@@ -74,17 +76,6 @@ export type AccessCheck = () => void | Promise<void>;
  * action checks the signed-in user. Named so a review can find every use.
  */
 export const publicAction: AccessCheck = () => {};
-
-/**
- * Placeholder for Phase 0 development code only. It enforces nothing in development and refuses
- * every call in production, so an action still using it can never run on a real server.
- * Replace it with a real check in step 1.6.
- */
-export const noAccessCheckYet: AccessCheck = () => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new AccessDeniedError('This action has no access check yet, so it is turned off.');
-  }
-};
 
 export interface ActionDefinition<TSchema extends z.ZodType, TData> {
   /** Runs before anything else. Required, so no action forgets it. */

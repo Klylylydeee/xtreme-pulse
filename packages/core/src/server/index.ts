@@ -33,6 +33,16 @@ export {
   needsPasswordChange,
 } from './auth/authenticate';
 export { changePassword } from './auth/change-password';
+// Module access (SECURITY.md#resolving-and-enforcing-build-step-16)
+export {
+  type AdminAreaKind,
+  assertModuleAccess,
+  canOpenAdminArea,
+  hasModuleAccess,
+  type ModuleAccessHolder,
+  type ModuleAccessSource,
+  resolveModuleAccess,
+} from './auth/module-access';
 export {
   type AccountActor,
   type AccountTarget,
@@ -75,7 +85,13 @@ export {
 } from './dev-health';
 
 // File storage (docs/ARCHITECTURE.md#file-storage)
-export { assertFileRouteOpen, authorizeFileAccess } from './files/access';
+export {
+  authorizeFileAccess,
+  type FileAccessCheck,
+  findAccessibleFile,
+  registerFileAccess,
+} from './files/access';
+export { registerCoreFileAccess } from './files/registrations';
 export {
   GENERATED_TYPES,
   type GeneratedType,
@@ -237,7 +253,7 @@ export {
 } from './notifications/service';
 
 // Company settings (docs/modules/core.md#company-settings-page): the details, the logo, allowed
-// email domains and upload settings. System Administrator only until step 1.6.
+// email domains and upload settings. System Administrator only, by role.
 export {
   COMPANY_LOGO_OWNER_TYPE,
   COMPANY_LOGO_TYPES,
@@ -295,7 +311,7 @@ export {
 } from './positions/service';
 
 // User accounts and employee numbers (docs/modules/core.md#managing-user-accounts,
-// #employee-number-company-id, #reporting-lines). HR and the System Administrator until step 1.6.
+// #employee-number-company-id, #reporting-lines). HR and the System Administrator, by role.
 export {
   changeEmploymentStatus,
   type CreatedUser,

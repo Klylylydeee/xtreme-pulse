@@ -24,6 +24,23 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - The seed only loads the allowed email domains. The allowed-domain check runs in services (bootstrap, sign-in and user creation) against the stored `allowedEmailDomains` records, not in the users schema.
 - The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
 
+## Administration area
+
+Built in step 1.6. The `/admin` pages are checked by role, not module access ([Rules](../../SECURITY.md#rules)), and appear in the sidebar's **Administration** group:
+
+| Entry | Route | Who |
+|---|---|---|
+| Overview | `/admin` | HR and the System Administrator |
+| Users | `/admin/users` | HR and the System Administrator |
+| Departments | `/admin/departments` | HR and the System Administrator |
+| Positions | `/admin/positions` | HR and the System Administrator |
+| Company settings | `/admin/settings` | The System Administrator |
+| Audit log | `/admin/audit` | The System Administrator |
+
+- Anyone else doesn't see the group (an empty sidebar group is hidden), and gets the [no-access state](../DESIGN_SYSTEM.md#feedback--motion) (HTTP 403) on every `/admin` page, `/admin` itself included. HR gets it on `/admin/settings` and `/admin/audit`.
+- Breadcrumbs read "Administration › Users" and so on, from the longest matching entry. The command bar's navigation items follow the filtered sidebar.
+- `/admin/access` and its badge join the group in step 1.7 ([User access page](#user-access-page)).
+
 ## Departments and positions
 
 | Department | Code | Positions |
@@ -47,7 +64,7 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 
 Built in step 1.4.
 
-- **Routes:** `/admin/departments` and `/admin/positions`. Until module access arrives in step 1.6, both pages are for HR and the System Administrator only; anyone else gets "not found". Like `/admin/audit`, that not-found page currently answers with HTTP 200 (the streaming loading boundary starts the response first); this is accepted until step 1.6 brings the designed no-access state. They are not in the sidebar until step 1.6; the `/admin` overview links to them. Each service checks the role again itself.
+- **Routes:** `/admin/departments` and `/admin/positions`, for HR and the System Administrator, in the sidebar's Administration group ([Administration area](#administration-area)). Anyone else gets the no-access state (HTTP 403). Each service checks the role again itself.
 - **Departments** have a name, a code and an optional department head. The code (2 to 10 capital letters or digits, starting with a letter) is set when the department is added and can't be changed afterwards; only the name and the head can be edited. Codes are never reused: the unique index includes retired departments.
 - **Department head:** any employee whose account resolves to active, from any department. It is optional and can be cleared. A head who later separates stays set (from build step 1.5): the departments list marks them with an "Inactive" badge, and escalations treat an inactive head as no head (Phase 6).
 - **Positions** have a name, a department and a timesheet type. A position is added only to a live (not retired) department. Its department is fixed once created; to move a position, add a new one in the other department. Only the name and the timesheet type can be edited. Position names are unique within a department ignoring case (`Driver` and `driver` count as the same name), retired positions included.
@@ -81,7 +98,7 @@ Built in step 1.4.
 
 Built in step 1.5. Passwords, account status and the System Administrator's rules are in [SECURITY.md](../../SECURITY.md#account--access); this section covers the screen and the fields Core owns. Phase 2 adds the full employee record in Pulse Talent.
 
-- **Route:** `/admin/users`. Until module access arrives in step 1.6, it is for HR and the System Administrator only; anyone else gets "not found" (with HTTP 200 until step 1.6, see [Managing departments and positions](#managing-departments-and-positions)). It is not in the sidebar; the `/admin` overview links to it. Each service checks the role again itself.
+- **Route:** `/admin/users`, for HR and the System Administrator, in the sidebar's Administration group ([Administration area](#administration-area)). Anyone else gets the no-access state (HTTP 403). Each service checks the role again itself.
 - **List:** employee number, name, email, department, position and employment status, with a "Temporary password" badge while the user still has to change a temporary password. Search by name, employee number or email, and filter by department. Separated users (Resigned, Terminated, Retired) are hidden unless "Show separated" is on (`?separated=1`). Sorted by last name, with no paging.
 - **Creating a user** opens a sheet with:
   - Login email, lowercased and checked against the stored allowed email domains (a removed domain is refused). An email already in use is a field error.
@@ -116,7 +133,7 @@ The page where HR and the System Administrator set each user's module access.
 - **After creating a user:** HR or the System Administrator goes straight to that user's access sheet, with the option to set access later.
 - **From the employee record:** the user's record in Pulse Talent has a "Manage access" action that opens the same sheet (HR and System Administrator only).
 - **Notifications:** HR and the System Administrator are notified when a new user is created, and reminded daily while any user still needs access.
-- **New user's home:** a user with no module access sees a short message on the Pulse Core home, e.g. "Your access is being set up. HR will give you access to the modules you need." Self-service stays available.
+- **New user's home** (build step 1.6): a user whose effective access is None on every module sees a card under the Home hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It never shows to the System Administrator, but can show to HR or a Board member with nothing set. It replaces the "Nothing needs your attention" empty state while it shows; the company details reminder is unchanged ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Self-service stays available.
 - **Board members:** Board of Directors members normally need Insight Read for the Board dashboards, targets and weekly summary. The sheet shows this as a hint for Board members; it never grants access automatically.
 - Every change is audit-logged (see [Module access](../../SECURITY.md#module-access-rwo)).
 
@@ -234,7 +251,7 @@ Built in step 1.3, in the `auditLogs` collection:
 - **Redacted snapshots.** Snapshots never hold a password, a hash or a sensitive value; the rules are in [Audit logging](../../SECURITY.md#audit-logging). Ids are stored as strings and dates as ISO 8601 strings. On an update, a sensitive field whose stored value changed is marked as changed in `after` (still hidden), so the entry shows that it changed.
 - **Size cap.** A string longer than 2,000 characters is cut there and marked, an array keeps its first 100 items plus a marker with the number left out, nesting deeper than 20 levels is replaced by a marker, and a whole snapshot still larger than 64 KB once serialized is replaced by `{ "$truncated": "snapshot", "bytes": <size> }`. The entry is still written.
 - **Not logged:** sign-ins, seed writes, viewing the audit log, and opening or marking notifications.
-- **Browsing.** Newest first, filtered by Manila date range, actor, module, action, and record type and id. Until module access arrives in step 1.6, the page is for the System Administrator only; anyone else gets "not found".
+- **Browsing.** Newest first, filtered by Manila date range, actor, module, action, and record type and id. The page is for the System Administrator only; anyone else, HR included, gets the no-access state (HTTP 403, see [Administration area](#administration-area)).
 - **Kept forever.** Entries are never deleted and never expire (see [Retention](../DATA_MODEL.md#retention)).
 
 ## Company details (pending from the client)
@@ -256,7 +273,7 @@ The company TIN and the employer numbers are company data, not [sensitive person
 
 ### Company settings page
 
-Built in step 1.4, at `/admin/settings`. Until module access arrives in step 1.6, the page and everything on it (company details, the logo, allowed email domains and upload settings) are for the System Administrator only; anyone else gets "not found" (with HTTP 200 until step 1.6, see [Managing departments and positions](#managing-departments-and-positions)). Each service checks the role again itself. The page is not in the sidebar until step 1.6; the `/admin` overview links to it.
+Built in step 1.4, at `/admin/settings`. The page and everything on it (company details, the logo, allowed email domains and upload settings) are for the System Administrator only; anyone else, HR included, gets the no-access state (HTTP 403, see [Administration area](#administration-area)). Each service checks the role again itself. The page is in the sidebar's Administration group for the System Administrator.
 
 - **Placeholders.** A company detail counts as a placeholder while its value is still a marked placeholder (`[Company TIN]`, see `isPlaceholder`). The logo counts too: it is pending while no logo is uploaded (`logoFileId` is null). The page labels each pending detail "Placeholder".
 - **Reminder banner.** While any detail is pending, Home and `/admin` show HR and the System Administrator a banner listing the missing details. Nobody else sees it. It clears once every detail, the logo included, is filled in.

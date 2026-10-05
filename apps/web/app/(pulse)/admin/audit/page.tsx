@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { ScrollText } from 'lucide-react';
 import { ActionError, auditFiltersSchema } from '@pulse/core';
 import { type AuditPage, listAuditEntries } from '@pulse/core/server';
@@ -8,7 +9,7 @@ import { EmptyState } from '@pulse/ui/components/empty-state';
 import { ErrorState } from '@pulse/ui/components/error-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { KeysetPager } from '@/components/keyset-pager';
-import { requireSystemAdministrator } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import {
   firstPageHref,
   firstParam,
@@ -17,6 +18,7 @@ import {
   type SearchParams,
 } from '@/lib/keyset-paging';
 import { AuditFilterForm, type AuditFilterValues } from './audit-filters';
+import { AuditLogLoading } from './audit-log-loading';
 import { AuditLogTable } from './audit-log-table';
 
 export const metadata: Metadata = { title: 'Audit log' };
@@ -35,14 +37,24 @@ const FILTER_NAMES = [
 ] as const satisfies readonly (keyof AuditFilterValues)[];
 
 // Spec: docs/modules/core.md#audit-log — the append-only audit log, newest first, filtered by Manila
-// date range, actor, module, action, and record type and id. The System Administrator only until
-// module access arrives in step 1.6; anyone else gets "not found". Viewing it is not audit-logged.
+// date range, actor, module, action, and record type and id. The System Administrator only; anyone
+// else, HR included, gets the no-access state (HTTP 403). The guard comes first, before anything
+// that can suspend; the entries load inside the page's own boundary
+// (docs/CODE_STYLE.md#pages-server-actions-and-route-handlers). Viewing it is not audit-logged.
 export default async function AuditLogPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSystemAdministrator();
+  await requireAdminPage('systemAdministrator');
+  return (
+    <Suspense fallback={<AuditLogLoading />}>
+      <AuditLog searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function AuditLog({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
 
   const values = Object.fromEntries(

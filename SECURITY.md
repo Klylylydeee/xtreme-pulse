@@ -81,7 +81,7 @@ Most rights come from [module access](#module-access-rwo). A few people also hol
 | Supervisor | Anyone in an employee's `reportingTo` | Approves that employee's requests ([Reporting lines](docs/modules/core.md#reporting-lines)) |
 | Department head | Set per department | Receives escalations such as SLA breaches ([Departments and positions](docs/modules/core.md#departments-and-positions)) |
 
-The HR, Accounting and Board roles follow the employee's department. Moving someone into or out of one of these departments changes their role from their next request. Their module access doesn't change with it (see [Rules](#rules)). HR can make that move on `/admin/users` (step 1.5), so HR moving an employee into or out of the HR department grants or removes the HR role itself; the department change is audit-logged like any edit (`core.employee` `update`).
+The HR, Accounting and Board roles follow the employee's department. Moving someone into or out of one of these departments changes their role from their next request. Their module access doesn't change with it (see [Rules](#rules)): a role grants no module access, so an HR or Board member with nothing stored sees no modules until their access is set. HR also opens the Pulse Core administration area by role ([Rules](#rules)). HR can make that move on `/admin/users` (step 1.5), so HR moving an employee into or out of the HR department grants or removes the HR role itself; the department change is audit-logged like any edit (`core.employee` `update`).
 
 Record-level roles, such as deal owner, deal team, project lead, project team and the delivering employee on a receipt, are defined in each module spec.
 
@@ -92,6 +92,7 @@ Record-level roles, such as deal owner, deal team, project lead, project team an
 - **Only another System Administrator** changes a System Administrator's email or employment status, or resets their password. HR can edit a System Administrator's other identity fields, never these three. Nobody can edit their own row on `/admin/users`.
 - **The bootstrap system account** is shown on `/admin/users` only to System Administrators, read-only, with Reset password for another System Administrator; HR doesn't see it. Disabling it, and recovery when the only System Administrator is disabled, come in build step 1.7.
 - A change that would leave no active System Administrator is refused ([Account status](#account-status)).
+- **Effective access** (build step 1.6): while `isSystemAdministrator` is true, the account resolves to Owner on every module and Read on Insight, whatever is stored, and sees the whole Administration group ([Resolving and enforcing](#resolving-and-enforcing-build-step-16)).
 - Manages user accounts (create, reset password, deactivate; [Managing user accounts](docs/modules/core.md#managing-user-accounts)), module access (shared with HR), departments and positions (shared with HR), company details, allowed email domains, and system-wide settings, which are the upload limits ([Company settings page](docs/modules/core.md#company-settings-page)).
 - The System Administrator has **full access to everything**, including sensitive data (salary, payslips, government IDs, bank accounts, 201 files, disciplinary cases). Revealing and changing sensitive data is still audit-logged like any other user.
 
@@ -113,21 +114,39 @@ export type ModuleKey = (typeof MODULES)[number];
 export const ACCESS_LEVELS = ["none", "read", "write", "owner"] as const; // cumulative, lowest to highest
 export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
-export type ModuleAccess = Record<ModuleKey, AccessLevel>; // missing module = "none"
+// Pulse Insight is read-only: it takes only None or Read.
+export const MODULE_ACCESS_LEVELS = {
+  engage: ACCESS_LEVELS, ops: ACCESS_LEVELS, supply: ACCESS_LEVELS, desk: ACCESS_LEVELS,
+  fiscal: ACCESS_LEVELS, talent: ACCESS_LEVELS, insight: ["none", "read"],
+} as const satisfies Record<ModuleKey, readonly AccessLevel[]>;
+export type LevelFor<M extends ModuleKey> = (typeof MODULE_ACCESS_LEVELS)[M][number];
+
+// Typed per module, so Write or Owner on Insight doesn't compile. Missing module = "none".
+export type ModuleAccess = { [M in ModuleKey]: LevelFor<M> };
 ```
 
 ### Rules
 
 - Levels are cumulative: None < Read < Write < Owner.
 - Pulse Insight is read-only, so it only takes None or Read. Insight dashboards show only data from modules the user has at least Read access to, except Board of Directors members with Insight Read, who see company-wide totals for every module, even modules where they have None (see [Who sees what](docs/modules/insight.md#who-sees-what)). Setting Insight targets (the yearly revenue target and the SLA compliance target) is limited to Board of Directors members with Insight Read and the System Administrator. It needs no Owner level (Insight has none).
-- Pulse Core (sign-in, home, own profile, directory, org chart, notifications) is open to every active user and has no access level. Its administration area is HR and System Administrator only.
+- Pulse Core (sign-in, home, own profile, directory, org chart, notifications) is open to every active user and has no access level. Its administration area is HR and System Administrator only, checked by role, not module access (build step 1.6): HR or the System Administrator for `/admin`, `/admin/users`, `/admin/departments` and `/admin/positions`, the System Administrator only for `/admin/settings` and `/admin/audit`. Pages use one web helper, `requireAdminPage('hrOrSystemAdministrator' | 'systemAdministrator')`, and Server Actions its action form, `adminOnly(kind)`, an `AccessCheck` for `defineAction({ access })` (the service checks the role again); anyone without the role gets the no-access state on every `/admin` page, `/admin` itself included (see [Administration area](docs/modules/core.md#administration-area)).
 - **New users start with no module access.** When an account is created, every module is set to None, so the user sees only Pulse Core (home, own profile, directory, org chart, notifications) and self-service. **HR or the System Administrator** then sets the user's access per module on the [User access page](docs/modules/core.md#user-access-page).
 - On a position change, HR and the System Administrator are prompted to review the user's access; access is never changed automatically.
 - No one can change their own module access. HR cannot change the System Administrator's access.
 - The System Administrator always has Owner on every module (Read on Insight, which has no Owner level); this cannot be lowered.
-- Enforce on the server in every page, Server Action and Route Handler with one helper (e.g. `requireModuleAccess("fiscal", "write")`). Hiding a sidebar item or button is never access control on its own.
+- Enforce on the server in every page, Server Action and Route Handler with one helper (e.g. `requireModuleAccess("fiscal", "write")`; one shared check with a page form and an action form, see [below](#resolving-and-enforcing-build-step-16)). Hiding a sidebar item or button is never access control on its own.
 - Module access never overrides the [Sensitive data](#sensitive-data) rules: Talent Read or Write does not reveal salary, payslips, government IDs, bank accounts, 201 files or disciplinary cases.
 - Every access change is audit-logged (module, old level, new level, changed by).
+
+#### Resolving and enforcing (build step 1.6)
+
+- **Stored** on the account as `users.moduleAccess`, a subdocument (no `_id`) with one key per module. Engage, Ops, Supply, Desk, Fiscal and Talent take `none`, `read`, `write` or `owner`; Insight takes `none` or `read`. Each defaults to `none`, and a missing key or a missing subdocument resolves to `none`, so no migration is needed ([DATA_MODEL.md](docs/DATA_MODEL.md#collection-ownership)). In step 1.6 the field is only read; the setter, its `accessChange` audit entry and "last changed by" arrive with the [User access page](docs/modules/core.md#user-access-page) in step 1.7.
+- **Effective access** is computed when the session user loads, on every request. When `isSystemAdministrator` is true (the bootstrap system account included), it is Owner on every module and Read on Insight, and the stored values are ignored. `CurrentUser.moduleAccess` is this effective map, never the stored one.
+- **One shared check, two forms.** `packages/core` holds the logic: `hasModuleAccess(user, module, level)` and `assertModuleAccess(...)`. `apps/web` wraps it: `requireModuleAccess(module, level)` is the `AccessCheck` for Server Actions, which Route Handlers can also use, and `requireModulePage(module, level)` returns the `CurrentUser` or calls `forbidden()`. The level is typed per module, so Write on Insight doesn't compile. The one gap is a module typed as the whole `ModuleKey` union (a variable, not a literal): then any level compiles, and the runtime refuses Write or Owner on Insight because an effective Insight level is never above Read.
+- **Where it's checked.** Each page, Server Action and Route Handler checks for itself. The proxy only checks sign-in and account status and has no route table. Page guards live in the page, never in a layout: layouts don't re-run on client navigation, and later exceptions live under module routes. The guard runs first, before anything that can suspend ([Pages, Server Actions and Route Handlers](docs/CODE_STYLE.md#pages-server-actions-and-route-handlers)).
+- **What a refusal answers.** A page answers HTTP 403 with the designed no-access state inside the shell (Next's `forbidden()` with `experimental.authInterrupts`; see [Feedback & motion](docs/DESIGN_SYSTEM.md#feedback--motion)). A Server Action returns the `AccessDeniedError` form error. A Route Handler answers 403, or 404 for files ([File storage](docs/ARCHITECTURE.md#file-storage)). If `authInterrupts` fails in development or a production build, pages fall back to `notFound()` with a no-access not-found page (404).
+- **Known Next.js limitation** (vercel/next.js#99287 and #98954). When a page calls `forbidden()` or `notFound()`, the response has the right status, 403 or 404, but the server HTML is an empty `__next_error__` document. The no-access or not-found state inside the shell appears only once client JavaScript runs, and the page stays blank with JavaScript off. This is accepted: the server still makes the access decision and sets the status code. Don't work around it with a `loading.tsx` or a `<Suspense>` boundary above a page's guard, because that turns the 403 or 404 into a 200.
+- No setter or dev script exists in step 1.6. Tests write `users.moduleAccess` through the model, and browser checks set it directly in a throwaway database.
 
 ### Exceptions to module access
 
@@ -140,6 +159,7 @@ These actions don't need module access. Each one still needs a server-side check
 - **Payment approvers can open the payment.** The Managing Director and the Sales Director, when asked to approve a payment, can open it, with its supplier bills and supporting documents, read-only, even without Pulse Fiscal access.
 - **Confirming non-stock purchases.** When a bill includes non-stock PO lines (services, subcontractors, licenses), the project lead confirms that the work or item was delivered, or returns it with remarks, from their Approvals list or on the project. For a PO with no project, the purchase request's requester confirms the same way. When the PO links several purchase requests, any one of their requesters can confirm, and the first decision settles it (as with any one supervisor). The confirmer can open that PO and bill read-only, even without Pulse Supply or Pulse Fiscal access.
 - **The company logo is public.** The login page shows the company logo before anyone signs in, so one narrow Route Handler, `/company-logo`, needs no sign-in (build step 1.4). It serves only the stored file whose id equals `companySettings.logoFileId`, and only when that file is a PNG, JPEG or WebP image; anything else, including no logo being set, gets "not found". It takes no file id from the request (its `?v=<fileId>` parameter is only a cache buster) and sends the same hardening headers as the file route (`X-Content-Type-Options: nosniff` and the stored content type). It is the only stored file served outside the access-checked [file route](docs/ARCHITECTURE.md#file-storage).
+- **The file route checks each owner type through a registration** (build step 1.6). A stored file belongs to a record (`ownerType`), and the module that owns that record type registers its check (`registerFileAccess(ownerType, check(user, file))`). An unregistered owner type is refused, and so is registering an owner type a second time in production. A refused file and a missing one get the same answer, 404 "File not found.", so file ids can't be probed. The proxy already sends a signed-out visitor to sign-in (and a temporary password to the change-password page), so the route's own 401 is never reached today; it stays as defence in depth. The registrations are listed in [File storage](docs/ARCHITECTURE.md#file-storage).
 
 ## Sensitive data
 
@@ -220,13 +240,13 @@ These rules hold whatever the retention: entries are kept forever ([Retention](d
 
 ## Development-only pages
 
-`/dev/ui` (the design tokens and components) and `/dev/health` (database, Redis, worker, storage and encryption checks) exist only in development. They are never served in production builds.
+`/dev/ui` (the design tokens and components) and `/dev/health` (database, Redis, worker, storage and encryption checks) exist only in development. They are never served in production builds. Their actions still check sign-in: the `/dev/health` upload uses `requireSignedIn()`, and from build step 1.6 there is no placeholder check (`noAccessCheckYet` is removed).
 
 ## Review checklist
 
 Use this list in every phase review and in the whole-app review (build step 7.8). Each item points to its rule.
 
-- [ ] Every page, Server Action and Route Handler calls `requireModuleAccess`, or is one of the [exceptions](#exceptions-to-module-access) with its own check.
+- [ ] Every page, Server Action and Route Handler calls `requireModuleAccess`, or a Pulse Core check (signed in, or the admin area role), or is an [exception](#exceptions-to-module-access) with its own check ([Rules](#rules)).
 - [ ] Record-level visibility (deal team, project team, project costs, confidential cases) is enforced on the server, and hidden data is never sent to the browser.
 - [ ] Account status is checked on every request, and a session from before `users.sessionsValidFrom` is refused ([Account status](#account-status), [Sign-in and passwords](#sign-in-and-passwords)).
 - [ ] Temporary passwords are generated on the server, returned only to the person who created or reset the account, and never stored in plain text, logged or put in an audit entry ([Sign-in and passwords](#sign-in-and-passwords)).

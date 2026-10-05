@@ -2,15 +2,19 @@ import { isValidObjectId } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { SESSION_MAX_AGE_HOURS } from '../../account';
 import { now } from '../../dates';
+import type { ModuleAccess } from '../../module-access';
 import { DepartmentModel } from '../departments/model';
 import { EmployeeModel } from '../employees/model';
 import { UserModel } from '../users/model';
 import { resolveAccountStatus } from './account-status';
+import { resolveModuleAccess } from './module-access';
 import { type DepartmentRole, departmentRolesFor } from './roles';
 
 // Spec: SECURITY.md#account-status — JWT sessions can't be revoked on their own, so the account is
 // reloaded on every request: a deactivated user is signed out at once, and a department move
-// changes the user's roles from their next request (SECURITY.md#roles).
+// changes the user's roles from their next request (SECURITY.md#roles). Module access is resolved
+// from the same account read, so a change to it also applies from the next request
+// (SECURITY.md#resolving-and-enforcing-build-step-16).
 
 /** The signed-in user, as pages and actions see it. Never holds the password hash. */
 export interface CurrentUser {
@@ -24,6 +28,11 @@ export interface CurrentUser {
   employee: { id: string; name: string; departmentCode: string | null } | null;
   /** HR, Accounting and Board, from the employee's department. */
   roles: DepartmentRole[];
+  /**
+   * The effective access per module, never the stored map: Owner on every module and Read on
+   * Insight for a System Administrator, otherwise the stored levels with a missing one as None.
+   */
+  moduleAccess: ModuleAccess;
 }
 
 const SESSION_MAX_AGE_MS = SESSION_MAX_AGE_HOURS * 60 * 60 * 1000;
@@ -103,5 +112,6 @@ export async function loadSessionUser(
     employee,
     // The system account has no department, so no department role.
     roles: user.isSystemAccount ? [] : departmentRolesFor(employee?.departmentCode ?? null),
+    moduleAccess: resolveModuleAccess(user),
   };
 }

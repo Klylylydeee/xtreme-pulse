@@ -20,11 +20,12 @@ import {
   updateDepartment,
   updatePosition,
 } from '@pulse/core/server';
-import { hrOrSystemAdministratorOnly, signedInUser } from '@/lib/auth';
+import { adminOnly, signedInUser } from '@/lib/auth';
 
 // Spec: docs/modules/core.md#managing-departments-and-positions — adding, editing, retiring and
-// restoring departments and positions, for HR and the System Administrator until module access
-// arrives in step 1.6. Each action checks the role first; each service checks it again and writes
+// restoring departments and positions, for HR and the System Administrator (an admin area role, not
+// module access: SECURITY.md#resolving-and-enforcing-build-step-16). Each action checks the role
+// first (`adminOnly('hrOrSystemAdministrator')`); each service checks it again and writes
 // its change and audit entry in one transaction. A department's code and a position's department
 // are fixed once created, so the update schemas don't take them.
 
@@ -37,32 +38,32 @@ const byId = z.object({ id: recordId });
 // --- Departments ------------------------------------------------------------------------------
 
 export const createDepartmentAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: departmentInputSchema,
   handler: async (input) => createDepartment(await signedInUser(), input),
 });
 
 export const updateDepartmentAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: departmentUpdateSchema.extend({ id: recordId }),
   handler: async ({ id, ...input }) => updateDepartment(await signedInUser(), id, input),
 });
 
 export const retireDepartmentAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => retireDepartment(await signedInUser(), id),
 });
 
 export const restoreDepartmentAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => restoreDepartment(await signedInUser(), id),
 });
 
 /** Employees who can be picked as a department head, matched on name or employee number. */
 export const searchDepartmentHeadsAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: z.object({ search: z.string().trim().max(100).default('') }),
   handler: async ({ search }) => listEligibleDepartmentHeads(await signedInUser(), search),
 });
@@ -70,25 +71,25 @@ export const searchDepartmentHeadsAction = defineAction({
 // --- Positions --------------------------------------------------------------------------------
 
 export const createPositionAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: positionInputSchema,
   handler: async (input) => createPosition(await signedInUser(), input),
 });
 
 export const updatePositionAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: positionUpdateSchema.extend({ id: recordId }),
   handler: async ({ id, ...input }) => updatePosition(await signedInUser(), id, input),
 });
 
 export const retirePositionAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => retirePosition(await signedInUser(), id),
 });
 
 export const restorePositionAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => restorePosition(await signedInUser(), id),
 });

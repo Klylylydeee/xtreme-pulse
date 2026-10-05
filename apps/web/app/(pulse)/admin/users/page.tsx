@@ -1,25 +1,43 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { businessToday, dateHiredRange } from '@pulse/core';
 import {
+  type CurrentUser,
   listDepartments,
   listPositions,
   listUsers,
   ROLE_DEPARTMENT_CODES,
 } from '@pulse/core/server';
-import { requireHROrSystemAdministrator } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { firstParam, type SearchParams } from '@/lib/keyset-paging';
 import type { UserDepartmentOption, UserPositionOption } from './user-sheet';
+import { UsersLoading } from './users-loading';
 import { UsersManager } from './users-manager';
 
 export const metadata: Metadata = { title: 'Users' };
 
 // Spec: docs/modules/core.md#managing-user-accounts — HR and the System Administrator create and
-// edit user accounts. Until module access arrives in step 1.6, anyone else gets "not found". The
-// list filters live in the URL: `?q=` (name, employee number or email), `?department=<id>` and
-// `?separated=1` (show Resigned, Terminated and Retired users). Loading errors go to the (pulse)
-// error boundary.
+// edit user accounts. Anyone else gets the no-access state (HTTP 403). The guard comes first,
+// before anything that can suspend; the list loads inside the page's own boundary
+// (docs/CODE_STYLE.md#pages-server-actions-and-route-handlers). The list filters live in the URL:
+// `?q=` (name, employee number or email), `?department=<id>` and `?separated=1` (show Resigned,
+// Terminated and Retired users). Loading errors go to the (pulse) error boundary.
 export default async function UsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const user = await requireHROrSystemAdministrator();
+  const user = await requireAdminPage('hrOrSystemAdministrator');
+  return (
+    <Suspense fallback={<UsersLoading />}>
+      <Users user={user} searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function Users({
+  user,
+  searchParams,
+}: {
+  user: CurrentUser;
+  searchParams: Promise<SearchParams>;
+}) {
   const params = await searchParams;
   const search = (firstParam(params, 'q') ?? '').trim().slice(0, 100);
   const departmentId = (firstParam(params, 'department') ?? '').trim() || null;

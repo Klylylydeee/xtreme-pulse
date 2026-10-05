@@ -17,12 +17,13 @@ import {
   resetPassword,
   updateUser,
 } from '@pulse/core/server';
-import { hrOrSystemAdministratorOnly, signedInUser } from '@/lib/auth';
+import { adminOnly, signedInUser } from '@/lib/auth';
 
 // Spec: docs/modules/core.md#managing-user-accounts, SECURITY.md#sign-in-and-passwords and
 // SECURITY.md#system-administrator — creating and editing user accounts on `/admin/users`, for HR
-// and the System Administrator until module access arrives in step 1.6. Each action checks the
-// role first; each service checks it again (own row, the system account, a System Administrator's
+// and the System Administrator (an admin area role, not module access:
+// SECURITY.md#resolving-and-enforcing-build-step-16). Each action checks the role first
+// (`adminOnly('hrOrSystemAdministrator')`); each service checks it again (own row, the system account, a System Administrator's
 // email, status and password) and writes its change and audit entries in one transaction.
 //
 // The temporary password from a create or reset goes only into that action's response, to the
@@ -58,7 +59,7 @@ function revalidateAdministration() {
 
 /** Creates a user; the response holds the temporary password, shown once. */
 export const createUserAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: z.preprocess(withReportingToList, userCreateSchema),
   handler: async (input) => {
     const created = await createUser(await signedInUser(), input);
@@ -69,7 +70,7 @@ export const createUserAction = defineAction({
 
 /** Edits a user's name, email, date hired, department, position and reporting lines. */
 export const updateUserAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: z.preprocess(withReportingToList, userUpdateSchema.extend({ id: recordId })),
   handler: async ({ id, ...input }) => {
     await updateUser(await signedInUser(), id, input);
@@ -79,7 +80,7 @@ export const updateUserAction = defineAction({
 
 /** Changes a user's employment status (and separation date). Takes effect at once. */
 export const changeEmploymentStatusAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: z.intersection(byId, employmentStatusChangeSchema),
   handler: async ({ id, ...input }) => {
     await changeEmploymentStatus(await signedInUser(), id, input);
@@ -89,7 +90,7 @@ export const changeEmploymentStatusAction = defineAction({
 
 /** Resets a user's password; the response holds the new temporary password, shown once. */
 export const resetPasswordAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => {
     const result = await resetPassword(await signedInUser(), id);
@@ -100,7 +101,7 @@ export const resetPasswordAction = defineAction({
 
 /** One user for the edit sheet, or null when there is no such user. */
 export const getUserAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: byId,
   handler: async ({ id }) => getUser(await signedInUser(), id),
 });
@@ -110,7 +111,7 @@ export const getUserAction = defineAction({
  * person being edited is left out (nobody reports to themselves); the service checks the rest.
  */
 export const searchSupervisorsAction = defineAction({
-  access: hrOrSystemAdministratorOnly(),
+  access: adminOnly('hrOrSystemAdministrator'),
   schema: z.object({
     search: z.string().trim().max(100).default(''),
     excludeEmployeeId: z.string().regex(OBJECT_ID_PATTERN).nullable().optional(),

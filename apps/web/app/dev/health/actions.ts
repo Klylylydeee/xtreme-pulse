@@ -1,11 +1,13 @@
 'use server';
 
 import { z } from 'zod';
-import { defineAction, noAccessCheckYet } from '@pulse/core';
+import { defineAction } from '@pulse/core';
 import { saveUpload } from '@pulse/core/server';
+import { requireSignedIn } from '@/lib/auth';
 
 // Development-only test upload for `/dev/health` (build step 0.7). It stores a file through the
-// storage service like any module will, owned by the `dev.sample` placeholder record type.
+// storage service like any module will, owned by the `dev.sample` placeholder record type, whose
+// files open through the file route in development only (build step 1.6).
 
 export interface TestUploadResult {
   name: string;
@@ -17,8 +19,8 @@ export interface TestUploadResult {
 }
 
 export const uploadTestFile = defineAction({
-  // Development only: refuses every call in production (step 1.6 brings real access checks).
-  access: noAccessCheckYet,
+  // Signed in. `/dev/*` is never served in production (SECURITY.md#development-only-pages).
+  access: requireSignedIn(),
   schema: z.object({
     file: z.instanceof(File, { message: 'Choose a file to upload.' }),
   }),

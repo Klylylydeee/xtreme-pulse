@@ -89,6 +89,9 @@ The [Xtreme Pulse screens](https://claude.ai/artifact/REqSjEy78c7ZQUGwy3dQ9e) de
 
 ## Feedback & motion
 - Every screen has designed loading (skeletons), empty (what this is and what to do next) and error states.
+- **No access** (build step 1.6). A blocked page shows, inside the shell, a designed empty state: an icon tile (Lucide `Lock`), the title "You don't have access to Pulse <Module>" ("You don't have access to this page" on an admin page), the line "Ask HR or the System Administrator if you need it.", and one action, "Go to Home". The rule behind it is in [Resolving and enforcing](../SECURITY.md#resolving-and-enforcing-build-step-16).
+- **Not found** (build step 1.6). An unknown URL gets a real 404 page outside the shell: a centred empty state with "Go to Home". A record or page that calls not-found inside the shell shows the same state there.
+- **Home access card** (build step 1.6). While a user has None on every module, Home shows a card under the hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It takes the place of the "Nothing needs your attention" empty state ([User access page](modules/core.md#user-access-page)).
 - Validate inline, next to the field.
 - Destructive actions are red, name the action ("Delete draft", not "OK"), and ask for confirmation.
 - Motion is subtle and quick (about 200–300ms, ease-out) and is turned off when the user prefers reduced motion (`prefers-reduced-motion`).

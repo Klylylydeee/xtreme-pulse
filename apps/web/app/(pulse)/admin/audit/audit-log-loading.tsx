@@ -1,7 +1,7 @@
 import { Skeleton } from '@pulse/ui/components/skeleton';
 
-/** The audit log while it loads: the header, the filters and the table's rows. */
-export default function AuditLogLoading() {
+/** The audit log while it loads: the header, the filters and the rows (the `<Suspense>` fallback). */
+export function AuditLogLoading() {
   return (
     <div role="status" aria-live="polite" className="flex flex-col gap-6">
       <span className="sr-only">Loading the audit log…</span>

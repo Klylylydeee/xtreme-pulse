@@ -1,9 +1,13 @@
 import type { Metadata } from 'next';
 import { ModulePlaceholder } from '@/components/module-placeholder';
+import { requireModulePage } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'Pulse Engage' };
 
-// Spec: docs/modules/engage.md. Step 1.6 adds the module access check before anything is read.
-export default function EngagePage() {
+// Spec: docs/modules/engage.md. Read access or higher (SECURITY.md#resolving-and-enforcing-build-step-16):
+// the guard runs first, before anything is read; without it the page answers HTTP 403 with the
+// no-access state. The module's data, once built, goes in an in-page <Suspense>.
+export default async function EngagePage() {
+  await requireModulePage('engage', 'read');
   return <ModulePlaceholder href="/engage" />;
 }

@@ -24,8 +24,13 @@ export function CommandInput({
   return (
     <div
       data-slot="command-input-wrapper"
-      // The field's focus indicator: the hairline under it turns into a 2px accent line.
-      className="flex items-center gap-3 border-b border-separator px-4 transition-colors duration-fast focus-within:border-accent focus-within:shadow-[inset_0_-1px_0_var(--accent)]"
+      // The field's focus ring (DESIGN_SYSTEM.md › Accessibility): the global 2px accent ring, drawn
+      // inside the field's row because the panel around it clips anything outside. The row takes
+      // the panel's top corners so the ring follows them.
+      className={cn(
+        'flex items-center gap-3 rounded-t-panel border-b border-separator px-4',
+        'focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-accent',
+      )}
     >
       <Search aria-hidden="true" className="size-5 shrink-0 text-text-secondary" />
       <CommandPrimitive.Input

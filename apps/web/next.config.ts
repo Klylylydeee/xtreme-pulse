@@ -41,6 +41,9 @@ export default function nextConfig(phase: string): NextConfig {
     // Workspace packages ship TypeScript source.
     transpilePackages: ['@pulse/core', '@pulse/db', '@pulse/ui'],
     experimental: {
+      // forbidden() and forbidden.tsx: a blocked page answers HTTP 403 with the no-access state
+      // inside the shell (SECURITY.md#resolving-and-enforcing-build-step-16, decision 52).
+      authInterrupts: true,
       // Uploads reach the storage service through Server Actions. This is only the request
       // ceiling: the upload limit itself is the `core.fileUploads` setting, which can't exceed it.
       // Keep it equal to UPLOAD_REQUEST_LIMIT_BYTES in packages/core/src/server/files/settings.ts.

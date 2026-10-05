@@ -62,7 +62,6 @@ export {
   fieldError,
   formDataToObject,
   formFailure,
-  noAccessCheckYet,
   publicAction,
   type ServerAction,
   validationFailure,
@@ -104,6 +103,24 @@ export * from './user-accounts';
 export { isPlaceholder } from './placeholder';
 export { TIMESHEET_TYPES, type TimesheetType } from './timesheet-types';
 export { isModuleKey, type ModuleKey, MODULES } from './modules';
+// Module access levels (SECURITY.md#module-access-rwo). Resolving and checking a user's access is
+// server-only, in `@pulse/core/server`.
+export {
+  ACCESS_LEVELS,
+  type AccessLevel,
+  atLeast,
+  emptyModuleAccess,
+  fullModuleAccess,
+  hasAnyModuleAccess,
+  isAccessLevel,
+  isLevelFor,
+  type LevelFor,
+  MODULE_ACCESS_LEVELS,
+  type ModuleAccess,
+  normalizeModuleAccess,
+  readableModules,
+  type RequiredLevel,
+} from './module-access';
 export {
   AUDIT_ACTIONS,
   AUDIT_LABEL_MAX_LENGTH,

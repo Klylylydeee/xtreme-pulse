@@ -25,6 +25,8 @@ How Xtreme Pulse code is written. Rules marked _(proposed)_ weren't in the origi
 - Follow the shape in [Architecture rules](ARCHITECTURE.md#architecture-rules): validate with Zod, check access, call a service. No business logic in pages or actions.
 - Server Actions return field errors in one shared shape, so forms can show them inline next to the field (build step 0.6).
 - Put the access check first, before reading any data (see [Module access](../SECURITY.md#module-access-rwo)).
+- **Admin area checks** (build step 1.6). The Pulse Core admin area is checked by role, not module access: a page calls `requireAdminPage(kind)` and a Server Action uses `adminOnly(kind)` as its `access` check, with `kind` either `'hrOrSystemAdministrator'` or `'systemAdministrator'`. The service checks the role again ([Rules](../SECURITY.md#rules)).
+- **Guarded pages** (build step 1.6). A page calls its guard (`requireModulePage`, `requireAdminPage`) first, before anything that can suspend, then wraps its data in an in-page `<Suspense>` with the skeleton as fallback. No route-level `loading.tsx` may sit above a guarded page: it starts the response first and forces HTTP 200 on the no-access state. Guards go in pages, never in layouts, which don't re-run on client navigation ([Resolving and enforcing](../SECURITY.md#resolving-and-enforcing-build-step-16)).
 
 ## Constants versus data
 

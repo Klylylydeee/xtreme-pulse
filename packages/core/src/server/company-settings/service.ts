@@ -22,8 +22,8 @@ import {
 } from './model';
 
 // Spec: docs/modules/core.md#company-settings-page — the one company settings record. Documents
-// and reports read the details from here. Only the System Administrator changes them (until module
-// access in step 1.6); each change writes its audit entry (`core.companySettings`, action
+// and reports read the details from here. Only the System Administrator changes them (by role, not
+// module access); each change writes its audit entry (`core.companySettings`, action
 // `update`) in the same transaction. Setting or removing the logo is an `update` too.
 //
 // The logo is public (SECURITY.md#exceptions-to-module-access): `/company-logo` serves only the

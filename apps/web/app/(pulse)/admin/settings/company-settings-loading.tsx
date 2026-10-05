@@ -19,8 +19,8 @@ function SectionSkeleton({ rows }: { rows: number }) {
   );
 }
 
-/** The company settings page while it loads: the header and each section's card. */
-export default function CompanySettingsLoading() {
+/** The company settings page while it loads (the page's `<Suspense>` fallback). */
+export function CompanySettingsLoading() {
   return (
     <div role="status" aria-live="polite" className="flex flex-col gap-6">
       <span className="sr-only">Loading company settings…</span>

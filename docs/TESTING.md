@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests) and the [user account tests](#user-account-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests) and the [module access tests](#module-access-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests) and [User account tests](#user-account-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests) and [Module access tests](#module-access-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,11 +16,11 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; and from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites.
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; and from build step 1.6, the module access level, effective access, file access and navigation suites.
 
 ## Sensitive-data guard tests
 
-The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested areas are the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests), [Core administration](#core-administration-tests) and [user accounts](#user-account-tests). Other areas have no automated tests until this doc says so.
+The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested areas are the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests), [Core administration](#core-administration-tests), [user accounts](#user-account-tests) and [module access](#module-access-tests). Other areas have no automated tests until this doc says so.
 
 - **Scope.** The `sensitiveField()` guard and the `$jsonSchema` validator described in [Sensitive data](../SECURITY.md#sensitive-data). Nothing else.
 - **Where.** Next to the code they test, as `*.test.ts`: the guard's tests in `packages/core/src/server/encryption/`, and the validator's beside the code that builds and installs it.
@@ -76,6 +76,17 @@ Added in build step 1.5. User accounts decide who can sign in, which number a pe
   - **Sessions (`session-user.test.ts`, [Account status](../SECURITY.md#account-status)).** A session that signed in before `sessionsValidFrom` is refused. A user set to Resigned as of today resolves as deactivated on the next request. Changing one's own password keeps other sessions.
   - **Temporary passwords (`temporary-password.test.ts`, [Sign-in and passwords](../SECURITY.md#sign-in-and-passwords)).** A generated password has 16 Crockford base32 characters in the `XXXX-XXXX-XXXX-XXXX` form, meets the password rule and never equals the email. A reset sets `mustChangePassword` and `sessionsValidFrom` and writes one `passwordReset` entry, and no entry holds the temporary password or a hash. Resetting one's own password is refused, and a System Administrator's password is reset only by a different System Administrator.
 
+## Module access tests
+
+Added in build step 1.6. Module access decides what every user can open, and a wrong level, a System Administrator who resolves to None, or a file opened without a check all look fine to the person testing as an admin. They use the framework, database setup and rules of the guard tests above (Vitest, a throwaway `mongodb-memory-server` replica set, one database per file, made-up data only). They partly move the proposed [access-control tests](#when-automated-tests-arrive-proposed) into what runs today: the level matrix, not yet each module's pages, actions and exceptions.
+
+- **Where.** Next to the code they test, as `*.test.ts`: `packages/core/src/module-access.test.ts`, `packages/core/src/server/auth/module-access.test.ts`, `packages/core/src/server/files/access.test.ts` and `apps/web/lib/navigation.test.ts`.
+- **What they cover.**
+  - **Levels (`module-access.test.ts` in `src/`, [Rules](../SECURITY.md#rules)).** The level order None < Read < Write < Owner, the Insight limit (None or Read), a missing module reads as None, and the list of readable modules.
+  - **Effective access (`server/auth/module-access.test.ts`, [Resolving and enforcing](../SECURITY.md#resolving-and-enforcing-build-step-16)).** The stored map comes through the session load (`loadSessionUser`), and an account with no field resolves to None everywhere. The System Administrator and the bootstrap system account resolve to Owner on every module and Read on Insight, whatever is stored. HR or Board members with nothing stored get None. The schema refuses `owner` on Insight and unknown levels. The full matrix of 7 modules × 4 stored levels × required levels. The admin area kinds (`hrOrSystemAdministrator`, `systemAdministrator`) for HR, the System Administrator and anyone else.
+  - **File access (`server/files/access.test.ts`, [File storage](ARCHITECTURE.md#file-storage)).** An unregistered owner type is refused. The company logo (`core.companySettings`) opens for a signed-in user. `dev.sample` is refused in production. A refused file and a missing one get the same answer.
+  - **Navigation (`navigation.test.ts`, [Administration area](modules/core.md#administration-area)).** A new user sees only Home; Talent Read adds Talent; HR sees the four HR admin entries; the System Administrator sees all 7 modules and all 6 admin entries; breadcrumbs use the longest matching entry.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -87,11 +98,11 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests) and the [user account tests](#user-account-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests) and the [module access tests](#module-access-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts, the approvals engine.
-3. **Access-control tests**: a matrix of module (Engage, Ops, …) × access level (None, Read, Write, Owner) × action, run against `requireModuleAccess` and the [exceptions](../SECURITY.md#exceptions-to-module-access), plus record-level visibility (deal team, project team, project costs).
+3. **Access-control tests**: a matrix of module (Engage, Ops, …) × access level (None, Read, Write, Owner) × action, run against `requireModuleAccess` and the [exceptions](../SECURITY.md#exceptions-to-module-access), plus record-level visibility (deal team, project team, project costs). The level matrix and the file access registry already run (see [Module access tests](#module-access-tests)); per-module pages, actions and exceptions are still to come.
 4. **End-to-end tests** with Playwright for the phone flows: timesheet, leave, delivery receipt signing, site report, service report.
 
 Tests go next to the code they test (`*.test.ts`). Test data comes from the seed loaders plus small, named fixtures. Never use real employee data.

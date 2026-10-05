@@ -1,6 +1,8 @@
-import { Schema, type Types } from 'mongoose';
+import { Schema, type SchemaDefinition, type Types } from 'mongoose';
 import { baseSchemaPlugin, defineModel } from '@pulse/db';
 import { emailDomainOf } from '../../account';
+import { MODULE_ACCESS_LEVELS, type ModuleAccess } from '../../module-access';
+import { MODULES } from '../../modules';
 
 // Spec: SECURITY.md#account--access and docs/modules/core.md#people-data-ownership — the user
 // account. Every user is an employee (`employeeId`), except the bootstrap system account.
@@ -8,7 +10,12 @@ import { emailDomainOf } from '../../account';
 // There is no stored account status: it is derived from the employee's employment status
 // (SECURITY.md#account-status). The bootstrap system account has no employee, so it is active
 // unless `systemAccountDisabled` is set (docs/DATA_MODEL.md#derived-values).
-// Module access is added in build step 1.6.
+//
+// Spec: SECURITY.md#resolving-and-enforcing-build-step-16 — the stored module access, one level
+// per module (decision 50 in docs/BUILD_PLAN.md). Each defaults to None, and a missing key or a
+// missing subdocument reads as None (resolveModuleAccess), so older accounts need no migration.
+// It is only read in step 1.6; the setter and its audit entry arrive in step 1.7. A System
+// Administrator's stored values are ignored: they resolve to Owner everywhere.
 
 export interface UserRecord {
   _id: Types.ObjectId;
@@ -30,11 +37,28 @@ export interface UserRecord {
    * user had ends (SECURITY.md#sign-in-and-passwords). Null until the first reset.
    */
   sessionsValidFrom: Date | null;
+  /**
+   * The stored level per module. Absent on accounts stored before step 1.6, and a key may be
+   * missing: read it through resolveModuleAccess, never directly.
+   */
+  moduleAccess?: Partial<ModuleAccess>;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
   updatedBy: Types.ObjectId | null;
 }
+
+// One key per module, each an enum of the levels that module takes, so `owner` or `write` on
+// Insight and an unknown level are refused on save.
+const moduleAccessSchema = new Schema<ModuleAccess>(
+  Object.fromEntries(
+    MODULES.map((module) => [
+      module,
+      { type: String, enum: [...MODULE_ACCESS_LEVELS[module]], required: true, default: 'none' },
+    ]),
+  ) as SchemaDefinition<ModuleAccess>,
+  { _id: false },
+);
 
 const userSchema = new Schema<UserRecord>({
   email: {
@@ -57,6 +81,8 @@ const userSchema = new Schema<UserRecord>({
   systemAccountDisabled: { type: Boolean, required: true, default: false },
   employeeId: { type: Schema.Types.ObjectId, default: null },
   sessionsValidFrom: { type: Date, default: null },
+  // A new account starts with None on every module (SECURITY.md#rules).
+  moduleAccess: { type: moduleAccessSchema, default: () => ({}) },
 });
 
 userSchema.index({ email: 1 }, { unique: true });

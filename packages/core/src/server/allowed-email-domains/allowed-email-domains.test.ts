@@ -3,6 +3,7 @@ import mongoose, { Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { AuditLogModel } from '../audit/model';
+import { resolveModuleAccess } from '../auth/module-access';
 import type { CurrentUser } from '../auth/session-user';
 import { coreSeedLoaders } from '../seed/loaders';
 import { UserModel } from '../users/model';
@@ -26,6 +27,10 @@ function actor(email: string, overrides: Partial<CurrentUser> = {}): CurrentUser
     isSystemAccount: false,
     employee: null,
     roles: [],
+    // The effective map, as loadSessionUser resolves it.
+    moduleAccess: resolveModuleAccess({
+      isSystemAdministrator: overrides.isSystemAdministrator ?? true,
+    }),
     ...overrides,
   };
 }

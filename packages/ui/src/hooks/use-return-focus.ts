@@ -38,7 +38,9 @@ export function useReturnFocus(): ReturnFocus {
       target.current = null;
       if (!element?.isConnected) return false;
       element.focus();
-      return true;
+      // A connected element can still refuse focus: hidden at this width (the command bar's search
+      // field below `md`), disabled or made inert since. Then the layer's default applies.
+      return document.activeElement === element;
     }
     return {
       remember: (trigger) => {
@@ -53,8 +55,7 @@ export function useReturnFocus(): ReturnFocus {
       },
       restore,
       onCloseAutoFocus: (event) => {
-        if (target.current?.isConnected) event.preventDefault();
-        restore();
+        if (restore()) event.preventDefault();
       },
     };
   }, []);

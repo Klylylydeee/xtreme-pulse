@@ -1,6 +1,12 @@
 'use client';
 
-import { useId, type ComponentType, type MouseEventHandler, type ReactNode } from 'react';
+import {
+  useId,
+  type ComponentType,
+  type MouseEvent,
+  type MouseEventHandler,
+  type ReactNode,
+} from 'react';
 import { cn } from '../lib/utils';
 import { IconTile } from './icon-tile';
 
@@ -46,6 +52,7 @@ export function Sidebar({
   headerAction,
   sections,
   linkComponent: Link = PlainLink,
+  linkHint,
   onNavigate,
   className,
 }: {
@@ -53,7 +60,13 @@ export function Sidebar({
   headerAction?: ReactNode;
   sections: ShellNavSection[];
   linkComponent?: ShellLinkComponent;
-  onNavigate?: () => void;
+  /**
+   * Rendered at the end of every link, inside it: a fixed-size hint such as a pending indicator
+   * that reads the link's own state (Next.js `useLinkStatus`). It must not change the row's size.
+   */
+  linkHint?: ReactNode;
+  /** Called when a link is clicked, with its item. */
+  onNavigate?: (item: ShellNavItem, event: MouseEvent<HTMLAnchorElement>) => void;
   className?: string;
 }) {
   const id = useId();
@@ -83,7 +96,7 @@ export function Sidebar({
                     <Link
                       href={item.href}
                       aria-current={item.current ? 'page' : undefined}
-                      onClick={onNavigate}
+                      onClick={onNavigate ? (event) => onNavigate(item, event) : undefined}
                       className={cn(
                         'flex h-11 items-center gap-2.5 rounded-lg px-2 text-subheadline transition-colors duration-fast',
                         item.current
@@ -99,7 +112,8 @@ export function Sidebar({
                       >
                         {item.icon}
                       </IconTile>
-                      <span className="min-w-0 truncate">{item.label}</span>
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {linkHint}
                     </Link>
                   </li>
                 ))}

@@ -1,22 +1,115 @@
 'use client';
 
-import { Suspense, type ReactNode } from 'react';
-import Link from 'next/link';
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AppShell } from '@pulse/ui/components/app-shell';
-import type { ShellBreadcrumb } from '@pulse/ui/components/top-toolbar';
 import type { ShellNavSection } from '@pulse/ui/components/sidebar';
 import { COMMAND_BAR_SHORTCUT } from '@pulse/ui/components/command-bar';
 import { ShortcutHint } from '@pulse/ui/components/shortcut-hint';
 import { Button } from '@pulse/ui/components/button';
 import { APP_NAME } from '@/lib/app';
-import { NAV_GROUPS, OTHER_PAGES, isEntryActive } from '@/lib/navigation';
+import { visibleNavigationAction } from '@/lib/actions/navigation';
+import {
+  activeEntry,
+  breadcrumbFor,
+  documentTitleFor,
+  isStatusBreadcrumb,
+  navigationFor,
+  type Breadcrumb,
+  type NavGroup,
+} from '@/lib/navigation';
 import { signOutAction } from '@/lib/sign-out';
 import { CompanyLogo } from './company-logo';
 import { NotificationRouteWatcher, useNotificationBell } from './notification-bell';
+import { useShellPageTitleState } from './shell-page-title';
 
-function sectionsFor(pathname: string): ShellNavSection[] {
-  return NAV_GROUPS.map((group) => ({
+function sameHrefs(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((href, index) => href === b[index]);
+}
+
+/**
+ * The hrefs of the sections the user can open, kept current. `initial` comes from the (pulse)
+ * layout, which doesn't re-run on client navigation, so on every pathname change after the first
+ * render the server is asked again (`visibleNavigationAction`, the same server-side rule): a module
+ * granted or taken away shows in the sidebar and command bar at the next click, without a reload.
+ * A failed request keeps the last good list; only the latest request's answer is used.
+ */
+function useVisibleHrefs(initial: readonly string[], pathname: string): readonly string[] {
+  const [hrefs, setHrefs] = useState(initial);
+  // A new list from the server render (a full load or router.refresh()) replaces the state.
+  const [lastInitial, setLastInitial] = useState(initial);
+  if (!sameHrefs(lastInitial, initial)) {
+    setLastInitial(initial);
+    setHrefs(initial);
+  }
+
+  const request = useRef(0);
+  const previousPathname = useRef(pathname);
+  useEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    const current = ++request.current;
+    visibleNavigationAction(null, {})
+      .then((result) => {
+        if (!result.ok || current !== request.current) return;
+        setHrefs((previous) => (sameHrefs(previous, result.data) ? previous : result.data));
+      })
+      .catch(() => {
+        // Navigation is a convenience: keep the last good list and try again on the next one.
+      });
+  }, [pathname]);
+
+  return hrefs;
+}
+
+/**
+ * The sidebar link's pending hint (docs/DESIGN_SYSTEM.md#feedback--motion): a small accent dot
+ * that fades in at the end of the clicked link while its page loads, and pulses unless the user
+ * prefers reduced motion. Fixed size and always rendered, so the row never shifts; the short delay
+ * keeps it from flashing on a fast navigation.
+ */
+function NavLinkPendingHint() {
+  const { pending } = useLinkStatus();
+  return (
+    <span
+      aria-hidden="true"
+      data-pending={pending ? '' : undefined}
+      className="size-1.5 shrink-0 rounded-full bg-accent opacity-0 transition-opacity duration-fast data-pending:opacity-100 data-pending:delay-100 motion-safe:data-pending:animate-pulse"
+    />
+  );
+}
+
+/**
+ * Shows a status page's title ("No access", "Page not found") in the browser tab too. The page's
+ * own metadata (such as "Pulse Talent") still applies when its guard refuses, and can stream in
+ * after this runs, so the tab is kept on the status title while it shows; then whatever the page
+ * last set comes back.
+ */
+function useStatusDocumentTitle(breadcrumb: Breadcrumb) {
+  const status = isStatusBreadcrumb(breadcrumb) ? breadcrumb.current : null;
+  useEffect(() => {
+    if (!status) return;
+    const title = documentTitleFor(status);
+    let pageTitle = document.title;
+    document.title = title;
+    const observer = new MutationObserver(() => {
+      if (document.title === title) return;
+      pageTitle = document.title;
+      document.title = title;
+    });
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      if (document.title === title) document.title = pageTitle;
+    };
+  }, [status]);
+}
+
+function sectionsFor(groups: readonly NavGroup[], pathname: string): ShellNavSection[] {
+  // Only the longest matching entry is current, so /admin/users highlights Users, not Overview.
+  const current = activeEntry(groups, pathname)?.entry.href;
+  return groups.map((group) => ({
     label: group.label,
     items: group.entries.map((entry) => ({
       href: entry.href,
@@ -24,27 +117,9 @@ function sectionsFor(pathname: string): ShellNavSection[] {
       title: entry.title,
       keywords: [entry.description],
       icon: <entry.Icon strokeWidth={1.75} />,
-      current: isEntryActive(entry, pathname),
+      current: entry.href === current,
     })),
   }));
-}
-
-function breadcrumbFor(pathname: string): ShellBreadcrumb {
-  const page = OTHER_PAGES.find(
-    (candidate) => pathname === candidate.href || pathname.startsWith(`${candidate.href}/`),
-  );
-  if (page) return { parent: page.parent, current: page.title };
-  for (const group of NAV_GROUPS) {
-    const entry = group.entries.find((candidate) => isEntryActive(candidate, pathname));
-    // "Administration › Administration" would repeat itself, so a page named after its group stands alone.
-    if (entry) {
-      return {
-        parent: group.label === entry.title ? undefined : group.label,
-        current: entry.title,
-      };
-    }
-  }
-  return { current: APP_NAME };
 }
 
 function HelpContent() {
@@ -80,45 +155,65 @@ function AccountContent({ email }: { email: string }) {
 /**
  * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing. The
  * (pulse) layout has already checked the signed-in user and passes their email and unread
- * notification count, and the company logo URL (null shows the placeholder mark). It lists every
- * section for now; step 1.6 passes in the user's modules instead.
+ * notification count, the company logo URL (null shows the placeholder mark), and the hrefs of the
+ * sections the user can open (`visibleHrefsFor` in lib/visible-navigation.ts), which the shell
+ * asks the server for again on every navigation. The sidebar, and the command bar built from it,
+ * list only those; hiding them is never access control, since every page checks for itself
+ * (SECURITY.md#resolving-and-enforcing-build-step-16). Status pages set their toolbar and tab
+ * title with `ShellPageTitle`.
  */
 export function PulseShell({
   email,
   unreadNotifications,
   logoUrl,
+  visibleHrefs,
   children,
 }: {
   email: string;
   unreadNotifications: number;
   /** The public company logo URL, or null while none is uploaded. */
   logoUrl: string | null;
+  /** The hrefs of the sections the user can open, computed on the server: the first render's. */
+  visibleHrefs: readonly string[];
   children: ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const sections = sectionsFor(pathname);
+  const hrefs = useVisibleHrefs(visibleHrefs, pathname);
+  const groups = useMemo(() => navigationFor(hrefs), [hrefs]);
+  const sections = useMemo(() => sectionsFor(groups, pathname), [groups, pathname]);
   const bell = useNotificationBell(unreadNotifications);
+  const statusTitle = useShellPageTitleState();
+  // A status page's own title wins; otherwise the path's. Either way a page the user can't open
+  // never names itself.
+  const breadcrumb: Breadcrumb = statusTitle.title
+    ? { current: statusTitle.title }
+    : breadcrumbFor(groups, pathname);
+  useStatusDocumentTitle(breadcrumb);
 
   return (
-    <AppShell
-      appName={APP_NAME}
-      logo={<CompanyLogo logoUrl={logoUrl} />}
-      sections={sections}
-      breadcrumb={breadcrumbFor(pathname)}
-      linkComponent={Link}
-      onNavigate={(href) => router.push(href)}
-      notifications={bell.panel}
-      notificationsUnread={bell.unread}
-      notificationsOpen={bell.open}
-      onNotificationsOpenChange={bell.onOpenChange}
-      help={<HelpContent />}
-      account={<AccountContent email={email} />}
-    >
-      <Suspense fallback={null}>
-        <NotificationRouteWatcher onChange={bell.refreshCount} />
-      </Suspense>
-      {children}
-    </AppShell>
+    <statusTitle.Provider value={statusTitle.value}>
+      <AppShell
+        appName={APP_NAME}
+        logo={<CompanyLogo logoUrl={logoUrl} />}
+        sections={sections}
+        breadcrumb={breadcrumb}
+        linkComponent={Link}
+        linkHint={<NavLinkPendingHint />}
+        routeKey={pathname}
+        onNavigate={(href) => router.push(href)}
+        notifications={bell.panel}
+        notificationsUnread={bell.unread}
+        notificationsOpen={bell.open}
+        onNotificationsOpenChange={bell.onOpenChange}
+        help={<HelpContent />}
+        account={<AccountContent email={email} />}
+      >
+        <Suspense fallback={null}>
+          <NotificationRouteWatcher onChange={bell.refreshCount} />
+        </Suspense>
+        {children}
+      </AppShell>
+    </statusTitle.Provider>
   );
 }

@@ -3,28 +3,49 @@ import { countUnread } from '@pulse/core/server';
 import { PulseShell } from '@/components/pulse-shell';
 import { requireCurrentUser } from '@/lib/auth';
 import { getCompanyLogoUrl } from '@/lib/company-logo';
+import { visibleHrefsFor } from '@/lib/visible-navigation';
+
+/** The unread count for the bell's first render. */
+async function unreadCountFor(userId: string): Promise<number> {
+  try {
+    return await countUnread(userId);
+  } catch {
+    // The badge is a convenience: the page still opens, and the bell retries on the next
+    // navigation, focus or open.
+    return 0;
+  }
+}
 
 /**
  * The signed-in shell. The proxy checks the session and account status on every request; this
  * checks again where the page renders (SECURITY.md#account-status), sending a signed-out user to
- * the login page and a temporary password to the change-password page. Step 1.6 lists only the
- * modules the user can open.
+ * the login page and a temporary password to the change-password page.
  *
- * The bell's first unread count is read here; the bell refreshes it itself after that
- * (docs/modules/core.md#notifications).
+ * The sidebar and command bar list only the sections the user can open: modules at Read or higher,
+ * and the admin pages their role opens (docs/ARCHITECTURE.md#one-application). This is the first
+ * render's list: this layout doesn't re-run on client navigation, so the shell asks the server
+ * again on every navigation (`visibleNavigationAction`) and an access change shows without a
+ * reload. That is navigation, not access control: each page calls its own guard first
+ * (`requireModulePage`, `requireAdminPage`), never this layout
+ * (SECURITY.md#resolving-and-enforcing-build-step-16).
+ *
+ * No route-level loading.tsx sits here: it would start the response before a page's guard and
+ * force HTTP 200 on the no-access state. So this layout keeps to the session user (read once per
+ * request and shared with the page) and two small reads run together; pages stream their own data
+ * behind in-page Suspense. The bell's first unread count is read here; the bell refreshes it
+ * itself after that (docs/modules/core.md#notifications).
  */
 export default async function PulseLayout({ children }: { children: ReactNode }) {
   const user = await requireCurrentUser();
-  let unread = 0;
-  try {
-    unread = await countUnread(user.id);
-  } catch {
-    // The badge is a convenience: the page still opens, and the bell retries on the next
-    // navigation, focus or open.
-  }
-  const logoUrl = await getCompanyLogoUrl();
+  const [unread, logoUrl] = await Promise.all([unreadCountFor(user.id), getCompanyLogoUrl()]);
+  const hrefs = visibleHrefsFor(user);
   return (
-    <PulseShell email={user.email} unreadNotifications={unread} logoUrl={logoUrl}>
+    <PulseShell
+      email={user.email}
+      unreadNotifications={unread}
+      logoUrl={logoUrl}
+      visibleHrefs={hrefs}
+    >
       {children}
     </PulseShell>
   );

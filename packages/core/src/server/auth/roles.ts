@@ -43,17 +43,18 @@ export const isBoard = (user: RoleHolder) => hasRole(user, 'board');
 /** A System Administrator (the account flag, not a department). */
 export const isSystemAdministrator = (user: RoleHolder) => hasRole(user, 'systemAdministrator');
 
-// Spec: docs/modules/core.md#managing-departments-and-positions — until module access arrives in
-// build step 1.6, departments and positions are managed by HR and the System Administrator only.
+// Spec: docs/modules/core.md#managing-departments-and-positions — departments and positions are
+// managed by HR and the System Administrator, checked by role, not module access
+// (SECURITY.md#rules, decision 54 in docs/BUILD_PLAN.md).
 /** True when `user` may view and change departments and positions. */
 export const canManageOrgStructure = (user: RoleHolder) =>
   isHR(user) || isSystemAdministrator(user);
 
 // Spec: docs/modules/core.md#managing-user-accounts, SECURITY.md#system-administrator and
 // SECURITY.md#sign-in-and-passwords — who may do what on `/admin/users` (decisions 31–37 in
-// docs/BUILD_PLAN.md). Until module access arrives in build step 1.6, users are managed by HR and
-// the System Administrator only. The page uses these for its row actions; each service checks
-// them again itself.
+// docs/BUILD_PLAN.md). Users are managed by HR and the System Administrator, checked by role, not
+// module access (decision 54). The page uses these for its row actions; each service checks them
+// again itself.
 
 /** True when `user` may list, create and edit user accounts. */
 export const canManageUsers = (user: RoleHolder) => isHR(user) || isSystemAdministrator(user);
@@ -108,9 +109,9 @@ export function canResetPasswordOf(actor: AccountActor, target: AccountTarget): 
   return !isAdministratorAccount(target) || isSystemAdministrator(actor);
 }
 
-// Spec: docs/modules/core.md#company-settings-page — until module access arrives in build step
-// 1.6, the company settings (details, logo, allowed email domains, upload settings) are for the
-// System Administrator only. The page guards the screen; each service checks again with this.
+// Spec: docs/modules/core.md#company-settings-page — the company settings (details, logo, allowed
+// email domains, upload settings) are for the System Administrator only, checked by role, not
+// module access (decision 54). The page guards the screen; each service checks again with this.
 const SYSTEM_ADMINISTRATOR_ONLY = 'Only the System Administrator can change company settings.';
 
 /** Throws {@link AccessDeniedError} unless `actor` is a System Administrator. */

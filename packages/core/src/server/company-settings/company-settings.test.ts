@@ -7,6 +7,7 @@ import { connectDb } from '@pulse/db';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { COMPANY_DETAIL_FIELDS, pendingCompanyDetails } from '../../company-details';
 import { AuditLogModel } from '../audit/model';
+import { resolveModuleAccess } from '../auth/module-access';
 import type { CurrentUser } from '../auth/session-user';
 import { coreSeedLoaders } from '../seed/loaders';
 import { COMPANY_DETAIL_PLACEHOLDERS } from '../seed/core-data';
@@ -36,6 +37,10 @@ function actor(overrides: Partial<CurrentUser> = {}): CurrentUser {
     isSystemAccount: false,
     employee: null,
     roles: [],
+    // The effective map, as loadSessionUser resolves it.
+    moduleAccess: resolveModuleAccess({
+      isSystemAdministrator: overrides.isSystemAdministrator ?? true,
+    }),
     ...overrides,
   };
 }

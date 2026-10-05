@@ -3,8 +3,8 @@ import type { CurrentUser } from './session-user';
 
 // Spec: SECURITY.md#sign-in-and-passwords — every page and action needs a signed-in, active user,
 // and a user with a temporary password may only change it. The app's `requireSignedIn()` access
-// check reads the session and calls this (apps/web/lib/auth.ts). Step 1.6 adds module access on
-// top.
+// check reads the session and calls this (apps/web/lib/auth.ts). Module access is checked on top
+// of it (module-access.ts).
 
 export interface SignedInOptions {
   /** Let a user with a temporary password through. Only for the change-password page and action. */
