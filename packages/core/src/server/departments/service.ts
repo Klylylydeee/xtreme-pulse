@@ -106,6 +106,28 @@ async function isEligibleHead(
   return user !== null && resolveAccountStatus(user, employee) === 'active';
 }
 
+/**
+ * The heads whose account resolves to active, keyed by employee ID: the same rule as
+ * {@link isEligibleHead}, so a head with no account counts as inactive.
+ */
+async function activeHeads(
+  heads: { _id: Types.ObjectId; employmentStatus: string }[],
+): Promise<Map<string, boolean>> {
+  if (heads.length === 0) return new Map();
+  const users = await UserModel.find(
+    { employeeId: { $in: heads.map((head) => head._id) } },
+    { employeeId: 1, isSystemAccount: 1, systemAccountDisabled: 1 },
+  ).lean();
+  const userByEmployee = new Map(users.map((user) => [user.employeeId?.toHexString(), user]));
+  return new Map(
+    heads.map((head) => {
+      const id = head._id.toHexString();
+      const user = userByEmployee.get(id);
+      return [id, user !== undefined && resolveAccountStatus(user, head) === 'active'];
+    }),
+  );
+}
+
 async function headIdFrom(
   value: string | null,
   session: ClientSession,
@@ -133,6 +155,11 @@ export interface DepartmentView {
   headEmployeeId: string | null;
   /** The head's name, or null when none is set (or the record is missing). */
   headName: string | null;
+  /**
+   * Whether the head's account resolves to active, or null when no head is set. A head who
+   * separates stays set and shows an "Inactive" badge; escalations treat them as no head.
+   */
+  headActive: boolean | null;
   /** Live (not retired) positions in the department. */
   positionCount: number;
   /** Employees in the department whose employment status is active. */
@@ -161,9 +188,13 @@ export async function listDepartments(
     EmployeeModel.aggregate<GroupCount>(countPipeline('departmentId', ACTIVE_EMPLOYEES)).then(
       countMap,
     ),
-    EmployeeModel.find({ _id: { $in: headIds } }, { firstName: 1, lastName: 1 }).lean(),
+    EmployeeModel.find(
+      { _id: { $in: headIds } },
+      { firstName: 1, lastName: 1, employmentStatus: 1 },
+    ).lean(),
   ]);
   const headNames = new Map(heads.map((head) => [head._id.toHexString(), employeeName(head)]));
+  const headActive = await activeHeads(heads);
 
   return departments.map((department) => {
     const id = department._id.toHexString();
@@ -174,6 +205,8 @@ export async function listDepartments(
       code: department.code,
       headEmployeeId: headId,
       headName: headId ? (headNames.get(headId) ?? null) : null,
+      // A head whose record is missing counts as inactive.
+      headActive: headId ? (headActive.get(headId) ?? false) : null,
       positionCount: positionCounts.get(id) ?? 0,
       activeEmployeeCount: employeeCounts.get(id) ?? 0,
       retiredAt: department.deletedAt ?? null,

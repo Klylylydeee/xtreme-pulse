@@ -22,6 +22,7 @@ import {
   type OrgStructureActor,
 } from '../departments/service';
 import { EmployeeModel } from '../employees/model';
+import { claimLiveDepartment } from '../org-claims';
 import { toObjectId } from '../paging';
 import { isDuplicateKeyError } from '../seed/duplicate-key';
 import { POSITION_NAME_COLLATION, PositionModel } from './model';
@@ -63,32 +64,6 @@ async function assertNameFree(
     .session(session)
     .lean();
   if (taken) throw new ActionError(NAME_TAKEN, { field: 'name' });
-}
-
-/**
- * Writes to the department in the transaction and returns its code, or null when it is retired
- * or unknown. Adding or restoring a position must write the department, not only read it:
- * `retireDepartment` counts live positions and then writes the department, so a transaction that
- * only read it could commit a live position next to the retirement (write skew under snapshot
- * isolation). With both writing the department, one fails with a write conflict and
- * `withTransaction` retries it, and the retry sees the other's result.
- *
- * The write only bumps the version key, with timestamps off, so `updatedAt` and `updatedBy` keep
- * saying who last edited the department, and no audit entry is due (`__v` isn't snapshotted).
- * Assigning an employee to a department or position will need the same write once employee
- * records arrive, since retiring checks for active employees the same way.
- */
-async function claimLiveDepartment(
-  departmentId: Types.ObjectId,
-  session: ClientSession,
-): Promise<Pick<DepartmentRecord, 'code'> | null> {
-  const result = await DepartmentModel.updateOne(
-    { _id: departmentId, deletedAt: null },
-    { $inc: { __v: 1 } },
-    { session, timestamps: false },
-  );
-  if (result.matchedCount !== 1) return null;
-  return DepartmentModel.findById(departmentId, { code: 1 }).session(session).lean().orFail();
 }
 
 /** The position's department, retired or not, for the audit label. */

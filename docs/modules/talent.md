@@ -19,7 +19,7 @@ Much of this module is sensitive personal information. The [Sensitive data](../.
 - Work schedule and timesheet type (the type comes from the position; see [Timesheet types](#timesheet-types))
 - Work region, for the minimum wage check (defaults to NCR, the company's region)
 - Date hired, probation end date (Probationary), contract end date (Contractual), regularization date
-- Separation date and remarks (Resigned, Terminated, Retired)
+- Separation date and remarks (Resigned, Terminated, Retired). The separation date is stored on Core's employee identity (`employees.separationDate`), because account status depends on it ([People data ownership](core.md#people-data-ownership), [Account status](../../SECURITY.md#account-status))
 
 ### Compensation
 - Basic salary (the basis for payroll), stored in centavos
@@ -180,7 +180,7 @@ Leave is fully integrated with timesheets and payroll: approved paid leave shows
 - Leave can be filed as whole or half days.
 - Leave balances are derived from opening, credit, carry-over and usage entries (see [Opening balances at go-live](#opening-balances-at-go-live)); never edit a balance directly.
 - Rest days and confirmed holidays inside a leave period are not deducted from the balance.
-- Leave requests are approved by any one supervisor in `reportingTo`. When the requester has an empty `reportingTo` (top-level Board of Directors members), HR approves instead; an HR requester's own request goes to the System Administrator (see [Reporting lines](core.md#reporting-lines)).
+- Leave requests are approved by any one supervisor in `reportingTo`. When the requester has an empty `reportingTo` (for example top-level Board of Directors members), HR approves instead; an HR requester's own request goes to the System Administrator (see [Reporting lines](core.md#reporting-lines)).
 - Leave approved after a payroll run is finalized is applied as an adjustment in the next cut-off.
 
 ## Offset balance & offset time off

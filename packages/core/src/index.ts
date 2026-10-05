@@ -92,7 +92,15 @@ export {
   type SignInInput,
   signInSchema,
 } from './account';
-export { EMPLOYEE_NUMBER_PATTERN, EMPLOYEE_SEQUENCE_MAX } from './employee-number';
+export {
+  EMPLOYEE_NUMBER_PATTERN,
+  EMPLOYEE_SEQUENCE_MAX,
+  type EmployeeNumberParts,
+  formatEmployeeNumber,
+  parseEmployeeNumber,
+} from './employee-number';
+// User accounts (docs/modules/core.md#managing-user-accounts): the user sheet's schemas and rules.
+export * from './user-accounts';
 export { isPlaceholder } from './placeholder';
 export { TIMESHEET_TYPES, type TimesheetType } from './timesheet-types';
 export { isModuleKey, type ModuleKey, MODULES } from './modules';

@@ -1,3 +1,4 @@
+import type { ClientSession } from 'mongoose';
 import { connectDb, withTransaction } from '@pulse/db';
 import { emailDomainOf } from '../../account';
 import { ActionError } from '../../actions';
@@ -33,6 +34,27 @@ export async function checkEmailDomain(email: string): Promise<EmailDomainCheck>
   await connectDb();
   const allowed = (await AllowedEmailDomainModel.exists({ domain })) !== null;
   return allowed ? { allowed: true, domain } : { allowed: false, domain };
+}
+
+/**
+ * Like {@link checkEmailDomain}, inside a transaction that saves the email: writes the domain
+ * record (the same claim as org-claims.ts), so a removal of the domain that overlaps the save
+ * conflicts and is retried, and the retry sees the removal. A read alone would let both commit,
+ * leaving a new email on a removed domain. The write only bumps the version key, with timestamps
+ * off, so the domain doesn't look edited and no audit entry is due.
+ */
+export async function claimEmailDomain(
+  email: string,
+  session: ClientSession,
+): Promise<EmailDomainCheck> {
+  const domain = emailDomainOf(email);
+  if (!domain) return { allowed: false, domain: null };
+  const result = await AllowedEmailDomainModel.updateOne(
+    { domain, deletedAt: null },
+    { $inc: { __v: 1 } },
+    { session, timestamps: false },
+  );
+  return result.matchedCount === 1 ? { allowed: true, domain } : { allowed: false, domain };
 }
 
 /** The audit record type of an allowed email domain. */

@@ -8,7 +8,7 @@ Sign-in, passwords, account status, module access and the System Administrator r
 
 ## People data ownership
 
-Every user is an employee of Xtreme Works (the only exception is the bootstrap system account). Pulse Core owns the user account and org structure (login, account status, module access, department, position, reporting lines, directory, org chart). Pulse Talent owns employment, government, payroll, timesheet and document details. Both reference the same `employeeId`.
+Every user is an employee of Xtreme Works (the only exception is the bootstrap system account). Pulse Core owns the user account and org structure (login, account status, module access, department, position, reporting lines, directory, org chart), and the employee identity fields account status depends on: employee number, name, date hired, employment status and separation date (`employees.separationDate`, see [Managing user accounts](#managing-user-accounts)). Pulse Talent owns employment, government, payroll, timesheet and document details, and shows Core's identity fields in its employee record. Both reference the same `employeeId`.
 
 ## Bootstrap System Administrator account
 
@@ -39,7 +39,7 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 | Web Administrator | `WEB` | Developer |
 
 - Departments and positions are stored as data (admin-managed), not hardcoded enums, so new ones can be added without a code change.
-- Each department has an optional **department head** (an employee, set by HR or the System Administrator), used for escalations such as Desk SLA breaches. If none is set, escalations go to the Operations Director.
+- Each department has an optional **department head** (an employee, set by HR or the System Administrator), used for escalations such as Desk SLA breaches. If none is set, or the head's account is deactivated, escalations go to the Operations Director.
 - **Position is not permission.** Positions carry no module access; access is set and checked per user (see [Module access](../../SECURITY.md#module-access-rwo)).
 - Each position also has a **timesheet type** (`overtime` or `standard`, see [Timesheet types](talent.md#timesheet-types)), set by HR or the System Administrator.
 
@@ -49,10 +49,10 @@ Built in step 1.4.
 
 - **Routes:** `/admin/departments` and `/admin/positions`. Until module access arrives in step 1.6, both pages are for HR and the System Administrator only; anyone else gets "not found". Like `/admin/audit`, that not-found page currently answers with HTTP 200 (the streaming loading boundary starts the response first); this is accepted until step 1.6 brings the designed no-access state. They are not in the sidebar until step 1.6; the `/admin` overview links to them. Each service checks the role again itself.
 - **Departments** have a name, a code and an optional department head. The code (2 to 10 capital letters or digits, starting with a letter) is set when the department is added and can't be changed afterwards; only the name and the head can be edited. Codes are never reused: the unique index includes retired departments.
-- **Department head:** any employee whose account resolves to active, from any department. It is optional and can be cleared.
+- **Department head:** any employee whose account resolves to active, from any department. It is optional and can be cleared. A head who later separates stays set (from build step 1.5): the departments list marks them with an "Inactive" badge, and escalations treat an inactive head as no head (Phase 6).
 - **Positions** have a name, a department and a timesheet type. A position is added only to a live (not retired) department. Its department is fixed once created; to move a position, add a new one in the other department. Only the name and the timesheet type can be edited. Position names are unique within a department ignoring case (`Driver` and `driver` count as the same name), retired positions included.
 - **Changing the timesheet type** saves at once and takes effect from the next cut-off, never in the middle of one: each timesheet stores the type that applied when its cut-off started (see [Timesheet types](talent.md#timesheet-types)).
-- **Retiring** is a soft delete (`deletedAt` set), never a hard delete, after a confirmation. A department can't be retired while it has live positions or active employees. A position can't be retired while active employees hold it.
+- **Retiring** is a soft delete (`deletedAt` set), never a hard delete, after a confirmation. A department can't be retired while it has live positions or active employees. A position can't be retired while active employees hold it. Adding or restoring a position, and from step 1.5 assigning an active employee ([Managing user accounts](#managing-user-accounts)), writes the department (and position) record in its transaction, so it conflicts with an overlapping retire.
 - **No protected departments.** `HR`, `ACCT` and `BOD` can be retired like any other department, under the same rules. The HR, Accounting and Board [roles](../../SECURITY.md#roles) follow those codes, so a department a role depends on can't be retired while anyone is still in it.
 - **Restoring** a retired department or position brings it back unchanged. Retired departments and positions can't be picked for new records.
 - **Audit:** every add, edit, retire and restore writes its change and its audit entry in one transaction (record types `core.department` and `core.position`; actions `create`, `update`, `delete` for a retire, with `after` null, and `restore`). Each entry's record label is `<department code> · <department name>` for a department (for example `HR · Human Resource`) and `<department code> · <position name>` for a position (for example `HR · Human Resource Officer`), using the name after the change (before it, for a retire). A position whose department can't be found is labelled with its name alone.
@@ -61,8 +61,10 @@ Built in step 1.4.
 
 - `reportingTo` is an **array** of employee IDs: an employee can have one or multiple supervisors.
 - An employee cannot report to themselves, and reporting chains must never form a cycle (validate on save).
-- Top-level Board of Directors members may have an empty `reportingTo`.
-- Only **HR, Board of Directors members and the System Administrator** can set or change `reportingTo`. Employees and supervisors cannot.
+- Anyone may have an empty `reportingTo`, such as top-level Board of Directors members. Their leave and offset time off go to HR, and the supervisor step of quotations and purchase requests is skipped (see each module's spec). When a non-Board employee is saved with no supervisor, the form hints "No supervisor: leave and offset time off go to HR."
+- Only **HR, Board of Directors members and the System Administrator** can set or change `reportingTo`. Employees and supervisors cannot. In build step 1.5 HR and the System Administrator edit it on `/admin/users` ([Managing user accounts](#managing-user-accounts)); the Board's editor arrives with the org chart in build step 1.11.
+- **Checked on save** (build step 1.5): at most 10 supervisors, no one listed twice, and each supervisor must exist, be an employee (not the bootstrap system account) and be active when saved. The cycle check walks the upward chain inside the transaction. It writes every supervisor record it reads, and the employee's own, so two edits that would together form a cycle conflict and the retried one is refused. An edit that only removes or reorders supervisors isn't checked again (it can't add a cycle or anyone inactive), so a line to someone who later separated can stay.
+- Existing lines to someone who later separates stay as they are; the approvals engine (build step 1.9) and the org chart (build step 1.11) handle them.
 - Approval workflows (leave, offset time off, timesheets, purchase requests, quotes, employee record changes, regularization) route through `reportingTo`.
 - **Any one supervisor can decide.** When an employee has multiple supervisors, the request goes to all of them, and the first approval or rejection settles it. The other supervisors are notified of the outcome and can no longer act on it.
 - No one approves their own request. When the only approver in a step is the requester (e.g. the HR Officer's own timesheet at the HR step), the step goes to the System Administrator.
@@ -70,10 +72,36 @@ Built in step 1.4.
 ## Employee number (company ID)
 
 - Format **`YYYY-NN`**: hire year + sequence within that year. Example: the first employee hired in 2027 is `2027-01`, the second is `2027-02`.
-- The year comes from the date hired. The sequence restarts at 01 each year, is always 2 digits, and has a **maximum of 99 per year**. Creating a 100th hire in the same year fails with a clear error for HR.
-- Generate atomically with a per-year counter (`findOneAndUpdate` with `$inc` and `upsert`) so two hires can never get the same number.
-- Assigned once, immutable, never reused, even after separation.
-- When HR adds a current employee who already has a company ID, HR enters it manually; that year's counter is raised to at least that sequence so it is never issued again.
+- The year comes from the date hired (its year in Manila). The sequence restarts at 01 each year, is always 2 digits, and has a **maximum of 99 per year**. Once the counter reaches 99, generating another number for that year fails with "Employee numbers for 2027 have run out: 2027-99 has been issued. Enter the person's existing company ID if they have one." (with that year), and nothing is written.
+- **Generate:** atomically, with a per-year counter (`findOneAndUpdate` with `$inc` and `upsert`) inside the create transaction, so two hires can never get the same number and an aborted create leaves no gap. Generation always takes the next number after the counter; it never fills gaps.
+- **Enter existing:** when HR adds a current employee who already has a company ID, HR enters it. It must match `YYYY-NN`, its year must equal the Manila year of the date hired, and it must be unused; otherwise it is a field error. That year's counter is raised to at least that sequence (`$max`), so it is never issued again. A lower number that is still free is accepted and never lowers the counter.
+- Assigned once, immutable, never reused, even after separation: employees are never deleted, and a failed create rolls back with its number. Counter writes aren't audit-logged; the employee's create entry carries the number.
+
+## Managing user accounts
+
+Built in step 1.5. Passwords, account status and the System Administrator's rules are in [SECURITY.md](../../SECURITY.md#account--access); this section covers the screen and the fields Core owns. Phase 2 adds the full employee record in Pulse Talent.
+
+- **Route:** `/admin/users`. Until module access arrives in step 1.6, it is for HR and the System Administrator only; anyone else gets "not found" (with HTTP 200 until step 1.6, see [Managing departments and positions](#managing-departments-and-positions)). It is not in the sidebar; the `/admin` overview links to it. Each service checks the role again itself.
+- **List:** employee number, name, email, department, position and employment status, with a "Temporary password" badge while the user still has to change a temporary password. Search by name, employee number or email, and filter by department. Separated users (Resigned, Terminated, Retired) are hidden unless "Show separated" is on (`?separated=1`). Sorted by last name, with no paging.
+- **Creating a user** opens a sheet with:
+  - Login email, lowercased and checked against the stored allowed email domains (a removed domain is refused). An email already in use is a field error.
+  - First name, middle name (optional) and last name.
+  - Employee number: Generate, or Enter existing (see [Employee number](#employee-number-company-id)).
+  - Date hired, from 1990-01-01 to a year ahead (today + 365 days in Manila). The account is active from creation, whatever the date hired.
+  - Department and position, both live, the position in that department.
+  - Employment status: Probationary, Regular or Contractual.
+  - `reportingTo` (see [Reporting lines](#reporting-lines)).
+- **New users** are never System Administrators and start with no module access ([System Administrator](../../SECURITY.md#system-administrator), [Module access](../../SECURITY.md#rules)).
+- **Editing:** name, email, department, position, `reportingTo`, employment status and separation date. The email follows the same checks as on create; changing it doesn't end the user's sessions. The employee number is fixed. The date hired can change only within the employee number's year. Moving an employee into or out of HR, Accounting or the Board changes their role from their next request ([Roles](../../SECURITY.md#roles)); HR can move someone into or out of HR this way, and the change is audit-logged. When HR edits a System Administrator, the email on the form is ignored and the stored one kept.
+- **Read-only:** the editor's own row; they change their own password on `/change-password`. When HR opens a System Administrator, the email and employment status are read-only and there is no Reset password ([System Administrator](../../SECURITY.md#system-administrator)).
+- **Employment status and separation date** follow [Account status](../../SECURITY.md#account-status): Terminated shows disabled with its hint. The separation date is required for a separated status (Resigned, Terminated, Retired), null otherwise.
+- **Live department and position.** Creating a user, changing an employee's department or position, and moving a separated employee back to an active status write the department and position records inside the transaction (`claimLiveDepartment`, `claimLivePosition`), so an overlapping retire conflicts and is retried. Nobody ends up active in a retired department or position (see [Managing departments and positions](#managing-departments-and-positions)).
+- **Email domain claimed.** The email's allowed domain is checked before the transaction (a quick field error) and written again inside it (`claimEmailDomain`), so a create or email change that overlaps the domain's removal conflicts and is refused.
+- **Known limit (step 1.5):** a future-dated hire can't be separated before their date hired (the separation date must be on or after the date hired and today or earlier), and employees can't be deleted. A hire who withdraws before starting stays active until their date hired, and can be separated from then. Date-aware statuses, possibly in Phase 2, address it.
+- **The bootstrap system account** shows only to System Administrators, read-only, with Reset password ([System Administrator](../../SECURITY.md#system-administrator)).
+- **Temporary password dialog.** After creating a user or resetting a password, a dialog shows the generated temporary password once, with Copy and "Hand it over privately". Closing it ends the only chance to see it; if it's lost, reset again ([Sign-in and passwords](../../SECURITY.md#sign-in-and-passwords)).
+- **Audit:** record types `core.employee`, labelled `<employee number> · <first name> <last name>` (for example `2027-01 · Ana Cruz`), and `core.user`, labelled with the email. Creating a user writes the user, the employee and two `create` entries in one transaction. Edits are `update` entries with both sides snapshotted (`snapshotsForAudit`). A reset is a `passwordReset` entry on the `core.user` record, with no hash, showing `mustChangePassword` before and after. None of these fields is [sensitive personal data](../../SECURITY.md#sensitive-data). The temporary password appears only in the action's response to the person who did it, never in an entry.
+- **No notifications** in step 1.5. Notifying HR and the System Administrator of new users arrives with the [User access page](#user-access-page) in step 1.7.
 
 ## User access page
 

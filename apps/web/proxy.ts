@@ -24,6 +24,14 @@ function isPublicPath(pathname: string): boolean {
 const SESSION_COOKIE = /^(__Secure-)?authjs\.session-token(\.\d+)?$/;
 const SESSION_COOKIE_NAME = 'authjs.session-token';
 
+// Set for a minute next to a refused session cookie's deletion. Several requests can be in flight
+// when a session is refused (two Server Actions from one click, or a navigation and its
+// prefetches): the first clears the session cookie, so the rest arrive without it and would look
+// like a visit from someone who never signed in. The flag keeps the "signed out" notice on their
+// redirects too. It holds only `1`, so nothing about the user, and a valid session deletes it.
+const SIGNED_OUT_COOKIE = 'pulse-signed-out';
+const SIGNED_OUT_SECONDS = 60;
+
 async function currentUserFor(request: NextRequest, secure: boolean) {
   const secret = process.env.AUTH_SECRET;
   if (!secret) return null;
@@ -54,9 +62,23 @@ export async function proxy(request: NextRequest) {
     const login = new URL('/login', request.url);
     const callbackUrl = safeCallbackUrl(`${pathname}${search}`);
     if (callbackUrl !== '/') login.searchParams.set('callbackUrl', callbackUrl);
-    // A session cookie that no longer passes means the user was signed out, not just new here.
-    if (sessionCookies.length > 0) login.searchParams.set('reason', 'signed-out');
+    // A session cookie that no longer passes, or one refused a moment ago (the flag), means the
+    // user was signed out, not just new here.
+    const refused = sessionCookies.length > 0;
+    if (refused || request.cookies.has(SIGNED_OUT_COOKIE)) {
+      login.searchParams.set('reason', 'signed-out');
+    }
     const response = NextResponse.redirect(login);
+    if (refused) {
+      response.cookies.set(SIGNED_OUT_COOKIE, '1', {
+        path: '/',
+        maxAge: SIGNED_OUT_SECONDS,
+        httpOnly: true,
+        sameSite: 'lax',
+        // Secure exactly when the refused session cookie was (`__Secure-`, over HTTPS).
+        secure,
+      });
+    }
     for (const name of sessionCookies) {
       response.cookies.set(name, '', {
         path: '/',
@@ -70,10 +92,13 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  if (user.mustChangePassword && pathname !== '/change-password') {
-    return NextResponse.redirect(new URL(changePasswordPath(`${pathname}${search}`), request.url));
-  }
-  return NextResponse.next();
+  const response =
+    user.mustChangePassword && pathname !== '/change-password'
+      ? NextResponse.redirect(new URL(changePasswordPath(`${pathname}${search}`), request.url))
+      : NextResponse.next();
+  // Signed in again: a later sign-out shouldn't inherit the old notice.
+  if (request.cookies.has(SIGNED_OUT_COOKIE)) response.cookies.delete(SIGNED_OUT_COOKIE);
+  return response;
 }
 
 export const config = {

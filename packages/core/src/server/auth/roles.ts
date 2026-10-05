@@ -49,6 +49,65 @@ export const isSystemAdministrator = (user: RoleHolder) => hasRole(user, 'system
 export const canManageOrgStructure = (user: RoleHolder) =>
   isHR(user) || isSystemAdministrator(user);
 
+// Spec: docs/modules/core.md#managing-user-accounts, SECURITY.md#system-administrator and
+// SECURITY.md#sign-in-and-passwords — who may do what on `/admin/users` (decisions 31–37 in
+// docs/BUILD_PLAN.md). Until module access arrives in build step 1.6, users are managed by HR and
+// the System Administrator only. The page uses these for its row actions; each service checks
+// them again itself.
+
+/** True when `user` may list, create and edit user accounts. */
+export const canManageUsers = (user: RoleHolder) => isHR(user) || isSystemAdministrator(user);
+
+/** The account an action on `/admin/users` is aimed at. */
+export interface AccountTarget {
+  /** The user ID. */
+  id: string;
+  isSystemAdministrator: boolean;
+  /** The bootstrap system account. */
+  isSystemAccount: boolean;
+}
+
+/** An actor on `/admin/users`: a role holder with an ID (a `CurrentUser` fits). */
+export interface AccountActor extends RoleHolder {
+  id: string;
+}
+
+/** A System Administrator's account, or the bootstrap system account. */
+function isAdministratorAccount(target: AccountTarget): boolean {
+  return target.isSystemAdministrator || target.isSystemAccount;
+}
+
+/**
+ * True when `actor` may edit `target`'s identity (name, department, position, reporting lines,
+ * date hired). Nobody edits their own row, and the system account is read-only. HR may edit a
+ * System Administrator's identity, apart from the email and employment status
+ * ({@link canChangeProtectedFieldsOf}).
+ */
+export function canEditAccountOf(actor: AccountActor, target: AccountTarget): boolean {
+  return canManageUsers(actor) && actor.id !== target.id && !target.isSystemAccount;
+}
+
+/**
+ * True when `actor` may change `target`'s email and employment status: as {@link canEditAccountOf},
+ * and a System Administrator's only by another System Administrator.
+ */
+export function canChangeProtectedFieldsOf(actor: AccountActor, target: AccountTarget): boolean {
+  return (
+    canEditAccountOf(actor, target) &&
+    (!isAdministratorAccount(target) || isSystemAdministrator(actor))
+  );
+}
+
+/**
+ * True when `actor` may reset `target`'s password. Never one's own (that is `/change-password`).
+ * A System Administrator's, and the system account's, only by a different System Administrator;
+ * HR may reset anyone else's, HR staff and Board members included.
+ */
+export function canResetPasswordOf(actor: AccountActor, target: AccountTarget): boolean {
+  if (!canManageUsers(actor) || actor.id === target.id) return false;
+  return !isAdministratorAccount(target) || isSystemAdministrator(actor);
+}
+
 // Spec: docs/modules/core.md#company-settings-page — until module access arrives in build step
 // 1.6, the company settings (details, logo, allowed email domains, upload settings) are for the
 // System Administrator only. The page guards the screen; each service checks again with this.

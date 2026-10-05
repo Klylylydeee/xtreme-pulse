@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests) and the [Core administration tests](#core-administration-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests) and the [user account tests](#user-account-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests) and [Core administration tests](#core-administration-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests) and [User account tests](#user-account-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,11 +16,11 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; and from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites.
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; and from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites.
 
 ## Sensitive-data guard tests
 
-The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested areas are the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests) and [Core administration](#core-administration-tests). Other areas have no automated tests until this doc says so.
+The guard that keeps sensitive fields encrypted was the first area with committed automated tests ([ADR 0012](adr/0012-fail-closed-sensitive-fields.md)). A missed write path stores plain text silently, so a hand check isn't enough. The only other tested areas are the [audit log, notifications and sensitive reveal](#audit-notification-and-reveal-tests), [Core administration](#core-administration-tests) and [user accounts](#user-account-tests). Other areas have no automated tests until this doc says so.
 
 - **Scope.** The `sensitiveField()` guard and the `$jsonSchema` validator described in [Sensitive data](../SECURITY.md#sensitive-data). Nothing else.
 - **Where.** Next to the code they test, as `*.test.ts`: the guard's tests in `packages/core/src/server/encryption/`, and the validator's beside the code that builds and installs it.
@@ -62,6 +62,20 @@ Added in build step 1.4. Departments, positions and company settings decide who 
   - **Allowed email domains.** Only the System Administrator can add or remove one. Re-adding a removed domain restores that record (audit `restore`). Removing the last remaining domain, or the acting System Administrator's own domain, is refused, also when two removals run at the same time. A removed domain no longer passes the sign-in domain check.
   - **Upload settings.** Only the System Administrator can change them. A change adds a version effective from today in Manila with its audit entry, in one transaction; a second change on the same Manila day is refused and changes nothing.
 
+## User account tests
+
+Added in build step 1.5. User accounts decide who can sign in, which number a person carries for life, and who approves their requests. A reused employee number, a reporting cycle, a session that outlives a reset or a temporary password in an audit entry all look fine on screen. They use the framework, database setup and rules of the guard tests above (Vitest, a throwaway `mongodb-memory-server` replica set, one database per file, made-up data only).
+
+- **Where.** Next to the code they test, as `*.test.ts` in `packages/core`: `employee-numbers.test.ts`, `reporting-lines.test.ts`, `users.test.ts`, `user-accounts.test.ts` (in `src/`), `employees/model.test.ts`, `session-user.test.ts` and `temporary-password.test.ts`.
+- **What they cover.**
+  - **Employee numbers (`employee-numbers.test.ts`, [Employee number](modules/core.md#employee-number-company-id)).** Generated numbers follow the per-year counter, and concurrent creates never share one. An aborted create leaves no gap. After 2027-99, generating another 2027 number fails with the "have run out" message and writes nothing. An entered number must match `YYYY-NN`, have the date hired's Manila year and be unused; it raises the counter, a lower free number is accepted without lowering it, and generation never fills gaps.
+  - **Reporting lines (`reporting-lines.test.ts`, [Reporting lines](modules/core.md#reporting-lines)).** Empty is accepted. Self, more than 10, repeats, a missing supervisor, the system account and an inactive supervisor are refused. Direct and longer cycles are refused, also when two overlapping edits would only form one together.
+  - **Users (`users.test.ts`, [Managing user accounts](modules/core.md#managing-user-accounts)).** Only HR and the System Administrator can create and edit; anyone else is refused and nothing changes. New users aren't System Administrators. HR can't change a System Administrator's email (a posted one is ignored, so a stale form doesn't refuse HR's other edits) or employment status, nobody edits their own row, and HR never sees the system account. Create writes the user, the employee and two `create` entries in one transaction, and a failed audit write leaves nothing. Email domain and duplicate checks, the date hired range and the within-year edit rule. A department or position retired at the same time never ends up with an active employee, and an email domain removed while a create or email change is in flight refuses it and writes nothing. Terminated is refused; the separation date rules; a reversal clears the date. A change that would leave no active System Administrator is refused, also when two System Administrators separate each other at once (exactly one succeeds), and a System Administrator separated before their own change runs is refused.
+  - **User account schemas (`user-accounts.test.ts`, [Managing user accounts](modules/core.md#managing-user-accounts)).** The create, edit and status-change schemas: email and name normalizing, the date hired range (1990-01-01 to today + 365 days in Manila), the employee number modes, and the separation date rules.
+  - **Employee model (`employees/model.test.ts`, [Account status](../SECURITY.md#account-status)).** `separationDate` defaults to null, is required for a separated status (Resigned, Terminated, Retired) and null otherwise, is on or after the date hired, and is 00:00 Manila on its day.
+  - **Sessions (`session-user.test.ts`, [Account status](../SECURITY.md#account-status)).** A session that signed in before `sessionsValidFrom` is refused. A user set to Resigned as of today resolves as deactivated on the next request. Changing one's own password keeps other sessions.
+  - **Temporary passwords (`temporary-password.test.ts`, [Sign-in and passwords](../SECURITY.md#sign-in-and-passwords)).** A generated password has 16 Crockford base32 characters in the `XXXX-XXXX-XXXX-XXXX` form, meets the password rule and never equals the email. A reset sets `mustChangePassword` and `sessionsValidFrom` and writes one `passwordReset` entry, and no entry holds the temporary password or a hash. Resetting one's own password is refused, and a System Administrator's password is reset only by a different System Administrator.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -73,7 +87,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests) and the [Core administration tests](#core-administration-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests) and the [user account tests](#user-account-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts, the approvals engine.

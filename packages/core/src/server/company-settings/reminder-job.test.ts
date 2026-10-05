@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
-import type { EmploymentStatus } from '../../account';
+import { EMPLOYMENT_STATUS, type EmploymentStatus } from '../../account';
 import { DepartmentModel } from '../departments/model';
 import { EmployeeModel } from '../employees/model';
 import { NotificationModel } from '../notifications/model';
@@ -32,6 +32,11 @@ async function person(
     positionId: position._id,
     employmentStatus,
     dateHired: new Date('2026-01-05T00:00:00+08:00'),
+    // A separated status needs a separation date (SECURITY.md#account-status).
+    separationDate:
+      EMPLOYMENT_STATUS[employmentStatus] === 'deactivated'
+        ? new Date('2026-06-01T00:00:00+08:00')
+        : null,
   });
   const user = await UserModel.create({
     email: `person.${sequence}@xtreme-works.com`,

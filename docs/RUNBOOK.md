@@ -30,7 +30,7 @@ Another System Administrator can reset the password. If there's no other, `pnpm 
 
 Only another System Administrator can re-enable a System Administrator (see [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)). `pnpm seed:admin` won't create a new one, because it counts a disabled System Administrator as existing.
 
-This is a known limitation. The spec defines no safe recovery yet: the procedure is to be defined in step 1.5/1.6. Don't edit the users collection by hand. Until then, keep at least two active System Administrator accounts.
+This is a known limitation. The spec defines no safe recovery yet: the procedure is to be defined in step 1.7, with disabling the system account. Don't edit the users collection by hand. Until then, keep at least two active System Administrator accounts.
 
 ## Payroll and HR
 

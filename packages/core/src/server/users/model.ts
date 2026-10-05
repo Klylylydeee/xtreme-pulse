@@ -25,6 +25,11 @@ export interface UserRecord {
   systemAccountDisabled: boolean;
   /** The employee this account belongs to; null only for the system account. */
   employeeId: Types.ObjectId | null;
+  /**
+   * Set by a password reset: a session that signed in before it is refused, so every session the
+   * user had ends (SECURITY.md#sign-in-and-passwords). Null until the first reset.
+   */
+  sessionsValidFrom: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
@@ -51,6 +56,7 @@ const userSchema = new Schema<UserRecord>({
   isSystemAccount: { type: Boolean, required: true, default: false, immutable: true },
   systemAccountDisabled: { type: Boolean, required: true, default: false },
   employeeId: { type: Schema.Types.ObjectId, default: null },
+  sessionsValidFrom: { type: Date, default: null },
 });
 
 userSchema.index({ email: 1 }, { unique: true });

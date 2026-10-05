@@ -40,7 +40,7 @@ Each module owns its collections, and no module writes to another module's colle
 | Desk | Tickets, queues, SLA targets and timers, warranties, support contracts, subscriptions, POS terminals, service reports, chargeable work |
 | Insight | Targets, month-end snapshots |
 
-Core and Talent describe the same person under one `employeeId` (see [People data ownership](modules/core.md#people-data-ownership)). The serial number links Supply, Ops and Desk records (see [Inventory](#inventory-pulse-supply)).
+Core and Talent describe the same person under one `employeeId` (see [People data ownership](modules/core.md#people-data-ownership)). Two Core fields that sign-in depends on (build step 1.5): `employees.separationDate`, the separation date (the Manila day at 00:00, stored as UTC; null unless the employee is separated), and `users.sessionsValidFrom`, set by a password reset, before which no session counts (see [Account status](../SECURITY.md#account-status), [Sign-in and passwords](../SECURITY.md#sign-in-and-passwords)). The serial number links Supply, Ops and Desk records (see [Inventory](#inventory-pulse-supply)).
 
 ## Naming
 
@@ -83,7 +83,7 @@ These values are always computed from their source records and never edited dire
 | Leave balances | Opening, credit, carry-over and usage entries | [Leave](modules/talent.md#leave) |
 | Offset balances | Opening, credit and usage entries | [Offset balance & offset time off](modules/talent.md#offset-balance--offset-time-off) |
 | Daily Time Record | Approved timesheets, schedules, leave, offset time off, confirmed holidays | [Daily Time Record (DTR)](modules/talent.md#daily-time-record-dtr) |
-| Account status | Employment status. The one exception is the bootstrap system account (`isSystemAccount`), which has no employment status: it is active unless `systemAccountDisabled` is set | [Account status](../SECURITY.md#account-status), [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account) |
+| Account status | Employment status, with the separation date (`employees.separationDate`) that a separated status (Resigned, Terminated, Retired) requires. The one exception is the bootstrap system account (`isSystemAccount`), which has no employment status: it is active unless `systemAccountDisabled` is set | [Account status](../SECURITY.md#account-status), [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account) |
 | Org chart | `reportingTo` | [Org chart](modules/core.md#org-chart) |
 | Delivery status | Accepted quotation, POs, receipts and signed delivery receipts | [Delivery receipts](modules/supply.md#delivery-receipts) |
 

@@ -54,6 +54,21 @@ import { DepartmentHeadPicker, type PickedHead } from './department-head-picker'
 
 const SUBMIT = ['mod', 'enter'] as const;
 
+/** The head's name, "Unknown employee" when their record is missing, or null for no head. */
+function headLabel(department: DepartmentView): string | null {
+  if (!department.headEmployeeId) return null;
+  return department.headName ?? 'Unknown employee';
+}
+
+/** "Inactive" next to a head who is no longer active (escalations treat them as no head). */
+function InactiveHeadBadge() {
+  return (
+    <span title="No longer an active employee" className="inline-flex shrink-0">
+      <Badge>Inactive</Badge>
+    </span>
+  );
+}
+
 const column = createDataTableColumns<DepartmentView>();
 
 const COLUMNS: DataTableColumn<DepartmentView>[] = column.columns([
@@ -73,13 +88,16 @@ const COLUMNS: DataTableColumn<DepartmentView>[] = column.columns([
     cell: (info) => <span className="font-medium tracking-wide">{info.getValue()}</span>,
     meta: { width: '8rem' },
   }),
-  column.accessor((department) => department.headName ?? '', {
+  column.accessor((department) => headLabel(department) ?? '', {
     id: 'head',
     header: 'Head',
     sortFn: 'text',
     cell: (info) =>
       info.getValue() ? (
-        <span className="whitespace-nowrap">{info.getValue()}</span>
+        <span className="flex items-center gap-2">
+          <span className="whitespace-nowrap">{info.getValue()}</span>
+          {info.row.original.headActive === false ? <InactiveHeadBadge /> : null}
+        </span>
       ) : (
         <span className="text-text-secondary">No head</span>
       ),
@@ -107,10 +125,13 @@ function DepartmentPhoneRow({ department }: { department: DepartmentView }) {
           <span className="truncate text-subheadline font-semibold">{department.name}</span>
           {department.retiredAt ? <Badge>Retired</Badge> : null}
         </span>
-        <span className="truncate text-footnote text-text-secondary">
-          <span className="font-medium tracking-wide">{department.code}</span>
-          {' · '}
-          {department.headName ?? 'No head'}
+        <span className="flex min-w-0 items-center gap-2 text-footnote text-text-secondary">
+          <span className="truncate">
+            <span className="font-medium tracking-wide">{department.code}</span>
+            {' · '}
+            {headLabel(department) ?? 'No head'}
+          </span>
+          {department.headActive === false ? <InactiveHeadBadge /> : null}
         </span>
         <span className="text-footnote text-text-secondary numeric">
           {plural(department.positionCount, 'position', 'positions')} ·{' '}
@@ -249,6 +270,9 @@ function DepartmentForm({
       ? { id: department.headEmployeeId, name: department.headName ?? 'Unknown employee' }
       : null,
   );
+  // The saved head is no longer active, and is still the one picked.
+  const headInactive =
+    department?.headActive === false && head !== null && head.id === department.headEmployeeId;
   const save = useActionSubmit<unknown>(
     department ? updateDepartmentAction : createDepartmentAction,
     () => onSaved(nameRef.current),
@@ -315,7 +339,18 @@ function DepartmentForm({
           title="Head"
           footer="Optional. Any employee with an active account, from any department."
         >
-          <FormField label="Department head" error={save.fieldErrors.headEmployeeId}>
+          <FormField
+            label="Department head"
+            hint={
+              headInactive ? (
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  <InactiveHeadBadge />
+                  No longer an active employee. Escalations skip this head until you pick a new one.
+                </span>
+              ) : undefined
+            }
+            error={save.fieldErrors.headEmployeeId}
+          >
             <DepartmentHeadPicker value={head} onChange={setHead} />
           </FormField>
         </FormSection>
@@ -428,7 +463,12 @@ function RetiredDepartment({
           <ReadOnlyField label="Code">
             <span className="font-medium tracking-wide">{department.code}</span>
           </ReadOnlyField>
-          <ReadOnlyField label="Department head">{department.headName ?? 'No head'}</ReadOnlyField>
+          <ReadOnlyField label="Department head">
+            <span className="flex items-center gap-2">
+              {headLabel(department) ?? 'No head'}
+              {department.headActive === false ? <InactiveHeadBadge /> : null}
+            </span>
+          </ReadOnlyField>
         </FormSection>
       </SheetBody>
       <SheetFooter>

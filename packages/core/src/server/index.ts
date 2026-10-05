@@ -34,8 +34,14 @@ export {
 } from './auth/authenticate';
 export { changePassword } from './auth/change-password';
 export {
+  type AccountActor,
+  type AccountTarget,
   assertSystemAdministrator,
+  canChangeProtectedFieldsOf,
+  canEditAccountOf,
   canManageOrgStructure,
+  canManageUsers,
+  canResetPasswordOf,
   type DepartmentRole,
   departmentRolesFor,
   hasRole,
@@ -47,7 +53,18 @@ export {
   type RoleHolder,
   ROLE_DEPARTMENT_CODES,
 } from './auth/roles';
-export { type CurrentUser, isSessionCurrent, loadSessionUser } from './auth/session-user';
+export {
+  type CurrentUser,
+  isSessionAfterReset,
+  isSessionCurrent,
+  loadSessionUser,
+} from './auth/session-user';
+export {
+  CROCKFORD_BASE32,
+  generateTemporaryPassword,
+  generateTemporaryPasswordFor,
+  TEMPORARY_PASSWORD_PATTERN,
+} from './auth/temporary-password';
 export { checkEmailDomain, type EmailDomainCheck } from './allowed-email-domains/service';
 
 export {
@@ -276,3 +293,31 @@ export {
   retirePosition,
   updatePosition,
 } from './positions/service';
+
+// User accounts and employee numbers (docs/modules/core.md#managing-user-accounts,
+// #employee-number-company-id, #reporting-lines). HR and the System Administrator until step 1.6.
+export {
+  changeEmploymentStatus,
+  type CreatedUser,
+  createUser,
+  getUser,
+  listUsers,
+  type ListUsersOptions,
+  resetPassword,
+  type SupervisorView,
+  type UserDetail,
+  type UserListRow,
+  type UserRowActions,
+  updateUser,
+} from './users/service';
+export {
+  claimManualEmployeeNumber,
+  EMPLOYEE_NUMBER_FIELD,
+  EMPLOYEE_NUMBER_FORMAT_MESSAGE,
+  EMPLOYEE_NUMBER_IN_USE_MESSAGE,
+  type EmployeeNumber,
+  employeeNumbersRunOutMessage,
+  issueEmployeeNumber,
+} from './employee-numbers/service';
+export { validateAndClaimReportingTo } from './employees/reporting-lines';
+export { claimLiveDepartment, claimLivePosition } from './org-claims';

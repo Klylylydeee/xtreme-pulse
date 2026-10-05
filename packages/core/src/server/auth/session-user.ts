@@ -39,9 +39,28 @@ export function isSessionCurrent(signedInAt: number): boolean {
 }
 
 /**
+ * False when a session started at `signedInAt` (seconds since the epoch) began before the user's
+ * `sessionsValidFrom`, which a password reset sets (SECURITY.md#sign-in-and-passwords). Null means
+ * no reset yet: every session counts.
+ *
+ * `signedInAt` is whole seconds, rounded down, so a sign-in in the same second as the reset but
+ * after it reads as before it and is refused too: the user signs in once more. It fails closed.
+ */
+export function isSessionAfterReset(signedInAt: number, sessionsValidFrom: Date | null): boolean {
+  if (sessionsValidFrom === null) return true;
+  const validFrom = sessionsValidFrom.getTime();
+  if (!Number.isFinite(signedInAt) || Number.isNaN(validFrom)) return false;
+  return signedInAt * 1000 >= validFrom;
+}
+
+/**
  * Loads the signed-in user fresh from the database. Returns null, so the caller signs the user
- * out, when the account no longer exists, is deactivated, or the session is past
- * SESSION_MAX_AGE_HOURS from `signedInAt` (seconds since the epoch, set once at sign-in).
+ * out, when the account no longer exists, is deactivated, the session is past
+ * SESSION_MAX_AGE_HOURS from `signedInAt` (seconds since the epoch, set once at sign-in), or it
+ * started before the user's `sessionsValidFrom` (a password reset ends every session).
+ *
+ * The proxy (apps/web/proxy.ts) and the pages, layouts and Server Actions (apps/web/lib/auth.ts)
+ * all come through here, so each of them applies every one of these checks.
  */
 export async function loadSessionUser(
   userId: string,
@@ -51,7 +70,7 @@ export async function loadSessionUser(
   await connectDb();
 
   const user = await UserModel.findById(userId).lean();
-  if (!user) return null;
+  if (!user || !isSessionAfterReset(signedInAt, user.sessionsValidFrom ?? null)) return null;
 
   let employee: CurrentUser['employee'] = null;
   let employment: { employmentStatus: string } | null = null;

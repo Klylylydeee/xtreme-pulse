@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import mongoose, { type mongo, Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
-import type { EmploymentStatus } from '../../account';
+import { EMPLOYMENT_STATUS, type EmploymentStatus } from '../../account';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { AuditLogModel } from '../audit/model';
 import type { DepartmentRole } from '../auth/roles';
@@ -78,6 +78,9 @@ async function addEmployee(
     positionId,
     employmentStatus: status,
     dateHired: new Date('2020-01-01T00:00:00+08:00'),
+    // A separated status needs a separation date (SECURITY.md#account-status).
+    separationDate:
+      EMPLOYMENT_STATUS[status] === 'deactivated' ? new Date('2026-06-01T00:00:00+08:00') : null,
   });
   if (withAccount) {
     await UserModel.create({

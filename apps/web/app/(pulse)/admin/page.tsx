@@ -1,7 +1,14 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { BriefcaseBusiness, Building2, ChevronRight, ScrollText, Settings } from 'lucide-react';
+import {
+  BriefcaseBusiness,
+  Building2,
+  ChevronRight,
+  ScrollText,
+  Settings,
+  Users,
+} from 'lucide-react';
 import { canManageOrgStructure, isSystemAdministrator } from '@pulse/core/server';
 import { IconTile } from '@pulse/ui/components/icon-tile';
 import { PageHeader } from '@pulse/ui/components/page-header';
@@ -20,6 +27,12 @@ interface AdminPageLink {
 }
 
 const ORG_STRUCTURE_LINKS: AdminPageLink[] = [
+  {
+    href: '/admin/users',
+    title: 'Users',
+    description: 'Logins, employee numbers, employment status and password resets.',
+    icon: <Users strokeWidth={1.75} />,
+  },
   {
     href: '/admin/departments',
     title: 'Departments',
@@ -50,7 +63,7 @@ const SYSTEM_ADMINISTRATOR_LINKS: AdminPageLink[] = [
 ];
 
 // Spec: docs/modules/core.md. HR and the System Administrator only (module access arrives in step
-// 1.6). HR sees departments and positions; the System Administrator also sees company settings
+// 1.6). HR sees users, departments and positions; the System Administrator also sees company settings
 // and the audit log. Checked here on the server, and each page checks again: hiding a link is
 // never access control. Anyone else keeps the placeholder.
 export default async function AdminPage() {

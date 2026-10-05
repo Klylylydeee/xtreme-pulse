@@ -16,7 +16,8 @@ import { hashPassword, verifyPassword } from './password';
 
 // Spec: SECURITY.md#sign-in-and-passwords — users change their own password with the current one.
 // The new one follows the password rule, differs from the current password and the email, and
-// clears the temporary-password flag. Other sessions are not ended (build step 1.5 decides).
+// clears the temporary-password flag. Other sessions are not ended: only a reset by HR or the
+// System Administrator sets `sessionsValidFrom`.
 // Errors never contain a password.
 //
 // The change is audit-logged (SECURITY.md#audit-logging) in the same transaction as the write, so

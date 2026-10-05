@@ -106,7 +106,7 @@ To try the app on a phone or tablet, open `http://<this computer's IP>:3000` fro
 
 ### Run the tests
 
-`pnpm test` runs the sensitive-data guard tests, the audit log, notification and sensitive reveal tests, and the Core administration tests (departments, positions, company settings, the company details reminder, allowed email domains, upload settings and the company logo route). They start their own throwaway MongoDB, so they need neither the local replica set nor `.env.local`, and never touch the development database. The first run needs internet access: it downloads a MongoDB binary (about 75 MB, cached afterwards). On Windows on Arm it uses the x64 build, which Windows runs under emulation. Details, and how to point the tests at another server, are in [TESTING.md](docs/TESTING.md#sensitive-data-guard-tests).
+`pnpm test` runs the sensitive-data guard tests, the audit log, notification and sensitive reveal tests, the Core administration tests (departments, positions, company settings, the company details reminder, allowed email domains, upload settings and the company logo route), and the user account tests (employee numbers, reporting lines, users, the user account schemas, the employee model, sessions and temporary passwords). They start their own throwaway MongoDB, so they need neither the local replica set nor `.env.local`, and never touch the development database. The first run needs internet access: it downloads a MongoDB binary (about 75 MB, cached afterwards). On Windows on Arm it uses the x64 build, which Windows runs under emulation. Details, and how to point the tests at another server, are in [TESTING.md](docs/TESTING.md#sensitive-data-guard-tests).
 
 ## Documentation
 
