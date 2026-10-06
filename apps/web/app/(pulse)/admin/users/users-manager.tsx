@@ -34,7 +34,10 @@ import {
 // by department, and "Show separated" (`?separated=1`); sorted by last name (the Name column's
 // first sort, so the phone control reads "Sort by Name"), with no paging. The system account
 // shows (first) only to a System Administrator. A row opens its sheet; "Add user" opens a blank
-// one. After a create or reset, the temporary password is shown once.
+// one. After a create or reset, the temporary password is shown once. From build step 1.7: once the
+// password dialog after a create closes, the screen goes to the new user's access sheet
+// (`/admin/access?user=<id>`); a saved position change offers "Review access"; and a System
+// Administrator can Disable or Enable the system account from its sheet.
 
 const SEARCH_DELAY_MS = 300;
 
@@ -51,6 +54,17 @@ function NameBadges({ user }: { user: UserListRow }) {
       {user.isSelf ? <Badge>You</Badge> : null}
     </>
   );
+}
+
+/** The access sheet for a user on `/admin/access` (docs/modules/core.md#user-access-page). */
+function accessSheetHref(userId: string): string {
+  return `/admin/access?user=${encodeURIComponent(userId)}`;
+}
+
+/** The line under the filters after a change, with "Review access" after a position change. */
+interface Notice {
+  message: string;
+  reviewAccessUserId: string | null;
 }
 
 /** The employment status (the system account's own status when it has none). */
@@ -186,6 +200,7 @@ export function UsersManager({
   showSeparated,
   today,
   dateHiredRange,
+  canManageSystemAccount,
 }: {
   users: UserListRow[];
   /** Every department, retired ones included (the pickers offer live ones). */
@@ -197,6 +212,8 @@ export function UsersManager({
   showSeparated: boolean;
   today: BusinessDate;
   dateHiredRange: { earliest: BusinessDate; latest: BusinessDate };
+  /** The viewer is a System Administrator: Disable or Enable on the system account's sheet. */
+  canManageSystemAccount: boolean;
 }) {
   const router = useRouter();
   const returnFocus = useReturnFocus();
@@ -205,8 +222,10 @@ export function UsersManager({
   const [target, setTarget] = useState<UserListRow | null>(null);
   // A new form (fresh fields and errors) every time the sheet opens.
   const [session, setSession] = useState(0);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [password, setPassword] = useState<TemporaryPasswordNotice | null>(null);
+  // After a create, where to go once the password dialog has closed: the new user's access sheet.
+  const afterPassword = useRef<string | null>(null);
   const [filtering, startFiltering] = useTransition();
   const [query, setQuery] = useState(search);
   const searchTimer = useRef<number | undefined>(undefined);
@@ -263,10 +282,19 @@ export function UsersManager({
     setOpen(true);
   }
 
-  /** Closes the sheet and shows the temporary password; focus returns to the row afterwards. */
+  function say(message: string, reviewAccessUserId: string | null = null) {
+    setNotice({ message, reviewAccessUserId });
+  }
+
+  /**
+   * Closes the sheet and shows the temporary password; focus returns to the row afterwards, or,
+   * after a create, the screen goes on to the new user's access sheet.
+   */
   function showPassword(next: TemporaryPasswordNotice) {
     setOpen(false);
-    setNotice(next.kind === 'created' ? `${next.name} added.` : `Password reset for ${next.name}.`);
+    say(next.kind === 'created' ? `${next.name} added.` : `Password reset for ${next.name}.`);
+    afterPassword.current =
+      next.kind === 'created' && next.userId ? accessSheetHref(next.userId) : null;
     setPassword(next);
   }
 
@@ -277,11 +305,21 @@ export function UsersManager({
     dateHiredRange,
     onCreated: showPassword,
     onReset: showPassword,
-    onSaved: (message: string) => {
+    onSaved: (message: string, reviewAccessUserId: string | null) => {
       setOpen(false);
-      setNotice(message);
+      say(message, reviewAccessUserId);
     },
-    onStatusChanged: (message: string) => setNotice(message),
+    onStatusChanged: (message: string) => say(message),
+    canManageSystemAccount,
+    onSystemAccountChanged: (disabled: boolean) => {
+      setOpen(false);
+      // A disabled system account is listed only with "Show separated", like a deactivated user.
+      say(
+        disabled
+          ? `System account disabled.${showSeparated ? '' : ' It’s listed under Show separated.'}`
+          : 'System account enabled.',
+      );
+    },
   };
 
   const addButton = (variant: 'primary' | 'tinted') => (
@@ -373,9 +411,19 @@ export function UsersManager({
         </div>
         <p role="status" className="text-footnote text-text-secondary">
           {notice ? (
-            <span className="inline-flex items-center gap-1.5 font-medium text-success-text">
-              <CircleCheck aria-hidden="true" className="size-4 shrink-0" />
-              {notice}
+            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1.5 font-medium text-success-text">
+                <CircleCheck aria-hidden="true" className="size-4 shrink-0" />
+                {notice.message}
+              </span>
+              {notice.reviewAccessUserId ? (
+                <Link
+                  href={accessSheetHref(notice.reviewAccessUserId)}
+                  className="inline-flex min-h-11 items-center font-medium text-accent underline"
+                >
+                  Review access
+                </Link>
+              ) : null}
             </span>
           ) : (
             <span className="numeric">
@@ -453,7 +501,17 @@ export function UsersManager({
       <TemporaryPasswordDialog
         notice={password}
         onClose={() => setPassword(null)}
-        onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        onCloseAutoFocus={(event) => {
+          const next = afterPassword.current;
+          afterPassword.current = null;
+          if (next) {
+            // After a create: on to the new user's access sheet, where Cancel is "Set access later".
+            event.preventDefault();
+            router.push(next);
+            return;
+          }
+          returnFocus.onCloseAutoFocus(event);
+        }}
       />
     </>
   );

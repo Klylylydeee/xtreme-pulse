@@ -15,6 +15,9 @@ import {
   breadcrumbFor,
   documentTitleFor,
   isStatusBreadcrumb,
+  type NavBadgeKey,
+  type NavBadges,
+  navBadgeLabel,
   navigationFor,
   type Breadcrumb,
   type NavGroup,
@@ -24,24 +27,36 @@ import { CompanyLogo } from './company-logo';
 import { NotificationRouteWatcher, useNotificationBell } from './notification-bell';
 import { useShellPageTitleState } from './shell-page-title';
 
-function sameHrefs(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((href, index) => href === b[index]);
+/** What the sidebar shows: the hrefs of the sections the user can open, and the counts. */
+interface VisibleNavigation {
+  hrefs: readonly string[];
+  badges: NavBadges;
+}
+
+function sameNavigation(a: VisibleNavigation, b: VisibleNavigation): boolean {
+  return (
+    a.hrefs.length === b.hrefs.length &&
+    a.hrefs.every((href, index) => href === b.hrefs[index]) &&
+    (Object.keys(a.badges) as NavBadgeKey[]).every((key) => a.badges[key] === b.badges[key])
+  );
 }
 
 /**
- * The hrefs of the sections the user can open, kept current. `initial` comes from the (pulse)
- * layout, which doesn't re-run on client navigation, so on every pathname change after the first
- * render the server is asked again (`visibleNavigationAction`, the same server-side rule): a module
- * granted or taken away shows in the sidebar and command bar at the next click, without a reload.
- * A failed request keeps the last good list; only the latest request's answer is used.
+ * The sections the user can open and the sidebar counts, kept current. `initial` comes from the
+ * (pulse) layout, which doesn't re-run on client navigation, so on every pathname change after the
+ * first render the server is asked again (`visibleNavigationAction`, the same server-side rule): a
+ * module granted or taken away shows in the sidebar and command bar at the next click, without a
+ * reload, and User access's count is refreshed on each navigation. A failed request keeps the last
+ * good answer; only the latest request's answer is used.
  */
-function useVisibleHrefs(initial: readonly string[], pathname: string): readonly string[] {
-  const [hrefs, setHrefs] = useState(initial);
-  // A new list from the server render (a full load or router.refresh()) replaces the state.
+function useVisibleNavigation(initial: VisibleNavigation, pathname: string): VisibleNavigation {
+  const [navigation, setNavigation] = useState(initial);
+  // A new answer from the server render (a full load, router.refresh() or a Server Action that
+  // revalidates the layout) replaces the state.
   const [lastInitial, setLastInitial] = useState(initial);
-  if (!sameHrefs(lastInitial, initial)) {
+  if (!sameNavigation(lastInitial, initial)) {
     setLastInitial(initial);
-    setHrefs(initial);
+    setNavigation(initial);
   }
 
   const request = useRef(0);
@@ -53,14 +68,16 @@ function useVisibleHrefs(initial: readonly string[], pathname: string): readonly
     visibleNavigationAction(null, {})
       .then((result) => {
         if (!result.ok || current !== request.current) return;
-        setHrefs((previous) => (sameHrefs(previous, result.data) ? previous : result.data));
+        setNavigation((previous) =>
+          sameNavigation(previous, result.data) ? previous : result.data,
+        );
       })
       .catch(() => {
         // Navigation is a convenience: keep the last good list and try again on the next one.
       });
   }, [pathname]);
 
-  return hrefs;
+  return navigation;
 }
 
 /**
@@ -106,19 +123,30 @@ function useStatusDocumentTitle(breadcrumb: Breadcrumb) {
   }, [status]);
 }
 
-function sectionsFor(groups: readonly NavGroup[], pathname: string): ShellNavSection[] {
+function sectionsFor(
+  groups: readonly NavGroup[],
+  pathname: string,
+  badges: NavBadges,
+): ShellNavSection[] {
   // Only the longest matching entry is current, so /admin/users highlights Users, not Overview.
   const current = activeEntry(groups, pathname)?.entry.href;
   return groups.map((group) => ({
     label: group.label,
-    items: group.entries.map((entry) => ({
-      href: entry.href,
-      label: entry.label,
-      title: entry.title,
-      keywords: [entry.description],
-      icon: <entry.Icon strokeWidth={1.75} />,
-      current: entry.href === current,
-    })),
+    items: group.entries.map((entry) => {
+      // Shown only when above zero; the sidebar hides 0 too.
+      const count = entry.badge ? (badges[entry.badge] ?? 0) : 0;
+      return {
+        href: entry.href,
+        label: entry.label,
+        title: entry.title,
+        keywords: [entry.description],
+        icon: <entry.Icon strokeWidth={1.75} />,
+        current: entry.href === current,
+        ...(entry.badge && count > 0
+          ? { badge: count, badgeLabel: navBadgeLabel(entry.badge, count) }
+          : {}),
+      };
+    }),
   }));
 }
 
@@ -156,9 +184,10 @@ function AccountContent({ email }: { email: string }) {
  * The Xtreme Pulse shell for signed-in pages: the shared AppShell wired to Next.js routing. The
  * (pulse) layout has already checked the signed-in user and passes their email and unread
  * notification count, the company logo URL (null shows the placeholder mark), and the hrefs of the
- * sections the user can open (`visibleHrefsFor` in lib/visible-navigation.ts), which the shell
- * asks the server for again on every navigation. The sidebar, and the command bar built from it,
- * list only those; hiding them is never access control, since every page checks for itself
+ * sections the user can open (`visibleHrefsFor` in lib/visible-navigation.ts) with the sidebar
+ * counts (`navBadgesFor`), which the shell asks the server for again on every navigation. The
+ * sidebar, and the command bar built from it, list only those; hiding them is never access control,
+ * since every page checks for itself
  * (SECURITY.md#resolving-and-enforcing-build-step-16). Status pages set their toolbar and tab
  * title with `ShellPageTitle`.
  */
@@ -167,6 +196,7 @@ export function PulseShell({
   unreadNotifications,
   logoUrl,
   visibleHrefs,
+  navBadges,
   children,
 }: {
   email: string;
@@ -175,13 +205,19 @@ export function PulseShell({
   logoUrl: string | null;
   /** The hrefs of the sections the user can open, computed on the server: the first render's. */
   visibleHrefs: readonly string[];
+  /** The sidebar counts, computed on the server: the first render's. */
+  navBadges: NavBadges;
   children: ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const hrefs = useVisibleHrefs(visibleHrefs, pathname);
+  const initialNavigation = useMemo(
+    () => ({ hrefs: visibleHrefs, badges: navBadges }),
+    [visibleHrefs, navBadges],
+  );
+  const { hrefs, badges } = useVisibleNavigation(initialNavigation, pathname);
   const groups = useMemo(() => navigationFor(hrefs), [hrefs]);
-  const sections = useMemo(() => sectionsFor(groups, pathname), [groups, pathname]);
+  const sections = useMemo(() => sectionsFor(groups, pathname, badges), [groups, pathname, badges]);
   const bell = useNotificationBell(unreadNotifications);
   const statusTitle = useShellPageTitleState();
   // A status page's own title wins; otherwise the path's. Either way a page the user can't open

@@ -38,6 +38,7 @@ import {
 } from '@/lib/actions/users';
 import { EmploymentStatusDialog } from './employment-status-dialog';
 import { type PickedSupervisor, SupervisorPicker } from './supervisor-picker';
+import { SystemAccountStatusRow } from './system-account-status';
 import type { TemporaryPasswordNotice } from './temporary-password-dialog';
 
 // Spec: docs/modules/core.md#managing-user-accounts — the create and edit sheet on `/admin/users`.
@@ -46,7 +47,9 @@ import type { TemporaryPasswordNotice } from './temporary-password-dialog';
 // the same, except the employee number is fixed, the date hired stays in the number's year, and
 // the employment status changes in its own dialog. The row's action flags (from the service) make
 // fields read-only: one's own row and the system account entirely, and for HR a System
-// Administrator's email and status. The services check all of it again.
+// Administrator's email and status. The services check all of it again. From step 1.7, a saved
+// position change offers "Review access" (access never changes with the position), and a System
+// Administrator can Disable or Enable the system account on its sheet.
 
 /** A department in the pickers and the filter. */
 export interface UserDepartmentOption {
@@ -73,10 +76,18 @@ export interface UserSheetProps {
   today: BusinessDate;
   dateHiredRange: { earliest: BusinessDate; latest: BusinessDate };
   onCreated: (notice: TemporaryPasswordNotice) => void;
-  onSaved: (message: string) => void;
+  /**
+   * An edit saved. `reviewAccessUserId` is set when the position changed on an active user, so
+   * the page can offer "Review access" (docs/modules/core.md#managing-user-accounts).
+   */
+  onSaved: (message: string, reviewAccessUserId: string | null) => void;
   onReset: (notice: TemporaryPasswordNotice) => void;
   /** A status change saved; the list behind is refreshed and the sheet stays open. */
   onStatusChanged: (message: string) => void;
+  /** Whether the viewer may Disable or Enable the system account: a System Administrator. */
+  canManageSystemAccount: boolean;
+  /** The system account was disabled or enabled. */
+  onSystemAccountChanged: (disabled: boolean) => void;
 }
 
 const SUBMIT = ['mod', 'enter'] as const;
@@ -246,7 +257,7 @@ function UserForm({
   onStatusChanged,
 }: UserSheetProps & { detail: UserDetail | null }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const submitted = useRef({ name: '', email: '' });
+  const submitted = useRef({ name: '', email: '', positionId: '' });
   const [departmentId, setDepartmentId] = useState(detail?.departmentId ?? '');
   const [positionId, setPositionId] = useState(detail?.positionId ?? '');
   const [supervisors, setSupervisors] = useState<PickedSupervisor[]>(detail?.reportingTo ?? []);
@@ -266,14 +277,18 @@ function UserForm({
   const [dirty, setDirty] = useState(false);
 
   const save = useActionSubmit<unknown>(detail ? updateUserAction : createUserAction, (data) => {
-    const { name, email } = submitted.current;
+    const { name, email, positionId: savedPositionId } = submitted.current;
     if (detail) {
-      onSaved(`${name} saved.`);
+      // Access never changes with the position: the editor is offered a look at it instead.
+      const positionChanged =
+        detail.accountStatus === 'active' && savedPositionId !== (detail.positionId ?? '');
+      onSaved(`${name} saved.`, positionChanged ? detail.id : null);
       return;
     }
-    const created = data as { employeeNumber: string; temporaryPassword: string };
+    const created = data as { id: string; employeeNumber: string; temporaryPassword: string };
     onCreated({
       kind: 'created',
+      userId: created.id,
       name,
       email,
       employeeNumber: created.employeeNumber,
@@ -332,6 +347,7 @@ function UserForm({
             email: String(data.get('email') ?? '')
               .trim()
               .toLowerCase(),
+            positionId: String(data.get('positionId') ?? ''),
           };
           void save.onSubmit(event);
         }}
@@ -682,7 +698,13 @@ function StatusRow({
 // --- Read-only --------------------------------------------------------------------------------
 
 /** One's own row, or the system account: details only, with Reset password when allowed. */
-function ReadOnlyUser({ detail, onReset }: UserSheetProps & { detail: UserDetail }) {
+function ReadOnlyUser({
+  detail,
+  onReset,
+  canManageSystemAccount,
+  onSystemAccountChanged,
+}: UserSheetProps & { detail: UserDetail }) {
+  const manageSystemAccount = detail.isSystemAccount && !detail.isSelf && canManageSystemAccount;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SheetHeader
@@ -709,7 +731,11 @@ function ReadOnlyUser({ detail, onReset }: UserSheetProps & { detail: UserDetail
               .
             </>
           ) : detail.isSystemAccount ? (
-            'The system account isn’t an employee, and it’s read-only here.'
+            manageSystemAccount ? (
+              'The system account isn’t an employee. Here you can only reset its password, or disable or enable it.'
+            ) : (
+              'The system account isn’t an employee, and it’s read-only here.'
+            )
           ) : (
             'You can’t change this account.'
           )}
@@ -722,6 +748,14 @@ function ReadOnlyUser({ detail, onReset }: UserSheetProps & { detail: UserDetail
             </ReadOnlyField>
           ) : null}
         </FormSection>
+        {manageSystemAccount ? (
+          <FormSection title="Account">
+            <SystemAccountStatusRow
+              disabled={detail.accountStatus !== 'active'}
+              onChanged={onSystemAccountChanged}
+            />
+          </FormSection>
+        ) : null}
         {detail.isSystemAccount ? null : (
           <>
             <FormSection title="Name">

@@ -99,6 +99,71 @@ describe('notify', () => {
   });
 });
 
+describe('the duplicate check (dedupeKey)', () => {
+  const keyed = { ...base, dedupeKey: 'core.testReminder:2026-10-05' };
+
+  it('skips recipients who already have the key, and sends the rest', async () => {
+    const alice = new Types.ObjectId();
+    const bob = new Types.ObjectId();
+    expect(await notify({ ...keyed, recipients: [alice] })).toBe(1);
+    expect(await notify({ ...keyed, recipients: [alice, bob] })).toBe(1);
+    expect(await notify({ ...keyed, recipients: [alice, bob] })).toBe(0);
+    expect(await countUnread(alice.toHexString())).toBe(1);
+    expect(await countUnread(bob.toHexString())).toBe(1);
+
+    // Another key, or no key, is sent as usual.
+    expect(
+      await notify({ ...keyed, dedupeKey: 'core.testReminder:2026-10-06', recipients: [alice] }),
+    ).toBe(1);
+    expect(await notify({ ...base, recipients: [alice] })).toBe(1);
+    expect(await notify({ ...base, recipients: [alice] })).toBe(1);
+    expect(await countUnread(alice.toHexString())).toBe(4);
+
+    const [doc] = await NotificationModel.find({ recipientUserId: bob }).lean();
+    expect(doc?.dedupeKey).toBe(keyed.dedupeKey);
+  });
+
+  it('skips inside a transaction too, and the skip rolls back with it', async () => {
+    const user = new Types.ObjectId();
+    const key = 'core.testReminder:in-transaction';
+    await withTransaction(async (session) => {
+      expect(await notify({ ...keyed, dedupeKey: key, recipients: [user] }, { session })).toBe(1);
+      expect(await notify({ ...keyed, dedupeKey: key, recipients: [user] }, { session })).toBe(0);
+    });
+    expect(await countUnread(user.toHexString())).toBe(1);
+  });
+
+  it('holds under concurrent sends: each recipient gets the key once', async () => {
+    const recipients = Array.from({ length: 5 }, () => new Types.ObjectId());
+    const key = 'core.testReminder:concurrent';
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => notify({ ...keyed, dedupeKey: key, recipients })),
+    );
+    expect(results.reduce((sum, count) => sum + count, 0)).toBe(recipients.length);
+    for (const recipient of recipients) {
+      expect(
+        await NotificationModel.countDocuments({ recipientUserId: recipient, dedupeKey: key }),
+      ).toBe(1);
+    }
+  });
+
+  it('refuses a key that is too long or empty, and the key can’t be changed', async () => {
+    const user = new Types.ObjectId();
+    for (const dedupeKey of ['', 'k'.repeat(201)]) {
+      await expect(notify({ ...keyed, dedupeKey, recipients: [user] })).rejects.toBeInstanceOf(
+        NotificationInvalidError,
+      );
+    }
+    await notify({ ...keyed, recipients: [user] });
+    await expect(
+      NotificationModel.updateOne(
+        { recipientUserId: user },
+        { $set: { readAt: new Date(), dedupeKey: 'other' } },
+      ),
+    ).rejects.toThrow(/only marking them read/);
+  });
+});
+
 describe('reading and marking read', () => {
   it('marks only the user’s own notifications, ignoring other users’ ids', async () => {
     const alice = new Types.ObjectId();

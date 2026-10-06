@@ -9,3 +9,4 @@ export {
   SeedInputError,
 } from './bootstrap-admin';
 export { coreSeedLoaders, type SeedLoader, type SeedLoaderResult } from './loaders';
+export { recoverSystemAdministrator, type RecoverSystemAdministratorResult } from './recover-admin';

@@ -14,6 +14,13 @@ import { guardWrites, hasOnlyKeys } from '../write-guards';
 // forever: no TTL index (docs/DATA_MODEL.md#retention).
 //
 // Private to the notification service: modules send with `notify()` and never use this model.
+//
+// `dedupeKey` (build step 1.7, decision 71): an optional key, fixed once stored, such as
+// `core.accessReminder:2026-10-05`. A unique index on the recipient and the key (only where a key
+// is set) means one recipient never holds two notifications with the same key.
+
+/** The longest `dedupeKey`. */
+export const NOTIFICATION_DEDUPE_KEY_MAX_LENGTH = 200;
 
 export interface NotificationRecordRef {
   type: string;
@@ -33,6 +40,8 @@ export interface NotificationRecord {
   record: NotificationRecordRef | null;
   /** Null while unread. */
   readAt: Date | null;
+  /** The duplicate check's key; null (or absent on older records) when none was given. */
+  dedupeKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
@@ -81,11 +90,22 @@ const notificationSchema = new Schema<NotificationRecord>({
   },
   record: { type: recordRefSchema, default: null, immutable: true },
   readAt: { type: Date, default: null },
+  dedupeKey: {
+    type: String,
+    default: null,
+    immutable: true,
+    maxlength: NOTIFICATION_DEDUPE_KEY_MAX_LENGTH,
+  },
 });
 
 // The unread badge, then the list (newest first, keyset paging).
 notificationSchema.index({ recipientUserId: 1, readAt: 1, createdAt: -1 });
 notificationSchema.index({ recipientUserId: 1, createdAt: -1, _id: -1 });
+// The duplicate check: one notification per recipient and key, only where a key is set.
+notificationSchema.index(
+  { recipientUserId: 1, dedupeKey: 1 },
+  { unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } },
+);
 
 notificationSchema.plugin(baseSchemaPlugin, { softDelete: false });
 

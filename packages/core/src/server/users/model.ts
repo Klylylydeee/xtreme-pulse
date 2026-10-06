@@ -14,8 +14,10 @@ import { MODULES } from '../../modules';
 // Spec: SECURITY.md#resolving-and-enforcing-build-step-16 — the stored module access, one level
 // per module (decision 50 in docs/BUILD_PLAN.md). Each defaults to None, and a missing key or a
 // missing subdocument reads as None (resolveModuleAccess), so older accounts need no migration.
-// It is only read in step 1.6; the setter and its audit entry arrive in step 1.7. A System
-// Administrator's stored values are ignored: they resolve to Owner everywhere.
+// Only the access service (access/service.ts, build step 1.7) writes it, and it sets
+// `moduleAccessChangedAt` / `moduleAccessChangedBy` on every change (decision 67). A System
+// Administrator's stored values are ignored: they resolve to Owner everywhere, and the switch
+// never writes them (decision 65).
 
 export interface UserRecord {
   _id: Types.ObjectId;
@@ -42,6 +44,13 @@ export interface UserRecord {
    * missing: read it through resolveModuleAccess, never directly.
    */
   moduleAccess?: Partial<ModuleAccess>;
+  /**
+   * When the module access or the System Administrator switch last changed on the User access
+   * page ("Last changed", and the stale-form check). Null (or absent on older accounts) until then.
+   */
+  moduleAccessChangedAt?: Date | null;
+  /** Who made that change. Null (or absent) until the first change. */
+  moduleAccessChangedBy?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
@@ -83,6 +92,8 @@ const userSchema = new Schema<UserRecord>({
   sessionsValidFrom: { type: Date, default: null },
   // A new account starts with None on every module (SECURITY.md#rules).
   moduleAccess: { type: moduleAccessSchema, default: () => ({}) },
+  moduleAccessChangedAt: { type: Date, default: null },
+  moduleAccessChangedBy: { type: Schema.Types.ObjectId, default: null },
 });
 
 userSchema.index({ email: 1 }, { unique: true });
@@ -92,6 +103,8 @@ userSchema.index(
   { unique: true, partialFilterExpression: { employeeId: { $type: 'objectId' } } },
 );
 userSchema.index({ isSystemAdministrator: 1 });
+// The User access page's "Needs access" group, newest first.
+userSchema.index({ createdAt: -1 });
 // There is exactly one bootstrap system account, even when two seed runs race.
 userSchema.index(
   { isSystemAccount: 1 },

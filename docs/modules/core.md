@@ -16,7 +16,7 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - Default login email: **`sysadmin@xtreme-works.com`**.
 - The script reads the email and initial password from environment variables `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`. **Never commit the password** to the repo, these docs, seed files or logs.
 - The account must change its password on first sign-in.
-- It is a **system account**, not an employee: no employee number or employment status, always active unless another System Administrator disables it, and excluded from the directory, org chart, onboarding, timesheets, payroll and reporting lines.
+- It is a **system account**, not an employee: no employee number or employment status, always active unless another System Administrator disables it (on `/admin/users`, from build step 1.7, see [System Administrator](../../SECURITY.md#system-administrator)), and excluded from the directory, org chart, onboarding, timesheets, payroll and reporting lines.
 - The script is idempotent in two parts. If a System Administrator already exists, it skips creating one. Base data loaders insert only what is missing and never overwrite existing records, so base data for modules built later can be added to an existing database (for example during a staged go-live).
 - A loader may fill a field that is absent on an existing record; it never changes an existing value.
 - Seeded positions carry a stable seed key, so renaming a seeded position doesn't make the seed add it again.
@@ -32,6 +32,7 @@ Built in step 1.6. The `/admin` pages are checked by role, not module access ([R
 |---|---|---|
 | Overview | `/admin` | HR and the System Administrator |
 | Users | `/admin/users` | HR and the System Administrator |
+| User access | `/admin/access` | HR and the System Administrator (build step 1.7) |
 | Departments | `/admin/departments` | HR and the System Administrator |
 | Positions | `/admin/positions` | HR and the System Administrator |
 | Company settings | `/admin/settings` | The System Administrator |
@@ -39,7 +40,7 @@ Built in step 1.6. The `/admin` pages are checked by role, not module access ([R
 
 - Anyone else doesn't see the group (an empty sidebar group is hidden), and gets the [no-access state](../DESIGN_SYSTEM.md#feedback--motion) (HTTP 403) on every `/admin` page, `/admin` itself included. HR gets it on `/admin/settings` and `/admin/audit`.
 - Breadcrumbs read "Administration › Users" and so on, from the longest matching entry. The command bar's navigation items follow the filtered sidebar.
-- `/admin/access` and its badge join the group in step 1.7 ([User access page](#user-access-page)).
+- From step 1.7, User access sits after Users, with a badge counting the users who still need access, and its breadcrumb reads "Administration › User access". The `/admin` overview gets a User access card with the same count ([User access page](#user-access-page)).
 
 ## Departments and positions
 
@@ -115,27 +116,51 @@ Built in step 1.5. Passwords, account status and the System Administrator's rule
 - **Live department and position.** Creating a user, changing an employee's department or position, and moving a separated employee back to an active status write the department and position records inside the transaction (`claimLiveDepartment`, `claimLivePosition`), so an overlapping retire conflicts and is retried. Nobody ends up active in a retired department or position (see [Managing departments and positions](#managing-departments-and-positions)).
 - **Email domain claimed.** The email's allowed domain is checked before the transaction (a quick field error) and written again inside it (`claimEmailDomain`), so a create or email change that overlaps the domain's removal conflicts and is refused.
 - **Known limit (step 1.5):** a future-dated hire can't be separated before their date hired (the separation date must be on or after the date hired and today or earlier), and employees can't be deleted. A hire who withdraws before starting stays active until their date hired, and can be separated from then. Date-aware statuses, possibly in Phase 2, address it.
-- **The bootstrap system account** shows only to System Administrators, read-only, with Reset password ([System Administrator](../../SECURITY.md#system-administrator)).
+- **The bootstrap system account** shows only to System Administrators, read-only, with Reset password and, from build step 1.7, Disable or Enable ([System Administrator](../../SECURITY.md#system-administrator)).
 - **Temporary password dialog.** After creating a user or resetting a password, a dialog shows the generated temporary password once, with Copy and "Hand it over privately". Closing it ends the only chance to see it; if it's lost, reset again ([Sign-in and passwords](../../SECURITY.md#sign-in-and-passwords)).
 - **Audit:** record types `core.employee`, labelled `<employee number> · <first name> <last name>` (for example `2027-01 · Ana Cruz`), and `core.user`, labelled with the email. Creating a user writes the user, the employee and two `create` entries in one transaction. Edits are `update` entries with both sides snapshotted (`snapshotsForAudit`). A reset is a `passwordReset` entry on the `core.user` record, with no hash, showing `mustChangePassword` before and after. None of these fields is [sensitive personal data](../../SECURITY.md#sensitive-data). The temporary password appears only in the action's response to the person who did it, never in an entry.
-- **No notifications** in step 1.5. Notifying HR and the System Administrator of new users arrives with the [User access page](#user-access-page) in step 1.7.
+- **After creating a user** (build step 1.7): once the temporary password dialog closes, the screen goes to that user's access sheet (`/admin/access?user=<id>`). Cancel there is "Set access later".
+- **After a position change** (build step 1.7): once the save succeeds, the editor sees a "Review access" link to the user's access sheet. Access never changes with the position ([Rules](../../SECURITY.md#rules)).
+- **Notifications** (build step 1.7): creating a user, and changing a user's position, notify the other active HR users and System Administrators, never the person who made the change. Each is sent in the save's transaction, so a failed save sends nothing ([User access page](#user-access-page)). Other edits send nothing.
 
 ## User access page
 
-The page where HR and the System Administrator set each user's module access.
+The page where HR and the System Administrator set each user's module access. Built in step 1.7 (the details follow the list below).
 
 - **Route:** `/admin/access`, in the Pulse Core administration area. It appears in the sidebar only for HR and the System Administrator, with a badge counting users who still need access.
-- **List:** every active user with profile photo, name, employee number, department, position, and a compact access summary per module (e.g. `Talent R`, `Fiscal O`). Search by name; filter by department and position.
+- **List:** every active user with profile photo (initials until Pulse Talent adds photos in Phase 2), name, employee number, department, position, and a compact access summary per module (e.g. `Talent R`, `Fiscal O`). Search by name or employee number; filter by department and position.
 - **Needs access:** users with None on every module are pinned at the top under a "Needs access" heading, newest first.
 - **Editing:** selecting a user opens a sheet with one row per module (Engage, Ops, Supply, Desk, Fiscal, Talent, Insight). Each row has a segmented control **None | Read | Write | Owner** with a one-line description of the selected level; Insight offers None | Read only. Save applies all changes at once. The sheet shows who last changed the user's access and when.
-- **System Administrator role:** the sheet has a "System Administrator" switch above the module rows, visible and editable only to System Administrators. Turning it on sets Owner on every module (Read on Insight) and locks the rows; a confirmation is required, and the last remaining System Administrator can't be switched off.
-- **Read-only rows:** a user's own access, and the System Administrator's access when viewed by HR, are shown but cannot be edited (see [Module access](../../SECURITY.md#module-access-rwo)).
+- **System Administrator role:** the sheet has a "System Administrator" switch above the module rows, visible and editable only to System Administrators. Turning it on makes the user resolve to Owner on every module (Read on Insight) and locks the rows; the stored levels are kept and apply again if the switch is turned off. A confirmation is required, and the last remaining System Administrator can't be switched off.
+- **Read-only rows:** a user's own access, the bootstrap system account's, and the System Administrator's access when viewed by HR, are shown but cannot be edited (see [Module access](../../SECURITY.md#module-access-rwo)).
 - **After creating a user:** HR or the System Administrator goes straight to that user's access sheet, with the option to set access later.
-- **From the employee record:** the user's record in Pulse Talent has a "Manage access" action that opens the same sheet (HR and System Administrator only).
-- **Notifications:** HR and the System Administrator are notified when a new user is created, and reminded daily while any user still needs access.
+- **From the employee record** (Phase 2, with the Talent employee record): the user's record in Pulse Talent has a "Manage access" action that opens the same sheet (HR and System Administrator only).
+- **Notifications:** HR and the System Administrator are notified when a new user is created and when a user's position changes, and reminded daily while any user still needs access.
 - **New user's home** (build step 1.6): a user whose effective access is None on every module sees a card under the Home hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It never shows to the System Administrator, but can show to HR or a Board member with nothing set. It replaces the "Nothing needs your attention" empty state while it shows; the company details reminder is unchanged ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Self-service stays available.
 - **Board members:** Board of Directors members normally need Insight Read for the Board dashboards, targets and weekly summary. The sheet shows this as a hint for Board members; it never grants access automatically.
 - Every change is audit-logged (see [Module access](../../SECURITY.md#module-access-rwo)).
+
+Built in step 1.7:
+
+- **Who.** Checked by role like the rest of the [Administration area](#administration-area): `requireAdminPage('hrOrSystemAdministrator')` on the page and `adminOnly('hrOrSystemAdministrator')` on its Server Actions; anyone else gets the no-access state (HTTP 403). The service checks the role again itself, and only a System Administrator can use the switch.
+- **Which users.** Active users only. An inactive user has no access to set: the list leaves them out and the service refuses them. The bootstrap system account shows only to System Administrators, read-only, with a "System Administrator" badge and no access chips; HR doesn't see it.
+- **List.** Search matches the name and the employee number. Department and Position filters. The filters live in the URL (`?q=`, `?department=`, `?position=`), and `?user=<id>` opens that user's sheet. Each row's summary has one chip per module above None (`Talent R`, `Fiscal O`), or "All modules R" (or W, O) when every module has the same level. Each row shows "Added <date>", when the account was created. Stat tiles above the list show how many active users have access (for example "With access 18 of 21") and how many users each module has. On a phone the rows become cards.
+- **Needs access group.** Active users who aren't System Administrators and have None stored on every module, HR and Board members included; never the system account. Newest first; everyone else is sorted by last name. The sidebar badge and the `/admin` overview card show the same count. Only HR and System Administrators get the count, refreshed on each navigation.
+- **Level descriptions.** None "Can't see this module." Read "Can view records." Write "Can view, create and edit records." Owner "Full control: approve, void, delete and manage settings."
+- **The sheet** also shows an "After saving, <first name> sees:" preview of the modules the user will see, and "Last changed: never" or "Last changed <when> by <name>" (the name, else the email). Cancel and Save, with Ctrl+S or ⌘S to save. "Last changed" comes from `users.moduleAccessChangedAt` and `users.moduleAccessChangedBy` ([DATA_MODEL.md](../DATA_MODEL.md#collection-ownership)), not from the audit log.
+- **Read-only.** For everyone: one's own row, the switch included, and the bootstrap system account. For HR: a System Administrator's row. The sheet says why it is read-only.
+- **Saving.** One transaction. The service checks the actor's role and that the actor's own account is still active, loads the user, and refuses an inactive user, one's own row, the system account and, for HR, a System Administrator. It writes only the modules whose level changed, sets `moduleAccessChangedAt` and `moduleAccessChangedBy`, and writes one `accessChange` entry per changed module. A save that changes nothing writes nothing. If someone else changed the user's access after the sheet opened (the sheet sends back the `moduleAccessChangedAt` it loaded), the save is refused with "Someone else changed this user's access. Reload to see it."
+- **The switch** changes only `isSystemAdministrator`; it never writes the stored levels. While it is on, the rows show locked at Owner (Read on Insight). The confirmation to turn it off lists the stored levels that will apply again. It writes its own `accessChange` entry, with `isSystemAdministrator` before and after, and counts as an access change for "Last changed". Turning it off goes through the never-zero guard ([Account status](../../SECURITY.md#account-status)), and a System Administrator can't switch off their own.
+- **Audit entries.** Module `core`, action `accessChange`, record `core.user` labelled with the email, one entry per changed module, holding only that module: `before: { moduleAccess: { talent: "none" } }`, `after: { moduleAccess: { talent: "write" } }`. Written in the save's transaction, so a failed entry fails the save.
+- **Notifications** go to every active HR user and System Administrator except the person who made the change, as in-app [notifications](#notifications). The daily reminder has no actor, so it goes to all of them, at most once per recipient per Manila day (`notify()`'s duplicate check, key `core.accessReminder:<Manila date>`), and nothing is sent while nobody needs access.
+
+| Event | When | Title (example) | Link |
+|---|---|---|---|
+| `core.userCreated` | A user is created on `/admin/users`, in the create transaction | "New user: Ana Cruz needs access" | `/admin/access?user=<id>` |
+| `core.positionChanged` | A user's position changes on `/admin/users`, in the save's transaction | "Review Ana Cruz's access: position changed to Driver" | `/admin/access?user=<id>` |
+| `core.usersNeedAccess` | The daily job `core.accessReminder`, 08:00 Asia/Manila every day, weekends included, while anyone needs access ([Background jobs](../ARCHITECTURE.md#background-jobs)) | "3 users still need access" | `/admin/access` |
+
+- **Not in step 1.7:** "Manage access" on the Talent employee record (Phase 2), profile photos (initials only), email notifications, and changing access automatically on a position change (never).
 
 ## Company directory
 
@@ -224,7 +249,8 @@ Built in step 1.3:
 
 - **Stored** in `notifications`, one record per recipient: the recipient, the module (`core` or a module key), the event (`<module>.<name>`, for example `core.holidayDeclared`), a title, an optional body, a link, the record it is about (optional) and `readAt` (null while unread). Titles are capped at 200 characters and bodies at 1,000, as plain text.
 - **The link is always a path inside the app**: it starts with a single `/`, with no `//` or `\` anywhere and no spaces. A full URL or a `//host` link is refused, so a notification can never send someone off-site.
-- **Sending.** Modules call Core's `notify()` service, never the collection, inside their own transaction when the event comes from a change (so the notification commits or rolls back with it). There is no duplicate check in `notify()` yet; build step 1.7 adds one for the daily reminders. The company details reminder (step 1.4) does its own check, skipping a recipient who already got it that Manila day ([Company settings page](#company-settings-page)).
+- **Sending.** Modules call Core's `notify()` service, never the collection, inside their own transaction when the event comes from a change (so the notification commits or rolls back with it). The company details reminder (step 1.4) does its own check, skipping a recipient who already got it that Manila day ([Company settings page](#company-settings-page)).
+- **Duplicate check** (build step 1.7). `notify()` takes an optional `dedupeKey`: a string of up to 200 characters, fixed once stored, for example `core.accessReminder:2026-10-05`. A recipient who already has a notification with that key is skipped. A unique index on the recipient and the key (only where a key is set) holds when two sends overlap; outside a transaction, a send that hits it is skipped rather than failing. The daily access reminder uses it ([User access page](#user-access-page)).
 - **Reading.** A user only ever sees and changes their own notifications: every query filters on the signed-in user. Marking one or all as read is the only change allowed; nothing else on a stored notification can be edited. Opening the list and marking read are not audit-logged.
 - **The badge** shows the unread count. It refreshes on navigation, when the window regains focus and when the list opens; there is no polling.
 - **Kept forever.** Notifications are never deleted and never expire (see [Retention](../DATA_MODEL.md#retention)).

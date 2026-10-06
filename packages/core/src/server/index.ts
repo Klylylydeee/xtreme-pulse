@@ -51,7 +51,10 @@ export {
   canEditAccountOf,
   canManageOrgStructure,
   canManageUsers,
+  canEditAccessOf,
+  canManageAccess,
   canResetPasswordOf,
+  canToggleSystemAdministrator,
   type DepartmentRole,
   departmentRolesFor,
   hasRole,
@@ -319,12 +322,15 @@ export {
   getUser,
   listUsers,
   type ListUsersOptions,
+  POSITION_CHANGED_EVENT,
   resetPassword,
+  setSystemAccountDisabled,
   type SupervisorView,
   type UserDetail,
   type UserListRow,
   type UserRowActions,
   updateUser,
+  USER_CREATED_EVENT,
 } from './users/service';
 export {
   claimManualEmployeeNumber,
@@ -337,3 +343,27 @@ export {
 } from './employee-numbers/service';
 export { validateAndClaimReportingTo } from './employees/reporting-lines';
 export { claimLiveDepartment, claimLivePosition } from './org-claims';
+
+// User access (docs/modules/core.md#user-access-page): the access setter, the "Needs access"
+// count and the daily reminder. HR and the System Administrator, by role.
+export {
+  countUsersNeedingAccess,
+  countUsersNeedingAccessFor,
+  getUserAccess,
+  listUserAccess,
+  type ListUserAccessOptions,
+  saveUserAccess,
+  type SaveUserAccessResult,
+  type UserAccessDetail,
+  type UserAccessList,
+  type UserAccessRow,
+  type UserAccessStats,
+} from './access/service';
+export {
+  ACCESS_REMINDER_JOB,
+  ACCESS_REMINDER_SCHEDULE,
+  type AccessReminderResult,
+  accessReminderKey,
+  runAccessReminder,
+  USERS_NEED_ACCESS_EVENT,
+} from './access/reminder-job';

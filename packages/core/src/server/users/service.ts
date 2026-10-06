@@ -28,6 +28,8 @@ import { checkEmailDomain, claimEmailDomain } from '../allowed-email-domains/ser
 import { recordAudit } from '../audit/service';
 import { snapshotForAudit, snapshotsForAudit } from '../audit/snapshot';
 import { resolveAccountStatus } from '../auth/account-status';
+import { activeHrAndSystemAdministrators } from '../auth/admin-recipients';
+import { assertAnotherAdministratorStays, reloadActor } from '../auth/administrators';
 import { hashPassword } from '../auth/password';
 import {
   type AccountTarget,
@@ -46,6 +48,7 @@ import {
   issueEmployeeNumber,
 } from '../employee-numbers/service';
 import { type EmployeeRecord, EmployeeModel } from '../employees/model';
+import { notify } from '../notifications/service';
 import { validateAndClaimReportingTo } from '../employees/reporting-lines';
 import { claimLiveDepartment, claimLivePosition } from '../org-claims';
 import { toObjectId } from '../paging';
@@ -71,9 +74,17 @@ import { type UserRecord, UserModel } from './model';
 //   conflicts and is retried.
 // - A status change takes effect at once: `loadSessionUser` resolves the new account status on the
 //   user's next request. A reset ends all the user's sessions through `sessionsValidFrom`.
+// - From step 1.7, creating a user and changing a position notify the other active HR users and
+//   System Administrators in the same transaction (decisions 69 and 70), and a System
+//   Administrator can disable or enable the system account (decision 75).
 
 const EMPLOYEE_RECORD_TYPE = 'core.employee';
 const USER_RECORD_TYPE = 'core.user';
+
+/** A user was created (docs/modules/core.md#user-access-page). */
+export const USER_CREATED_EVENT = 'core.userCreated';
+/** A user's position changed (docs/modules/core.md#user-access-page). */
+export const POSITION_CHANGED_EVENT = 'core.positionChanged';
 
 const USER_GONE = 'This user no longer exists. Reload the page.';
 const OWN_ROW = 'You can’t change your own account here. Change your password on Change password.';
@@ -90,9 +101,6 @@ const DEPARTMENT_NOT_LIVE = 'Choose a department that isn’t retired.';
 const POSITION_NOT_LIVE = 'Choose a position that isn’t retired.';
 const POSITION_NOT_IN_DEPARTMENT = 'Choose a position in the chosen department.';
 const NUMBER_FIXED = 'An employee number can’t be changed.';
-const ACTOR_INACTIVE = 'Your account is no longer active, so this change wasn’t saved.';
-const LAST_ADMINISTRATOR =
-  'This would leave no active System Administrator. Keep another System Administrator active first.';
 
 /** `<domain> isn't allowed` on the email field. */
 function domainRefused(domain: string | null): ActionError {
@@ -225,6 +233,40 @@ async function loadAccount(id: string, session: ClientSession | null) {
     ? await EmployeeModel.findById(user.employeeId).session(session).lean()
     : null;
   return { user, employee };
+}
+
+/** The user's access sheet on the User access page. */
+function accessSheetHref(userId: Types.ObjectId): string {
+  return `/admin/access?user=${userId.toHexString()}`;
+}
+
+/**
+ * Notifies every other active HR user and System Administrator about `userId`, in the caller's
+ * transaction, so a failed save sends nothing (docs/modules/core.md#user-access-page, decision
+ * 69). The actor goes to the sheet, or sees a "Review access" link, instead; the user themselves
+ * (an HR user, or one just added to HR) is never told about their own access.
+ */
+async function notifyAccessReviewers(
+  actor: OrgStructureActor,
+  userId: Types.ObjectId,
+  { event, title }: { event: string; title: string },
+  session: ClientSession,
+): Promise<void> {
+  const recipients = (await activeHrAndSystemAdministrators(session)).filter(
+    (recipient) => recipient.id.toHexString() !== actor.id && !recipient.id.equals(userId),
+  );
+  if (recipients.length === 0) return;
+  await notify(
+    {
+      recipients: recipients.map((recipient) => recipient.id),
+      module: 'core',
+      event,
+      title,
+      href: accessSheetHref(userId),
+      record: { type: USER_RECORD_TYPE, id: userId },
+    },
+    { session },
+  );
 }
 
 /** True when the two lists hold the same IDs in the same order. */
@@ -638,6 +680,16 @@ export async function createUser(
         },
         { session },
       );
+      // New users start with no access (decision 68): tell the others who set it.
+      await notifyAccessReviewers(
+        actor,
+        user._id,
+        {
+          event: USER_CREATED_EVENT,
+          title: `New user: ${employeeName(employee)} needs access`,
+        },
+        session,
+      );
       return {
         id: user._id.toHexString(),
         employeeId: employee._id.toHexString(),
@@ -772,6 +824,23 @@ export async function updateUser(
           },
           { session },
         );
+        // Access never follows the position (SECURITY.md#rules): the others are asked to review
+        // it (decision 70). Other edits send nothing.
+        if (!employee.positionId.equals(positionId)) {
+          const position = await PositionModel.findById(positionId, { name: 1 })
+            .session(session)
+            .lean()
+            .orFail();
+          await notifyAccessReviewers(
+            actor,
+            user._id,
+            {
+              event: POSITION_CHANGED_EVENT,
+              title: `Review ${employeeName(after)}’s access: position changed to ${position.name}`,
+            },
+            session,
+          );
+        }
       }
 
       if (emailChanged) {
@@ -798,62 +867,6 @@ export async function updateUser(
   } catch (error) {
     rethrowDuplicate(error);
   }
-}
-
-/**
- * Refuses when deactivating `targetId` would leave no active System Administrator (the system
- * account counts while active), or when the actor's own account is no longer active. Every
- * System Administrator's user record is written first, so two concurrent changes conflict and the
- * retried one counts the other's result (the same pattern as removing an allowed email domain).
- *
- * The actor is checked again here because their session was checked before the transaction: two
- * System Administrators separating each other at once would otherwise each pass as active, and
- * one separated a moment before their own request runs could still separate someone else.
- */
-async function assertAnotherAdministratorStays(
-  actor: OrgStructureActor,
-  targetId: Types.ObjectId,
-  session: ClientSession,
-): Promise<void> {
-  const administrators = { $or: [{ isSystemAdministrator: true }, { isSystemAccount: true }] };
-  await UserModel.updateMany(administrators, { $inc: { __v: 1 } }, { session, timestamps: false });
-
-  const actorUser = await UserModel.findById(toObjectId(actor.id), {
-    employeeId: 1,
-    isSystemAccount: 1,
-    systemAccountDisabled: 1,
-  })
-    .session(session)
-    .lean();
-  const actorEmployee = actorUser?.employeeId
-    ? await EmployeeModel.findById(actorUser.employeeId, { employmentStatus: 1 })
-        .session(session)
-        .lean()
-    : null;
-  if (!actorUser || resolveAccountStatus(actorUser, actorEmployee) !== 'active') {
-    throw new ActionError(ACTOR_INACTIVE);
-  }
-  const others = await UserModel.find(
-    { ...administrators, _id: { $ne: targetId } },
-    { employeeId: 1, isSystemAccount: 1, systemAccountDisabled: 1 },
-  )
-    .session(session)
-    .lean();
-  const employees = await EmployeeModel.find(
-    { _id: { $in: others.flatMap((user) => (user.employeeId ? [user.employeeId] : [])) } },
-    { employmentStatus: 1 },
-  )
-    .session(session)
-    .lean();
-  const statusById = new Map(employees.map((e) => [e._id.toHexString(), e]));
-  const active = others.filter(
-    (user) =>
-      resolveAccountStatus(
-        user,
-        user.employeeId ? (statusById.get(user.employeeId.toHexString()) ?? null) : null,
-      ) === 'active',
-  );
-  if (active.length === 0) throw new ActionError(LAST_ADMINISTRATOR);
 }
 
 /**
@@ -993,4 +1006,56 @@ export async function resetPassword(
     );
   });
   return { temporaryPassword };
+}
+
+// --- Disabling the system account ------------------------------------------------------------
+
+const ADMIN_ONLY_DISABLE = 'Only a System Administrator can disable or enable the system account.';
+const SYSTEM_ACCOUNT_SELF = 'The system account can’t disable or enable itself.';
+const NO_SYSTEM_ACCOUNT = 'There is no system account.';
+
+/**
+ * Disables or enables the bootstrap system account (`users.systemAccountDisabled`, decision 75).
+ * Only a System Administrator, never the system account itself. Disabling goes through the
+ * never-zero guard, which also re-checks that the actor is still active (SECURITY.md#account-status).
+ * Writes one `update` entry on the `core.user` record; a change to the state it already has writes
+ * nothing. A disabled system account is signed out on its next request.
+ */
+export async function setSystemAccountDisabled(
+  actor: OrgStructureActor,
+  disabled: boolean,
+): Promise<void> {
+  if (!actor.isSystemAdministrator) throw new AccessDeniedError(ADMIN_ONLY_DISABLE);
+  if (typeof disabled !== 'boolean') throw new ActionError('Choose Disable or Enable.');
+  const actorId = toObjectId(actor.id);
+  await connectDb();
+
+  await withTransaction(async (session) => {
+    const before = await UserModel.findOne({ isSystemAccount: true }).session(session).lean();
+    if (!before) throw new ActionError(NO_SYSTEM_ACCOUNT);
+    if (before._id.toHexString() === actor.id) throw new AccessDeniedError(SYSTEM_ACCOUNT_SELF);
+    if (before.systemAccountDisabled === disabled) return;
+    // The actor as they are now: still active and still a System Administrator.
+    const current = await reloadActor(actor, session);
+    if (!current.isSystemAdministrator) throw new AccessDeniedError(ADMIN_ONLY_DISABLE);
+    if (disabled) await assertAnotherAdministratorStays(current, before._id, session);
+
+    const changes = { systemAccountDisabled: disabled, updatedBy: actorId, updatedAt: now() };
+    await UserModel.updateOne(
+      { _id: before._id },
+      { $set: changes },
+      { session, timestamps: false },
+    );
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorEmail: actor.email,
+        module: 'core',
+        action: 'update',
+        record: { type: USER_RECORD_TYPE, id: before._id, label: before.email },
+        ...snapshotsForAudit(UserModel, before, { ...before, ...changes }),
+      },
+      { session },
+    );
+  });
 }

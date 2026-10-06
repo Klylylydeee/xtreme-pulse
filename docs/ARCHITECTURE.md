@@ -173,7 +173,7 @@ All scheduled work runs in the BullMQ worker on Asia/Manila time. Where the spec
 |---|---|---|
 | Next year's holidays drafted | Every October 1 | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Unconfirmed holidays reminder to HR | Weekly from December 1 until confirmed | [Holiday calendar](modules/core.md#holiday-calendar) |
-| Users still needing access | Daily | [User access page](modules/core.md#user-access-page) |
+| Users still needing access (`core.accessReminder`) to HR and the System Administrator | Daily at 8:00 AM, weekends included, while any user needs access; at most once per recipient per Manila day (`notify()`'s `dedupeKey`) | [User access page](modules/core.md#user-access-page) |
 | Company details reminder (`core.companyDetailsReminder`) to HR and the System Administrator | Weekly, Mondays 8:00 AM, while any company detail is a placeholder; at most once per recipient per Manila day | [Company settings page](modules/core.md#company-settings-page) |
 | Timesheet reminders and missing list | Before and at the deadline | [Submission & approval](modules/talent.md#submission--approval) |
 | 201 document and certification expiry | Daily, 30 days ahead by default | [Documents (201 file)](modules/talent.md#documents-201-file), [Skills & certifications](modules/talent.md#skills--certifications) |

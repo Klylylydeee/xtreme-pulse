@@ -11,14 +11,23 @@ import {
   NOTIFICATION_TITLE_MAX_LENGTH,
 } from '../../notifications';
 import { afterPosition, decodeCursor, encodeCursor, pageSize, toObjectId } from '../paging';
-import { type NotificationRecord, NotificationModel } from './model';
+import { isDuplicateKeyError } from '../seed/duplicate-key';
+import {
+  NOTIFICATION_DEDUPE_KEY_MAX_LENGTH,
+  type NotificationRecord,
+  NotificationModel,
+} from './model';
 
 // Spec: docs/modules/core.md#notifications — in-app notifications. Modules send them with
 // `notify()`, inside their own transaction when the event comes from a change, and never touch the
 // collection. Every read and update filters on the recipient, so a user only ever sees and marks
 // their own. Opening the list and marking read are not audit-logged.
 //
-// No duplicate check yet: build step 1.7 adds one for the daily reminders.
+// The duplicate check (build step 1.7, decision 71): with a `dedupeKey`, a recipient who already
+// has a notification with that key is skipped. The unique index on `{ recipientUserId, dedupeKey }`
+// holds when two sends overlap: inside a transaction the overlap is a write conflict and the
+// caller's transaction retries (and then skips the recipient); outside one, the duplicate insert
+// is skipped rather than failing.
 
 /** The most recipients one `notify()` call takes. */
 const MAX_RECIPIENTS = 5000;
@@ -56,6 +65,7 @@ const notifySchema = z.object({
     })
     .nullable()
     .optional(),
+  dedupeKey: z.string().min(1).max(NOTIFICATION_DEDUPE_KEY_MAX_LENGTH).nullable().optional(),
 });
 
 export interface NotifyInput {
@@ -72,6 +82,11 @@ export interface NotifyInput {
   href: string;
   /** The record the notification is about. */
   record?: { type: string; id: Types.ObjectId | string | null } | null;
+  /**
+   * The duplicate check: a recipient who already has a notification with this key is skipped. Up
+   * to 200 characters, for example `core.accessReminder:2026-10-05`.
+   */
+  dedupeKey?: string | null;
 }
 
 /** Thrown when a notification's input is invalid. Names the fields, never their values. */
@@ -96,7 +111,7 @@ export async function notify(
       parsed.error.issues.map((issue) => issue.path.map(String).join('.')),
     );
   }
-  const { recipients, module, event, title, body, href, record } = parsed.data;
+  const { recipients, module, event, title, body, href, record, dedupeKey } = parsed.data;
   const unique = new Map<string, Types.ObjectId>();
   for (const recipient of recipients) {
     const id = toObjectId(recipient);
@@ -110,7 +125,18 @@ export async function notify(
   const ref = record ? { type: record.type, id: record.id ? toObjectId(record.id) : null } : null;
 
   await connectDb();
-  const docs = [...unique.values()].map((recipientUserId) => ({
+  let recipientIds = [...unique.values()];
+  if (dedupeKey) {
+    // Skip recipients who already have the key (read in the caller's transaction, if any).
+    const already = await NotificationModel.distinct('recipientUserId', {
+      recipientUserId: { $in: recipientIds },
+      dedupeKey,
+    }).session(session ?? null);
+    const skip = new Set(already.map((id) => String(id)));
+    recipientIds = recipientIds.filter((id) => !skip.has(id.toHexString()));
+    if (recipientIds.length === 0) return 0;
+  }
+  const docs = recipientIds.map((recipientUserId) => ({
     recipientUserId,
     module,
     event,
@@ -119,7 +145,23 @@ export async function notify(
     href,
     record: ref,
     readAt: null,
+    dedupeKey: dedupeKey ?? null,
   }));
+
+  if (dedupeKey && !session) {
+    // Outside a transaction, another send with the same key may have written some of these since
+    // the check above: insert one at a time and skip each the unique index refuses.
+    let written = 0;
+    for (const doc of docs) {
+      try {
+        await NotificationModel.create(doc);
+        written += 1;
+      } catch (error) {
+        if (!isDuplicateKeyError(error, 'dedupeKey')) throw error;
+      }
+    }
+    return written;
+  }
   // `create` (not insertMany) so the session reaches the index check; ordered, as Mongoose
   // requires for several documents in a session.
   const created = await NotificationModel.create(docs, { session, ordered: true });
@@ -129,8 +171,7 @@ export async function notify(
 /**
  * Of `recipients`, the user ids (hex strings) that already got a notification for `event` at or
  * after `since`. For a sender's own once-a-day check, such as the company details reminder
- * (docs/modules/core.md#company-settings-page); `notify()` itself has no duplicate check until
- * build step 1.7.
+ * (docs/modules/core.md#company-settings-page). New senders use `notify()`'s `dedupeKey` instead.
  */
 export async function recipientsNotifiedSince(
   event: string,

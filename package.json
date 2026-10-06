@@ -12,6 +12,7 @@
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "format": "prettier --write .",
     "seed:admin": "tsx scripts/seed-admin.ts",
+    "recover:admin": "tsx scripts/recover-admin.ts",
     "test": "vitest run"
   },
   "devDependencies": {

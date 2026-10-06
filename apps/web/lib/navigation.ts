@@ -7,6 +7,7 @@ import {
   Headset,
   House,
   Landmark,
+  LayoutGrid,
   Package,
   ScrollText,
   Settings,
@@ -33,11 +34,40 @@ export type NavEntry = {
   /** An admin page: listed only for users whose role opens this part of the admin area. */
   adminArea?: AdminAreaKind;
   /**
+   * A count shown after the label, computed on the server for the signed-in user
+   * ({@link NavBadges}). Hidden when zero or unknown.
+   */
+  badge?: NavBadgeKey;
+  /**
    * Current only on its own path, not on the pages under it: the admin Overview, so a page under
    * `/admin` the user can't open doesn't light it up. Home is always exact.
    */
   exact?: boolean;
 };
+
+/** The sidebar counts, by what they count. */
+export type NavBadgeKey = 'usersNeedingAccess';
+
+/**
+ * The sidebar counts for the signed-in user, computed on the server; null or 0 hides the badge.
+ * `usersNeedingAccess` is User access's count, given to HR and System Administrators only
+ * (docs/modules/core.md#user-access-page).
+ */
+export type NavBadges = Record<NavBadgeKey, number | null>;
+
+/** No counts: every badge hidden. */
+export const NO_NAV_BADGES: NavBadges = { usersNeedingAccess: null };
+
+/**
+ * What a badge's count means, read after the label by screen readers: "User access, 3 need
+ * access" (docs/DESIGN_SYSTEM.md#layout--components).
+ */
+export function navBadgeLabel(key: NavBadgeKey, count: number): string {
+  switch (key) {
+    case 'usersNeedingAccess':
+      return count === 1 ? 'needs access' : 'need access';
+  }
+}
 
 export type NavGroup = {
   label: string;
@@ -124,8 +154,9 @@ export const MODULE_ENTRIES: NavEntry[] = [
 
 /**
  * Pulse Core administration, checked by role (docs/modules/core.md#administration-area): HR and
- * the System Administrator open the first four; only the System Administrator opens Company
- * settings and the Audit log. `/admin/access` joins in step 1.7.
+ * the System Administrator open the first five; only the System Administrator opens Company
+ * settings and the Audit log. User access (step 1.7) sits after Users, with the count of users who
+ * still need access.
  */
 export const ADMIN_ENTRIES: NavEntry[] = [
   {
@@ -133,7 +164,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     label: 'Overview',
     title: 'Administration',
     description: 'System administration for HR and the System Administrator',
-    Icon: ShieldCheck,
+    Icon: LayoutGrid,
     adminArea: 'hrOrSystemAdministrator',
     exact: true,
   },
@@ -144,6 +175,16 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Logins, employee numbers, employment status and password resets',
     Icon: Users,
     adminArea: 'hrOrSystemAdministrator',
+  },
+  {
+    href: '/admin/access',
+    label: 'User access',
+    title: 'User access',
+    description: 'Each user’s module access, and who still needs it',
+    // The reference design's icon (docs/DESIGN_SYSTEM.md#reference-designs).
+    Icon: ShieldCheck,
+    adminArea: 'hrOrSystemAdministrator',
+    badge: 'usersNeedingAccess',
   },
   {
     href: '/admin/departments',

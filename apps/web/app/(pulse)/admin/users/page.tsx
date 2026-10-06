@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { businessToday, dateHiredRange } from '@pulse/core';
 import {
   type CurrentUser,
+  isSystemAdministrator,
   listDepartments,
   listPositions,
   listUsers,
@@ -21,7 +22,9 @@ export const metadata: Metadata = { title: 'Users' };
 // before anything that can suspend; the list loads inside the page's own boundary
 // (docs/CODE_STYLE.md#pages-server-actions-and-route-handlers). The list filters live in the URL:
 // `?q=` (name, employee number or email), `?department=<id>` and `?separated=1` (show Resigned,
-// Terminated and Retired users). Loading errors go to the (pulse) error boundary.
+// Terminated and Retired users). Loading errors go to the (pulse) error boundary. A System
+// Administrator also gets Disable or Enable on the system account (build step 1.7), checked again
+// by its Server Action and service.
 export default async function UsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const user = await requireAdminPage('hrOrSystemAdministrator');
   return (
@@ -75,6 +78,7 @@ async function Users({
       showSeparated={showSeparated}
       today={today}
       dateHiredRange={dateHiredRange(today)}
+      canManageSystemAccount={isSystemAdministrator(user)}
     />
   );
 }

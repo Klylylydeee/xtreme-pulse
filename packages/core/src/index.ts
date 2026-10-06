@@ -100,6 +100,8 @@ export {
 } from './employee-number';
 // User accounts (docs/modules/core.md#managing-user-accounts): the user sheet's schemas and rules.
 export * from './user-accounts';
+// User access (docs/modules/core.md#user-access-page): the access sheet's schema, labels and summaries.
+export * from './user-access';
 export { isPlaceholder } from './placeholder';
 export { TIMESHEET_TYPES, type TimesheetType } from './timesheet-types';
 export { isModuleKey, type ModuleKey, MODULES } from './modules';

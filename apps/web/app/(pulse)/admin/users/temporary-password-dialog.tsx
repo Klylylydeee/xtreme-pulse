@@ -10,12 +10,15 @@ import { IconTile } from '@pulse/ui/components/icon-tile';
 // creating a user or resetting a password, the temporary password is shown once, with Copy and
 // "Hand it over privately". It lives only in this dialog's state: closing it drops it, and it
 // can't be shown again (reset again if it's lost). It isn't dismissed by a click outside, so it
-// isn't lost by accident; Done and Escape close it.
+// isn't lost by accident; Done and Escape close it. After a create (build step 1.7), closing it
+// goes on to the new user's access sheet (`/admin/access?user=<id>`), which the dialog says.
 
 /** What the dialog shows: whose password it is, and the password itself. */
 export interface TemporaryPasswordNotice {
   /** "created" after adding a user, "reset" after a reset. */
   kind: 'created' | 'reset';
+  /** The new user's ID after a create: the page opens their access sheet once this closes. */
+  userId?: string;
   /** The person's name, or the email for the system account. */
   name: string;
   email: string;
@@ -124,6 +127,9 @@ export function TemporaryPasswordDialog({
               They must change it when they first sign in.
               {shown.kind === 'reset' ? ' They were signed out everywhere.' : null} If it’s lost,
               reset the password again.
+              {shown.kind === 'created' && shown.userId
+                ? ' Next, you’ll set the modules they can open.'
+                : null}
             </p>
             <p role="status" className="text-footnote font-medium empty:hidden">
               {copy === 'copied' ? (

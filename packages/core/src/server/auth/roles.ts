@@ -121,3 +121,33 @@ export function assertSystemAdministrator(
 ): asserts actor is RoleHolder {
   if (!actor || !isSystemAdministrator(actor)) throw new AccessDeniedError(message);
 }
+
+// Spec: docs/modules/core.md#user-access-page and SECURITY.md#module-access-rwo — who may set
+// module access on `/admin/access` (decisions 65–80 in docs/BUILD_PLAN.md). Checked by role, not
+// module access (decision 54). The page uses these for its read-only rows and the switch; the
+// access service checks them again itself, in its transaction.
+
+/** True when `user` may list users' access and set it (HR and the System Administrator). */
+export const canManageAccess = (user: RoleHolder) => isHR(user) || isSystemAdministrator(user);
+
+/**
+ * True when `actor` may change `target`'s module levels. Never one's own, never the bootstrap
+ * system account, and a System Administrator's only by a System Administrator.
+ */
+export function canEditAccessOf(actor: AccountActor, target: AccountTarget): boolean {
+  return (
+    canManageAccess(actor) &&
+    actor.id !== target.id &&
+    !target.isSystemAccount &&
+    (!target.isSystemAdministrator || isSystemAdministrator(actor))
+  );
+}
+
+/**
+ * True when `actor` may turn `target`'s System Administrator switch on or off: only a System
+ * Administrator, never on their own row or the bootstrap system account. Turning it off is also
+ * refused when it would leave no active System Administrator (auth/administrators.ts).
+ */
+export function canToggleSystemAdministrator(actor: AccountActor, target: AccountTarget): boolean {
+  return isSystemAdministrator(actor) && actor.id !== target.id && !target.isSystemAccount;
+}

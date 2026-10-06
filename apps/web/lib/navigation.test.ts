@@ -8,6 +8,7 @@ import {
   documentTitleFor,
   isStatusBreadcrumb,
   MODULE_ENTRIES,
+  navBadgeLabel,
   navigationFor,
   NO_ACCESS_PAGE_TITLE,
   noAccessTitle,
@@ -17,8 +18,8 @@ import {
   visibleNavigation,
 } from './navigation';
 
-// Spec: docs/TESTING.md#module-access-tests (navigation) and
-// docs/modules/core.md#administration-area — the sidebar, and the command bar built from it,
+// Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
+// (navigation, step 1.7) and docs/modules/core.md#administration-area — the sidebar, and the command bar built from it,
 // list only what the user can open; breadcrumbs use the longest matching entry. Pure: no database.
 
 function viewer({
@@ -42,7 +43,13 @@ const systemAdministrator = viewer({
   moduleAccess: fullModuleAccess(),
 });
 
-const HR_ADMIN_HREFS = ['/admin', '/admin/users', '/admin/departments', '/admin/positions'];
+const HR_ADMIN_HREFS = [
+  '/admin',
+  '/admin/users',
+  '/admin/access',
+  '/admin/departments',
+  '/admin/positions',
+];
 const ALL_ADMIN_HREFS = [...HR_ADMIN_HREFS, '/admin/settings', '/admin/audit'];
 
 describe('visibleNavigation', () => {
@@ -66,23 +73,34 @@ describe('visibleNavigation', () => {
     expect(visibleHrefs(viewer({ moduleAccess: access }))).toEqual(['/', '/ops', '/fiscal']);
   });
 
-  it('shows HR the four HR admin entries and no modules of its own', () => {
+  it('shows HR the five HR admin entries, User access included, and no modules of its own', () => {
     expect(visibleHrefs(hr)).toEqual(['/', ...HR_ADMIN_HREFS]);
     const admin = visibleNavigation(hr).find((group) => group.label === 'Administration');
     expect(admin?.entries.map((entry) => entry.label)).toEqual([
       'Overview',
       'Users',
+      'User access',
       'Departments',
       'Positions',
     ]);
   });
 
+  it('puts the "need access" count on User access only', () => {
+    const counted = ADMIN_ENTRIES.filter((entry) => entry.badge);
+    expect(counted.map((entry) => [entry.href, entry.badge])).toEqual([
+      ['/admin/access', 'usersNeedingAccess'],
+    ]);
+    expect(navBadgeLabel('usersNeedingAccess', 3)).toBe('need access');
+    expect(navBadgeLabel('usersNeedingAccess', 1)).toBe('needs access');
+  });
+
   it('shows a Board member or Accounting no admin group', () => {
+    // Board members and Accounting never see User access (nor its count) in the sidebar.
     expect(visibleHrefs(viewer({ roles: ['board'] }))).toEqual(['/']);
     expect(visibleHrefs(viewer({ roles: ['accounting'] }))).toEqual(['/']);
   });
 
-  it('shows the System Administrator all 7 modules and all 6 admin entries', () => {
+  it('shows the System Administrator all 7 modules and all 7 admin entries', () => {
     const groups = visibleNavigation(systemAdministrator);
     expect(groups.map((group) => group.label)).toEqual(['Pulse Core', 'Modules', 'Administration']);
     expect(groups[1]?.entries).toHaveLength(7);
@@ -90,7 +108,7 @@ describe('visibleNavigation', () => {
       MODULE_ENTRIES.map((entry) => entry.href),
     );
     expect(groups[2]?.entries.map((entry) => entry.href)).toEqual(ALL_ADMIN_HREFS);
-    expect(ADMIN_ENTRIES).toHaveLength(6);
+    expect(ADMIN_ENTRIES).toHaveLength(7);
   });
 
   it('rebuilds the same sections in the client shell from the visible hrefs', () => {
@@ -107,6 +125,14 @@ describe('breadcrumbFor', () => {
     expect(breadcrumbFor(adminGroups, '/admin/users')).toEqual({
       parent: 'Administration',
       current: 'Users',
+    });
+    expect(breadcrumbFor(adminGroups, '/admin/access')).toEqual({
+      parent: 'Administration',
+      current: 'User access',
+    });
+    expect(breadcrumbFor(visibleNavigation(hr), '/admin/access')).toEqual({
+      parent: 'Administration',
+      current: 'User access',
     });
     expect(breadcrumbFor(adminGroups, '/admin/audit')).toEqual({
       parent: 'Administration',
@@ -146,6 +172,9 @@ describe('breadcrumbFor', () => {
     });
     expect(breadcrumbFor(hrGroups, '/talent/anything')).toEqual({ current: 'No access' });
     expect(breadcrumbFor(visibleNavigation(newUser), '/admin')).toEqual({ current: 'No access' });
+    expect(breadcrumbFor(visibleNavigation(viewer({ roles: ['board'] })), '/admin/access')).toEqual(
+      { current: 'No access' },
+    );
   });
 
   it('falls back to the app name for a path in no section', () => {
@@ -170,6 +199,7 @@ describe('the admin Overview', () => {
   it('is not current under another admin page', () => {
     expect(activeEntry(hrGroups, '/admin/users')?.entry.label).toBe('Users');
     expect(activeEntry(hrGroups, '/admin/users/anything')?.entry.label).toBe('Users');
+    expect(activeEntry(hrGroups, '/admin/access')?.entry.label).toBe('User access');
   });
 });
 

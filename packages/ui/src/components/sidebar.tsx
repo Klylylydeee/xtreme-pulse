@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { cn } from '../lib/utils';
 import { IconTile } from './icon-tile';
+import { formatUnreadBadge } from './top-toolbar';
 
 export type ShellNavItem = {
   href: string;
@@ -20,7 +21,27 @@ export type ShellNavItem = {
   keywords?: string[];
   icon: ReactNode;
   current?: boolean;
+  /**
+   * A count shown after the label in the accent colour, "99+" above 99 (DESIGN_SYSTEM.md ›
+   * Layout & components). Hidden when 0 or left out.
+   */
+  badge?: number;
+  /**
+   * What the count means, added to the link's accessible name after it: with "need access" the
+   * link reads "User access, 3 need access". Without it, "User access, 3".
+   */
+  badgeLabel?: string;
 };
+
+/** A nav item's badge count: a whole number, 0 when missing or invalid. */
+function badgeCount(badge: number | undefined): number {
+  return badge !== undefined && Number.isFinite(badge) ? Math.max(0, Math.trunc(badge)) : 0;
+}
+
+/** The badge's words for screen readers, read after the label: ", 3 need access". */
+export function navBadgeLabel(count: number, label?: string): string {
+  return label ? `, ${count} ${label}` : `, ${count}`;
+}
 
 export type ShellNavSection = {
   label: string;
@@ -91,32 +112,47 @@ export function Sidebar({
                 {section.label}
               </h2>
               <ul aria-labelledby={headingId} className="flex flex-col gap-0.5">
-                {section.items.map((item) => (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      aria-current={item.current ? 'page' : undefined}
-                      onClick={onNavigate ? (event) => onNavigate(item, event) : undefined}
-                      className={cn(
-                        'flex h-11 items-center gap-2.5 rounded-lg px-2 text-subheadline transition-colors duration-fast',
-                        item.current
-                          ? 'bg-accent-subtle font-semibold text-accent'
-                          : 'text-text-primary hover:bg-accent-subtle/60',
-                      )}
-                    >
-                      <IconTile
+                {section.items.map((item) => {
+                  const count = badgeCount(item.badge);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        aria-current={item.current ? 'page' : undefined}
+                        onClick={onNavigate ? (event) => onNavigate(item, event) : undefined}
                         className={cn(
-                          'size-7 rounded-md [&_svg]:size-4',
-                          item.current && 'bg-accent text-accent-text',
+                          'flex h-11 items-center gap-2.5 rounded-lg px-2 text-subheadline transition-colors duration-fast',
+                          item.current
+                            ? 'bg-accent-subtle font-semibold text-accent'
+                            : 'text-text-primary hover:bg-accent-subtle/60',
                         )}
                       >
-                        {item.icon}
-                      </IconTile>
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                      {linkHint}
-                    </Link>
-                  </li>
-                ))}
+                        <IconTile
+                          className={cn(
+                            'size-7 rounded-md [&_svg]:size-4',
+                            item.current && 'bg-accent text-accent-text',
+                          )}
+                        >
+                          {item.icon}
+                        </IconTile>
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {count > 0 ? (
+                          <>
+                            <span
+                              aria-hidden="true"
+                              data-slot="sidebar-badge"
+                              className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-caption font-semibold text-accent-text numeric"
+                            >
+                              {formatUnreadBadge(count)}
+                            </span>
+                            <span className="sr-only">{navBadgeLabel(count, item.badgeLabel)}</span>
+                          </>
+                        ) : null}
+                        {linkHint}
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           );

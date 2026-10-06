@@ -107,8 +107,8 @@ export function requireModuleAccess<M extends ModuleKey>(
 
 /**
  * The signed-in user for a Pulse Core admin page, checked by role, not module access (decision 54):
- * `hrOrSystemAdministrator` for `/admin`, `/admin/users`, `/admin/departments` and
- * `/admin/positions`; `systemAdministrator` for `/admin/settings` and `/admin/audit`. Anyone else
+ * `hrOrSystemAdministrator` for `/admin`, `/admin/users`, `/admin/access`, `/admin/departments`
+ * and `/admin/positions`; `systemAdministrator` for `/admin/settings` and `/admin/audit`. Anyone else
  * gets `forbidden()` (HTTP 403, the no-access state); signed-out users go to the login page first.
  */
 export async function requireAdminPage(kind: AdminAreaKind): Promise<CurrentUser> {

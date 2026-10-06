@@ -7,14 +7,16 @@ import {
   ChevronRight,
   ScrollText,
   Settings,
+  ShieldCheck,
   Users,
 } from 'lucide-react';
-import { isSystemAdministrator } from '@pulse/core/server';
+import { countUsersNeedingAccessFor, isSystemAdministrator } from '@pulse/core/server';
 import { IconTile } from '@pulse/ui/components/icon-tile';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { CompanyDetailsReminder } from '@/components/company-details-reminder';
-import { requireAdminPage } from '@/lib/auth';
-import { getNavEntry } from '@/lib/navigation';
+import { Badge } from '@/components/org-structure';
+import { getCurrentUser, requireAdminPage } from '@/lib/auth';
+import { getNavEntry, navBadgeLabel } from '@/lib/navigation';
 
 export const metadata: Metadata = { title: 'Administration' };
 
@@ -23,6 +25,8 @@ interface AdminPageLink {
   title: string;
   description: string;
   icon: ReactNode;
+  /** Streams a count after the title (User access's "need access"). */
+  count?: ReactNode;
 }
 
 const ORG_STRUCTURE_LINKS: AdminPageLink[] = [
@@ -31,6 +35,13 @@ const ORG_STRUCTURE_LINKS: AdminPageLink[] = [
     title: 'Users',
     description: 'Logins, employee numbers, employment status and password resets.',
     icon: <Users strokeWidth={1.75} />,
+  },
+  {
+    href: '/admin/access',
+    title: 'User access',
+    description: 'Each user’s module access, and who still needs it.',
+    icon: <ShieldCheck strokeWidth={1.75} />,
+    count: <UsersNeedingAccess />,
   },
   {
     href: '/admin/departments',
@@ -61,12 +72,35 @@ const SYSTEM_ADMINISTRATOR_LINKS: AdminPageLink[] = [
   },
 ];
 
+/**
+ * User access's count on its card: the users who still need access, the same count as the sidebar
+ * badge (docs/modules/core.md#user-access-page). Only HR and System Administrators get it, checked
+ * by the service; hidden at zero, and when it can't be read (the card still opens the page).
+ */
+async function UsersNeedingAccess() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  let count: number | null;
+  try {
+    count = await countUsersNeedingAccessFor(user);
+  } catch {
+    return null;
+  }
+  if (!count) return null;
+  return (
+    <Badge tone="accent" className="numeric">
+      {count} {navBadgeLabel('usersNeedingAccess', count)}
+    </Badge>
+  );
+}
+
 // Spec: docs/modules/core.md#administration-area — HR and the System Administrator only, checked by
-// role (SECURITY.md#resolving-and-enforcing-build-step-16). HR sees users, departments and
-// positions; the System Administrator also sees company settings and the audit log. Anyone else
+// role (SECURITY.md#resolving-and-enforcing-build-step-16). HR sees users, user access (with the
+// count of users who still need access, from step 1.7), departments and positions; the System
+// Administrator also sees company settings and the audit log. Anyone else
 // gets the no-access state (HTTP 403). Checked here on the server, and each page checks again:
 // hiding a link is never access control. The guard comes first, before anything that can suspend;
-// the reminder, the page's only read, streams in its own boundary.
+// the reminder and the user access count, the page's only reads, stream in their own boundaries.
 export default async function AdminPage() {
   const user = await requireAdminPage('hrOrSystemAdministrator');
 
@@ -90,7 +124,10 @@ export default async function AdminPage() {
               >
                 <IconTile className="size-11 rounded-xl [&_svg]:size-5">{link.icon}</IconTile>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-headline">{link.title}</span>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-headline">{link.title}</span>
+                    {link.count ? <Suspense fallback={null}>{link.count}</Suspense> : null}
+                  </span>
                   <span className="text-footnote text-text-secondary">{link.description}</span>
                 </span>
                 <ChevronRight

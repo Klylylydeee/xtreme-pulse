@@ -55,6 +55,7 @@ The app uses the **Cobalt** palette: a saturated cobalt accent with a violet cas
 
 ## Layout & components
 - Sidebar styled like a macOS source list: module icons and names, the current module highlighted, collapsible. The sidebar and top bar are translucent (backdrop blur); use translucency sparingly elsewhere.
+- A sidebar item can carry a count badge after its label (from build step 1.7, User access's "need access" count): the accent colour like the notification bell's badge, capped at "99+", hidden at zero, and included in the link's accessible name (for example "User access, 3 need access").
 - Page header: a large title that shrinks into the top bar on scroll, with the primary action at the top right.
 - Forms use inset grouped sections (like iOS Settings): related fields on rounded cards, each with a short section header and optional footer help text.
 - Create and edit flows open in **sheets** (slide-over panels) instead of new pages, so the list stays in view.

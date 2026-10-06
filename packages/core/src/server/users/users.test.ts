@@ -3,6 +3,7 @@ import mongoose, { type ClientSession, type mongo, Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { addDays, businessToday, startOfBusinessDate } from '../../dates';
+import { normalizeModuleAccess } from '../../module-access';
 import {
   SEPARATION_BEFORE_HIRE,
   SEPARATION_IN_FUTURE,
@@ -20,7 +21,9 @@ import {
   canResetPasswordOf,
   type DepartmentRole,
 } from '../auth/roles';
+import { saveUserAccess } from '../access/service';
 import { loadSessionUser } from '../auth/session-user';
+import { NotificationModel } from '../notifications/model';
 import { TEMPORARY_PASSWORD_PATTERN } from '../auth/temporary-password';
 import { DepartmentModel } from '../departments/model';
 import { listDepartments, type OrgStructureActor } from '../departments/service';
@@ -34,8 +37,11 @@ import {
   createUser,
   getUser,
   listUsers,
+  POSITION_CHANGED_EVENT,
   resetPassword,
+  setSystemAccountDisabled,
   updateUser,
+  USER_CREATED_EVENT,
 } from './service';
 
 // User accounts (docs/modules/core.md#managing-user-accounts, SECURITY.md#account--access,
@@ -186,6 +192,7 @@ beforeAll(async () => {
     AuditLogModel.init(),
     EmployeeNumberCounterModel.init(),
     AllowedEmailDomainModel.init(),
+    NotificationModel.init(),
   ]);
   await AllowedEmailDomainModel.create([
     { domain: 'xtreme-works.com' },
@@ -208,6 +215,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await database().command({ collMod: 'auditLogs', validator: {} });
+  // Some blocks disable the system account; every test starts with it active.
+  await UserModel.updateOne({ _id: systemAccountId }, { $set: { systemAccountDisabled: false } });
 });
 
 // --- Who may do what ----------------------------------------------------------------------------
@@ -1136,5 +1145,207 @@ describe('the last active System Administrator', () => {
       changeEmploymentStatus(asAdministrator(separated.id), target.id, resign),
     ).rejects.toThrow(ActionError);
     expect((await getUser(ADMIN, target.id))?.employmentStatus).toBe('Regular');
+  });
+});
+
+// --- Step 1.7: access-change notifications and the system account --------------------------------
+
+describe('access-change notifications', () => {
+  /** A real HR user, as an actor (the recipients are worked out from the database). */
+  async function realHr() {
+    const created = await createUser(
+      ADMIN,
+      hire({ departmentId: HR_DEPARTMENT.departmentId, positionId: HR_DEPARTMENT.positionId }),
+    );
+    return { ...actor(['hr'], { id: created.id }), id: created.id };
+  }
+  async function eventsFor(userId: string, event: string) {
+    return NotificationModel.find({ recipientUserId: new Types.ObjectId(userId), event }).lean();
+  }
+
+  it('tells the other active HR users and System Administrators about a new user, not the actor', async () => {
+    const actorHr = await realHr();
+    const otherHr = await realHr();
+    const admin = await addAdministrator();
+    const resignedHr = await realHr();
+    await changeEmploymentStatus(ADMIN, resignedHr.id, {
+      employmentStatus: 'Resigned',
+      separationDate: businessToday(),
+    });
+    const staff = await createUser(ADMIN, hire());
+
+    const created = await createUser(actorHr, hire({ firstName: 'Lia', lastName: 'Santos' }));
+    for (const recipient of [otherHr.id, admin.id, systemAccountId]) {
+      const sent = (await eventsFor(recipient, USER_CREATED_EVENT)).filter(
+        (n) => n.record?.id?.toHexString() === created.id,
+      );
+      expect(sent, recipient).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        module: 'core',
+        title: 'New user: Lia Santos needs access',
+        href: `/admin/access?user=${created.id}`,
+        record: { type: 'core.user' },
+      });
+    }
+    for (const nobody of [actorHr.id, resignedHr.id, staff.id]) {
+      const sent = (await eventsFor(nobody, USER_CREATED_EVENT)).filter(
+        (n) => n.record?.id?.toHexString() === created.id,
+      );
+      expect(sent, nobody).toHaveLength(0);
+    }
+  });
+
+  it('sends nothing when the create rolls back', async () => {
+    const actorHr = await realHr();
+    const before = await NotificationModel.countDocuments({ event: USER_CREATED_EVENT });
+    await failAuditWrites();
+    await expect(createUser(actorHr, hire())).rejects.toThrow();
+    expect(await NotificationModel.countDocuments({ event: USER_CREATED_EVENT })).toBe(before);
+  });
+
+  it('tells them about a position change, and sends nothing for other edits', async () => {
+    const actorHr = await realHr();
+    const otherHr = await realHr();
+    const { id } = await createUser(ADMIN, hire());
+    const driver = await PositionModel.create({
+      name: 'Driver',
+      departmentId: NET.departmentId,
+      timesheetType: 'standard',
+    });
+
+    const values = await editValues(id);
+    await updateUser(actorHr, id, { ...values, firstName: 'Renamed' });
+    expect(
+      await NotificationModel.countDocuments({
+        event: POSITION_CHANGED_EVENT,
+        'record.id': new Types.ObjectId(id),
+      }),
+    ).toBe(0);
+
+    await updateUser(actorHr, id, {
+      ...(await editValues(id)),
+      positionId: driver._id.toHexString(),
+    });
+    const sent = (await eventsFor(otherHr.id, POSITION_CHANGED_EVENT)).filter(
+      (n) => n.record?.id?.toHexString() === id,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.title).toMatch(/^Review Renamed .+’s access: position changed to Driver$/);
+    expect(sent[0]?.href).toBe(`/admin/access?user=${id}`);
+    expect(
+      (await eventsFor(actorHr.id, POSITION_CHANGED_EVENT)).filter(
+        (n) => n.record?.id?.toHexString() === id,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('never tells a new HR user about their own access', async () => {
+    const actorHr = await realHr();
+    const otherHr = await realHr();
+    const created = await createUser(
+      actorHr,
+      hire({ departmentId: HR_DEPARTMENT.departmentId, positionId: HR_DEPARTMENT.positionId }),
+    );
+    const about = (n: { record?: { id?: Types.ObjectId | null } | null }) =>
+      n.record?.id?.toHexString() === created.id;
+    expect((await eventsFor(created.id, USER_CREATED_EVENT)).filter(about)).toHaveLength(0);
+    expect((await eventsFor(otherHr.id, USER_CREATED_EVENT)).filter(about)).toHaveLength(1);
+  });
+
+  it('never tells an HR user about their own position change', async () => {
+    const actorHr = await realHr();
+    const otherHr = await realHr();
+    const target = await realHr();
+    const recruiter = await PositionModel.create({
+      name: 'Recruiter',
+      departmentId: HR_DEPARTMENT.departmentId,
+      timesheetType: 'standard',
+    });
+
+    await updateUser(actorHr, target.id, {
+      ...(await editValues(target.id)),
+      positionId: recruiter._id.toHexString(),
+    });
+    const about = (n: { record?: { id?: Types.ObjectId | null } | null }) =>
+      n.record?.id?.toHexString() === target.id;
+    expect((await eventsFor(target.id, POSITION_CHANGED_EVENT)).filter(about)).toHaveLength(0);
+    expect((await eventsFor(otherHr.id, POSITION_CHANGED_EVENT)).filter(about)).toHaveLength(1);
+  });
+});
+
+describe('disabling the system account', () => {
+  const asAdministrator = (id: string) => actor([], { admin: true, id });
+
+  it('is for a System Administrator only, never the system account itself', async () => {
+    const admin = await addAdministrator();
+    await expect(setSystemAccountDisabled(HR, true)).rejects.toThrow(AccessDeniedError);
+    await expect(setSystemAccountDisabled(asAdministrator(systemAccountId), true)).rejects.toThrow(
+      AccessDeniedError,
+    );
+    // Claims the role, but the database no longer gives it.
+    await UserModel.updateOne({ _id: admin.id }, { $set: { isSystemAdministrator: false } });
+    await expect(setSystemAccountDisabled(asAdministrator(admin.id), true)).rejects.toThrow(
+      AccessDeniedError,
+    );
+    expect((await UserModel.findById(systemAccountId).lean())?.systemAccountDisabled).toBe(false);
+  });
+
+  it('disables and enables it with an update entry each, and signs it out', async () => {
+    const admin = await addAdministrator();
+    const before = (await entriesFor(systemAccountId)).length;
+    // An earlier reset ended its older sessions.
+    await UserModel.updateOne({ _id: systemAccountId }, { $set: { sessionsValidFrom: null } });
+    expect(await loadSessionUser(systemAccountId, signedInAgo(5))).not.toBeNull();
+
+    await setSystemAccountDisabled(asAdministrator(admin.id), true);
+    expect((await UserModel.findById(systemAccountId).lean())?.systemAccountDisabled).toBe(true);
+    expect(await loadSessionUser(systemAccountId, signedInAgo(5))).toBeNull();
+    // Again: nothing more is written.
+    await setSystemAccountDisabled(asAdministrator(admin.id), true);
+
+    await setSystemAccountDisabled(asAdministrator(admin.id), false);
+    expect((await UserModel.findById(systemAccountId).lean())?.systemAccountDisabled).toBe(false);
+
+    const entries = (await entriesFor(systemAccountId)).slice(before);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      action: 'update',
+      record: { type: 'core.user', label: 'sysadmin@xtreme-works.com' },
+      before: { systemAccountDisabled: false },
+      after: { systemAccountDisabled: true },
+    });
+    expect(entries[1]).toMatchObject({ after: { systemAccountDisabled: false } });
+  });
+
+  it('lets only one of disabling it and switching off the last other System Administrator through', async () => {
+    for (let round = 0; round < 3; round += 1) {
+      await UserModel.updateMany(
+        { isSystemAccount: false },
+        { $set: { isSystemAdministrator: false } },
+      );
+      await UserModel.updateOne(
+        { _id: systemAccountId },
+        { $set: { systemAccountDisabled: false } },
+      );
+      const admin = await addAdministrator();
+      const target = await UserModel.findById(admin.id).lean().orFail();
+      // The system account switches the admin off while the admin disables the system account.
+      const results = await Promise.allSettled([
+        setSystemAccountDisabled(asAdministrator(admin.id), true),
+        saveUserAccess(asAdministrator(systemAccountId), {
+          id: admin.id,
+          moduleAccess: normalizeModuleAccess(target.moduleAccess),
+          isSystemAdministrator: false,
+          expectedChangedAt: null,
+        }),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+      const system = await UserModel.findById(systemAccountId).lean().orFail();
+      const after = await UserModel.findById(admin.id).lean().orFail();
+      const activeAdministrators =
+        Number(!system.systemAccountDisabled) + Number(after.isSystemAdministrator);
+      expect(activeAdministrators).toBeGreaterThanOrEqual(1);
+    }
+    await UserModel.updateOne({ _id: systemAccountId }, { $set: { systemAccountDisabled: false } });
   });
 });

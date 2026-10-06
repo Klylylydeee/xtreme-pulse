@@ -10,8 +10,9 @@ This file is short on purpose. It says where the rules are. The rules themselves
 - `pnpm dev` — run the app
 - `pnpm lint` / `pnpm typecheck` / `pnpm test`
 - `pnpm seed:admin` — create the bootstrap System Administrator and base data (safe to run again: it skips an existing System Administrator and adds only missing base data)
+- `pnpm recover:admin` — from step 1.7, re-enable the bootstrap system account when no System Administrator is active ([RUNBOOK.md](docs/RUNBOOK.md#the-only-system-administrator-is-disabled))
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard tests, from step 1.3 the audit log, notification and sensitive reveal tests, from step 1.4 the departments, positions, company settings, reminder, allowed email domain, upload settings and company logo route tests, from step 1.5 the employee number, reporting line, user, user account schema, employee model, session and temporary password tests, and from step 1.6 the module access level, effective access, file access and navigation tests. Everything else is still checked by hand (see [TESTING.md](docs/TESTING.md#what-happens-today)).
+`pnpm test` runs the committed automated tests: the sensitive-data guard tests, from step 1.3 the audit log, notification and sensitive reveal tests, from step 1.4 the departments, positions, company settings, reminder, allowed email domain, upload settings and company logo route tests, from step 1.5 the employee number, reporting line, user, user account schema, employee model, session and temporary password tests, from step 1.6 the module access level, effective access, file access and navigation tests, and from step 1.7 the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery tests. Everything else is still checked by hand (see [TESTING.md](docs/TESTING.md#what-happens-today)).
 
 ## How to work
 

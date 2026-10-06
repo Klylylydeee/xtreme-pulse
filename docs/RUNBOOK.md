@@ -18,19 +18,28 @@ There is no lockout to clear. The app has no account lockout.
 
 ### A user can't see a module or a record
 
-- **Module missing from the sidebar:** the user has None on it. HR or the System Administrator sets access on `/admin/access` (see [User access page](modules/core.md#user-access-page)).
+- **Module missing from the sidebar:** the user has None on it. HR or the System Administrator sets access on `/admin/access` (see [User access page](modules/core.md#user-access-page)). The sidebar picks up the change on the user's next navigation.
 - **"Only the deal team can open this deal"**, or the same for a project: this is record-level visibility, working as designed. Ask the owner or lead to add them to the team.
 - **Sensitive fields masked or hidden:** module access never reveals them (see [Sensitive data](../SECURITY.md#sensitive-data)).
 
 ### Locked out of the only System Administrator account
 
-Another System Administrator can reset the password. If there's no other, `pnpm seed:admin` won't help, because it skips creating an admin when one exists. Recovery needs direct database access. Decide the procedure in advance, and keep a second System Administrator account so this can't happen.
+Another System Administrator can reset the password. If there's no other, `pnpm seed:admin` won't help, because it skips creating an admin when one exists, and neither will `pnpm recover:admin` (build step 1.7), which runs only when no System Administrator is active. Recovery needs direct database access. Decide the procedure in advance, and keep a second System Administrator account so this can't happen.
 
 ### The only System Administrator is disabled
 
-Only another System Administrator can re-enable a System Administrator (see [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)). `pnpm seed:admin` won't create a new one, because it counts a disabled System Administrator as existing.
+Only another System Administrator can re-enable a System Administrator (see [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)). `pnpm seed:admin` won't create a new one, because it counts a disabled System Administrator as existing. The app itself never lets this happen: separating the last active System Administrator, switching the role off, or disabling the system account is refused when it would leave none ([Account status](../SECURITY.md#account-status)). It can still happen outside the app, for example after a hand edit of the database.
 
-This is a known limitation. The spec defines no safe recovery yet: the procedure is to be defined in step 1.7, with disabling the system account. Don't edit the users collection by hand. Until then, keep at least two active System Administrator accounts.
+From build step 1.7, recover with `pnpm recover:admin` (`scripts/recover-admin.ts`), run on the server ([System Administrator](../SECURITY.md#system-administrator)):
+
+1. Confirm that no System Administrator is active. The script checks this too, and refuses to run while any System Administrator is active.
+2. Set a new `SEED_ADMIN_PASSWORD` in the server environment (never committed or shared in chat).
+3. Run `pnpm recover:admin`. It re-enables the bootstrap system account with that password as a temporary password, sets `mustChangePassword`, and writes an audit entry with no actor (a system action).
+4. Sign in as the system account (`SEED_ADMIN_EMAIL`) and change the password.
+5. Remove `SEED_ADMIN_PASSWORD` from the server environment again ([Secrets](../SECURITY.md#secrets)).
+6. Fix the cause: move a separated System Administrator back to an active status on `/admin/users`, or give a second person the role with the switch on `/admin/access`, and check the audit log for how the last one was lost.
+
+Don't edit the users collection by hand. Keep at least two active System Administrator accounts anyway.
 
 ## Payroll and HR
 

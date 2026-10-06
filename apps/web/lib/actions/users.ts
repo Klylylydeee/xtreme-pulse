@@ -15,6 +15,7 @@ import {
   getUser,
   listEligibleDepartmentHeads,
   resetPassword,
+  setSystemAccountDisabled,
   updateUser,
 } from '@pulse/core/server';
 import { adminOnly, signedInUser } from '@/lib/auth';
@@ -96,6 +97,24 @@ export const resetPasswordAction = defineAction({
     const result = await resetPassword(await signedInUser(), id);
     revalidateAdministration();
     return result;
+  },
+});
+
+/**
+ * Disables or enables the bootstrap system account (SECURITY.md#system-administrator, build step
+ * 1.7). System Administrator only, checked here by role and again by the service, which also
+ * refuses the system account itself and a disable that would leave no active System Administrator,
+ * and writes the `update` audit entry in the same transaction.
+ */
+export const setSystemAccountDisabledAction = defineAction({
+  access: adminOnly(
+    'systemAdministrator',
+    'Only a System Administrator can disable or enable the system account.',
+  ),
+  schema: z.object({ disabled: z.boolean({ error: 'Choose Disable or Enable.' }) }),
+  handler: async ({ disabled }) => {
+    await setSystemAccountDisabled(await signedInUser(), disabled);
+    revalidateAdministration();
   },
 });
 
