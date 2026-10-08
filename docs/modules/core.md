@@ -20,9 +20,10 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - The script is idempotent in two parts. If a System Administrator already exists, it skips creating one. Base data loaders insert only what is missing and never overwrite existing records, so base data for modules built later can be added to an existing database (for example during a staged go-live).
 - A loader may fill a field that is absent on an existing record; it never changes an existing value.
 - Seeded positions carry a stable seed key, so renaming a seeded position doesn't make the seed add it again.
+- **Products** (build step 1.8): the seed loads the 13 products listed in [Deals and stages](engage.md#deals-and-stages), each with a stable `seedKey`, and inserts only the missing ones. A product added by hand with the same name (ignoring case) counts as present, and a renamed seeded product isn't added again. "General" isn't protected: it can be renamed or retired like any product ([Managing master data](#managing-master-data)).
 - Seed writes are system writes (`createdBy` is null) and are not audit-logged. They are not backfilled when the [audit log](#audit-log) arrives in build step 1.3.
 - The seed only loads the allowed email domains. The allowed-domain check runs in services (bootstrap, sign-in and user creation) against the stored `allowedEmailDomains` records, not in the users schema.
-- The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
+- The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), products (build step 1.8), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
 
 ## Administration area
 
@@ -35,12 +36,17 @@ Built in step 1.6. The `/admin` pages are checked by role, not module access ([R
 | User access | `/admin/access` | HR and the System Administrator (build step 1.7) |
 | Departments | `/admin/departments` | HR and the System Administrator |
 | Positions | `/admin/positions` | HR and the System Administrator |
+| Clients | `/admin/clients` | The System Administrator (build step 1.8) |
+| Products | `/admin/products` | The System Administrator (build step 1.8) |
+| Catalog items | `/admin/catalog-items` | The System Administrator (build step 1.8) |
+| Suppliers | `/admin/suppliers` | The System Administrator (build step 1.8) |
 | Company settings | `/admin/settings` | The System Administrator |
 | Audit log | `/admin/audit` | The System Administrator |
 
-- Anyone else doesn't see the group (an empty sidebar group is hidden), and gets the [no-access state](../DESIGN_SYSTEM.md#feedback--motion) (HTTP 403) on every `/admin` page, `/admin` itself included. HR gets it on `/admin/settings` and `/admin/audit`.
+- Anyone else doesn't see the group (an empty sidebar group is hidden), and gets the [no-access state](../DESIGN_SYSTEM.md#feedback--motion) (HTTP 403) on every `/admin` page, `/admin` itself included. HR gets it on `/admin/clients`, `/admin/products`, `/admin/catalog-items`, `/admin/suppliers`, `/admin/settings` and `/admin/audit`, and doesn't see those entries.
 - Breadcrumbs read "Administration › Users" and so on, from the longest matching entry. The command bar's navigation items follow the filtered sidebar.
 - From step 1.7, User access sits after Users, with a badge counting the users who still need access, and its breadcrumb reads "Administration › User access". The `/admin` overview gets a User access card with the same count ([User access page](#user-access-page)).
+- From step 1.8, the four master data entries sit before Company settings, for the System Administrator only, with breadcrumbs "Administration › Clients", "Administration › Products", "Administration › Catalog items" and "Administration › Suppliers" ([Managing master data](#managing-master-data)).
 
 ## Departments and positions
 
@@ -201,14 +207,51 @@ Pulse Core owns these records. Other modules create and edit them only through C
 
 | Record | Managed from | Fields specified in |
 |---|---|---|
-| Clients, with sites and contacts | Pulse Engage (basic screens in `/admin`) | [Clients, sites and contacts](engage.md#clients-sites-and-contacts) |
-| Products (`brands` in code) | Engage settings | [Deals and stages](engage.md#deals-and-stages) |
-| Catalog items | Pulse Supply | [Stock](supply.md#stock) (item kind) and [Warranties](desk.md#warranties-support-contracts-and-subscriptions) (default warranty months) |
-| Suppliers | Pulse Supply | [Suppliers](supply.md#suppliers) |
+| Clients, with sites and contacts | Pulse Engage (basic screens in `/admin` from build step 1.8) | [Clients, sites and contacts](engage.md#clients-sites-and-contacts) |
+| Products (`brands` in code) | Engage settings (basic screens in `/admin` from build step 1.8) | [Deals and stages](engage.md#deals-and-stages) |
+| Catalog items | Pulse Supply (basic screens in `/admin` from build step 1.8) | [Stock](supply.md#stock) (item kind and fields) and [Warranties](desk.md#warranties-support-contracts-and-subscriptions) (default warranty months) |
+| Suppliers | Pulse Supply (basic screens in `/admin` from build step 1.8) | [Suppliers](supply.md#suppliers) |
 | Departments and positions | `/admin` | [Departments and positions](#departments-and-positions) |
 | Holidays | Holiday calendar | [Holiday calendar](#holiday-calendar) |
 
 Catalog items carry their product, part number, description, unit, item kind (serialized, bulk, or non-stock for services and licenses) and default warranty months (build step 1.8).
+
+### Managing master data
+
+Built in step 1.8, for clients with their sites and contacts, products, catalog items and suppliers. Each record's fields are in the spec the table above links to; this section holds the rules they share. The schemas and services live in `packages/core`, which exports the services, never the models ([ADR 0013](../adr/0013-master-data-schemas-in-core.md)); collections and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership).
+
+- **Routes:** `/admin/clients` (each client with its sites and contacts), `/admin/products`, `/admin/catalog-items` and `/admin/suppliers`, for the System Administrator only, in the sidebar's Administration group ([Administration area](#administration-area)). The pages use `requireAdminPage('systemAdministrator')` and their Server Actions `adminOnly('systemAdministrator')`; HR and everyone else get the no-access state (HTTP 403). These are basic screens: a list with search, where retired records can be shown to restore them, and create and edit sheets. Engage (Phase 3) and Supply (Phase 4) build their full screens on the same services.
+- **Service access.** Each service checks module access itself, because Engage and Supply call the same services later. A System Administrator always passes (Owner on every module, [Resolving and enforcing](../../SECURITY.md#resolving-and-enforcing-build-step-16)).
+
+| Record | List and open | Create and edit | Retire and restore |
+|---|---|---|---|
+| Clients | Engage Read | Engage Write | Engage Owner |
+| Sites and contacts | Engage Read | Engage Write | Engage Write (remove and restore) |
+| Products | Engage Read | Engage Owner | Engage Owner |
+| Catalog items | Supply Read | Supply Owner | Supply Owner |
+| Suppliers | Supply Read | Supply Owner | Supply Owner |
+
+- **Picker options.** Each record type has an option list (id and name, live records only; a catalog item's name is `<product> · <part number>`) that any signed-in user can read, so other modules' forms can offer clients, sites, contacts, products, catalog items and suppliers without that module's access ([Rules](../../SECURITY.md#rules)). It holds nothing else.
+- **Retiring** a client, product, catalog item or supplier is a soft delete (`deletedAt` set), never a hard delete, after a confirmation. **Restoring** brings it back unchanged. A retired record can't be edited until it is restored, and can't be picked for a new record (the pickers leave it out and the services refuse it). Existing links to a record retired later are kept and show a "Retired" badge.
+- **What blocks a retire.** A product can't be retired while it has live catalog items. A catalog item can't be added to, or restored under, a retired product. Later phases add blockers for the records that use master data (for example open deals from Phase 3), each in its own step.
+- **Sites and contacts** are removed with a soft delete and can be restored. None can be added to, or restored on, a retired client. Retiring a client leaves its sites and contacts as they are, and restoring it brings them back with it.
+- **Primary contact.** A client has at most one primary contact, held by a partial unique index. Marking a contact primary clears the old one in the same transaction. Removing the primary contact clears its flag, so a restored contact comes back not primary. A client may have no primary contact.
+- **Unique names.** Ignoring case (`Verifone` and `verifone` are the same name), retired and removed records included: product names, supplier names, a part number within its product, and a site name within its client. Re-adding a retired name is refused with a message that points to Restore. Client names and TINs aren't unique.
+- **Duplicate client names.** When another client, retired ones included, has the same name ignoring case, the form shows a warning under the name field and the save button becomes "Save anyway" ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). The service runs the same check and refuses the duplicate unless the request confirms it, so a save never skips the warning.
+- **Overlapping changes.** As with [departments and positions](#managing-departments-and-positions), a change writes the records it depends on inside its transaction, so an overlapping retire conflicts and is retried: adding or restoring a catalog item writes its product, adding or restoring a site or contact (and marking a primary contact) writes its client, and saving a supplier writes each newly picked product. Nobody ends up with a live catalog item under a retired product, a live site or contact on a retired client, or two primary contacts.
+- **Audit:** every create, edit, retire (`delete`, with `after` null), restore, removal (`delete`) and restoration of a site or contact writes its change and its audit entry in one transaction, module `core`. Record types and labels, using the name after the change (before it, for a retire or removal):
+
+| Record type | Label (example) |
+|---|---|
+| `core.client` | The client's name (`Banco Uno`) |
+| `core.clientSite` | `<client> · <site>` (`Banco Uno · Makati Branch`) |
+| `core.clientContact` | `<client> · <contact>` (`Banco Uno · Ana Cruz`) |
+| `core.brand` | The product's name (`Extreme Networks`) |
+| `core.catalogItem` | `<product> · <part number>` (`Extreme Networks · 5320-24T-8XE`) |
+| `core.supplier` | The supplier's name |
+
+- None of these fields is [sensitive personal data](../../SECURITY.md#sensitive-data). Client and supplier TINs are company data, like the company TIN: shown in full and kept in audit snapshots.
+- **Not in step 1.8:** stock locations (step 4.4), Engage's and Supply's own screens (Phases 3 and 4), and the blockers later phases add.
 
 ## Approvals
 

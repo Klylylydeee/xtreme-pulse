@@ -8,6 +8,17 @@ Built in [Phase 4](../BUILD_PLAN.md#phase-4-pulse-ops-and-pulse-supply), togethe
 
 - Suppliers are Pulse Core master data, managed from Supply through Core's service functions.
 - Each supplier: name, TIN, address, payment terms, contacts, the products (brands) they supply, supplier type (distributor, brand principal, subcontractor, other) and notes.
+- Supply Owners create, edit, retire and restore suppliers and catalog items; Supply Read lists them. The System Administrator also manages them on `/admin/suppliers` and `/admin/catalog-items` (from build step 1.8, before Supply's own screens in step 4.4). Retiring, uniqueness and audit are in [Managing master data](core.md#managing-master-data).
+
+Field rules (build step 1.8):
+
+- **Name:** required, unique ignoring case, retired suppliers included (re-adding a retired name points to Restore).
+- **TIN:** optional, with the same format and display as a client's ([Clients, sites and contacts](engage.md#clients-sites-and-contacts)). Not unique. Company data, not [sensitive personal data](../../SECURITY.md#sensitive-data).
+- **Payment terms:** optional, a whole number of days from 0 to 365.
+- **Contacts:** kept on the supplier, at most 20, each with a name (required), position, email and mobile, checked like a client contact's. Suppliers have no primary contact.
+- **Products supplied:** optional, any number. A newly picked product must be live; a product retired later stays on the supplier and shows "Retired".
+- **Supplier type:** `distributor`, `brandPrincipal`, `subcontractor` or `other` (a fixed set), distributor by default.
+- **Address and notes:** optional free text.
 
 ## Purchase requests
 
@@ -34,6 +45,7 @@ Built in [Phase 4](../BUILD_PLAN.md#phase-4-pulse-ops-and-pulse-supply), togethe
 
 - **Locations** are data: Office (where deliveries arrive) and In transit, so a warehouse can be added later without a code change.
 - Every catalog item has an **item kind**: **serialized** (tracked by serial number), **bulk** (cables, connectors, consumables, tracked by quantity) or **non-stock** (services and licenses). Non-stock items never go on a delivery receipt or into stock.
+- **Catalog item fields** (build step 1.8): product, part number, description, unit and item kind are required. The product must be live when the item is added. The part number is unique within its product ignoring case, retired items included. The unit is free text, with suggestions (pc, unit, set, lot, box, roll, m, license, service). The item kind is `serialized`, `bulk` or `nonStock` (a fixed set). **Default warranty months** is a whole number from 0 to 120, 12 by default; choosing non-stock sets it to 0, and it can still be changed. The product and the item kind are fixed once the item is created; to change either, add a new item. Retiring and access are in [Managing master data](core.md#managing-master-data).
 - **Ownership:** every unit or quantity is company-owned or client-owned. Client-owned stock (e.g. bank-owned POS terminals waiting to be deployed) is tracked the same way but never counts toward inventory value. Client-owned units add nothing to a project's equipment cost.
 - **Costing:** weighted average cost in PHP per catalog item, updated on each receipt. The cost of items delivered or issued to a project feeds the project's equipment cost.
 - There are no low-stock alerts or reorder points, since the company rarely keeps stock.

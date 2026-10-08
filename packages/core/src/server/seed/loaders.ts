@@ -2,10 +2,17 @@ import type { UpdateQuery } from 'mongoose';
 import { ALLOWED_EMAIL_DOMAINS } from '../../account';
 import { now } from '../../dates';
 import { AllowedEmailDomainModel } from '../allowed-email-domains/model';
+import { BrandModel } from '../brands/model';
 import { COMPANY_SETTINGS_KEY, CompanySettingsModel } from '../company-settings/model';
 import { DepartmentModel } from '../departments/model';
 import { LEGACY_POSITION_NAME_INDEX, POSITION_NAME_INDEX, PositionModel } from '../positions/model';
-import { COMPANY_DETAIL_PLACEHOLDERS, SEED_DEPARTMENTS, SEED_POSITIONS } from './core-data';
+import { MASTER_DATA_COLLATION } from '../master-data-collation';
+import {
+  COMPANY_DETAIL_PLACEHOLDERS,
+  SEED_BRANDS,
+  SEED_DEPARTMENTS,
+  SEED_POSITIONS,
+} from './core-data';
 import { isDuplicateKeyError } from './duplicate-key';
 
 // Spec: docs/modules/core.md#bootstrap-system-administrator-account — each loader inserts only
@@ -37,18 +44,26 @@ interface UpsertableModel {
   updateOne(
     filter: Record<string, unknown>,
     update: UpdateQuery<unknown>,
-    options: { upsert: boolean; withDeleted: boolean; timestamps: boolean; runValidators: boolean },
+    options: {
+      upsert: boolean;
+      withDeleted: boolean;
+      timestamps: boolean;
+      runValidators: boolean;
+      collation?: { locale: string; strength?: number };
+    },
   ): PromiseLike<{ upsertedCount: number }>;
 }
 
 /**
  * Inserts `fields` unless a record matches `filter`; a match is left exactly as it is. Returns
- * true when it inserted. Soft-deleted records match too.
+ * true when it inserted. Soft-deleted records match too. With `collation`, the filter compares
+ * strings under it (a case-insensitive name match).
  */
 async function insertIfMissing(
   model: UpsertableModel,
   filter: Record<string, unknown>,
   fields: Record<string, unknown>,
+  { collation }: { collation?: { locale: string; strength?: number } } = {},
 ): Promise<boolean> {
   const at = now();
   const result = await model.updateOne(
@@ -64,7 +79,13 @@ async function insertIfMissing(
     },
     // `timestamps: false` keeps Mongoose from adding `$set: { updatedAt }`, which would touch an
     // existing record.
-    { upsert: true, withDeleted: true, timestamps: false, runValidators: true },
+    {
+      upsert: true,
+      withDeleted: true,
+      timestamps: false,
+      runValidators: true,
+      ...(collation ? { collation } : {}),
+    },
   );
   return result.upsertedCount > 0;
 }
@@ -163,6 +184,28 @@ const positionsLoader: SeedLoader = {
   },
 };
 
+// Spec: docs/modules/core.md#bootstrap-system-administrator-account (decision 95 in
+// docs/BUILD_PLAN.md) — the products, matched by seed key or by name ignoring case, so a product
+// added by hand with a seeded name (in any case) counts as present and a renamed seeded product
+// isn't added again. Retired products count too.
+const brandsLoader: SeedLoader = {
+  name: 'brands',
+  run: () =>
+    insertEachIfMissing(SEED_BRANDS, ({ seedKey, name }) =>
+      // MongoDB doesn't retry an upsert with an `$or` filter on a duplicate key, so when another
+      // seed run inserts the same product at the same moment, count it as kept.
+      insertIfMissing(
+        BrandModel,
+        { $or: [{ seedKey }, { name }] },
+        { seedKey, name },
+        { collation: MASTER_DATA_COLLATION },
+      ).catch((error: unknown) => {
+        if (isDuplicateKeyError(error)) return false;
+        throw error;
+      }),
+    ),
+};
+
 // The company settings fields, as dotted paths, with their placeholders.
 const COMPANY_DETAIL_FIELDS: ReadonlyArray<[string, string | null]> = [
   ['registeredName', COMPANY_DETAIL_PLACEHOLDERS.registeredName],
@@ -215,4 +258,5 @@ export const coreSeedLoaders: readonly SeedLoader[] = [
   departmentsLoader,
   positionsLoader,
   companySettingsLoader,
+  brandsLoader,
 ];

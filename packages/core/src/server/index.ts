@@ -367,3 +367,71 @@ export {
   runAccessReminder,
   USERS_NEED_ACCESS_EVENT,
 } from './access/reminder-job';
+
+// Shared master data (docs/modules/core.md#managing-master-data, ADR 0013): clients with their
+// sites and contacts, products (`brands`), catalog items and suppliers. Services only; the models
+// are never exported. Each service checks Engage or Supply access itself (master-data-access.ts).
+export type { MasterDataActor, MasterDataOption } from './master-data-access';
+export {
+  type BrandOption,
+  type BrandView,
+  createBrand,
+  listBrandOptions,
+  listBrands,
+  restoreBrand,
+  retireBrand,
+  updateBrand,
+} from './brands/service';
+export {
+  type CatalogItemOption,
+  type CatalogItemView,
+  createCatalogItem,
+  listCatalogItemOptions,
+  listCatalogItems,
+  restoreCatalogItem,
+  retireCatalogItem,
+  updateCatalogItem,
+} from './catalog-items/service';
+export {
+  createSupplier,
+  listSupplierOptions,
+  listSuppliers,
+  restoreSupplier,
+  retireSupplier,
+  type SupplierContactView,
+  type SupplierOption,
+  type SupplierProductView,
+  type SupplierView,
+  updateSupplier,
+} from './suppliers/service';
+export {
+  type AccountManagerOption,
+  type ClientDetailView,
+  type ClientNameMatch,
+  type ClientView,
+  createClient,
+  findClientsNamed,
+  getClient,
+  listClientOptions,
+  listClients,
+  restoreClient,
+  retireClient,
+  searchEligibleAccountManagers,
+  updateClient,
+} from './clients/service';
+export {
+  addClientSite,
+  type ClientSiteView,
+  listClientSiteOptions,
+  removeClientSite,
+  restoreClientSite,
+  updateClientSite,
+} from './clients/sites';
+export {
+  addClientContact,
+  type ClientContactView,
+  listClientContactOptions,
+  removeClientContact,
+  restoreClientContact,
+  updateClientContact,
+} from './clients/contacts';

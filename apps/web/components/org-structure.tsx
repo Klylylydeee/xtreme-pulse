@@ -8,7 +8,9 @@ import { Switch } from '@pulse/ui/components/form';
 
 // Spec: docs/modules/core.md#managing-departments-and-positions — the pieces the departments and
 // positions pages share: the "Show retired" switch, the small badges, the read-only rows in a
-// sheet, and submitting a sheet's form to its Server Action.
+// sheet, and submitting a sheet's form to its Server Action. From step 1.8 the master data pages
+// (docs/modules/core.md#managing-master-data: clients, products, catalog items and suppliers) reuse
+// them too: ShowRetiredSwitch, Badge, ReadOnlyField, useActionSubmit and plural.
 
 /** Submits a form or a change to a Server Action, keeping its field and form errors. */
 export function useActionSubmit<TData>(

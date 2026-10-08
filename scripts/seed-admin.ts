@@ -5,7 +5,7 @@ import nextEnv from '@next/env';
 // `pnpm seed:admin`. Spec: docs/modules/core.md#bootstrap-system-administrator-account
 //
 // 1. Loads Core's base data (allowed email domains, departments, positions, company settings
-//    placeholders), inserting only what is missing. Later phases add their loaders here.
+//    placeholders, products), inserting only what is missing. Later phases add their loaders here.
 // 2. Creates the bootstrap System Administrator from SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD,
 //    unless a System Administrator already exists.
 //

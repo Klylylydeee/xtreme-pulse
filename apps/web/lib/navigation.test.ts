@@ -19,7 +19,8 @@ import {
 } from './navigation';
 
 // Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
-// (navigation, step 1.7) and docs/modules/core.md#administration-area — the sidebar, and the command bar built from it,
+// (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8) and
+// docs/modules/core.md#administration-area — the sidebar, and the command bar built from it,
 // list only what the user can open; breadcrumbs use the longest matching entry. Pure: no database.
 
 function viewer({
@@ -50,7 +51,19 @@ const HR_ADMIN_HREFS = [
   '/admin/departments',
   '/admin/positions',
 ];
-const ALL_ADMIN_HREFS = [...HR_ADMIN_HREFS, '/admin/settings', '/admin/audit'];
+// Step 1.8: the master data pages, for the System Administrator only, before Company settings.
+const MASTER_DATA_HREFS = [
+  '/admin/clients',
+  '/admin/products',
+  '/admin/catalog-items',
+  '/admin/suppliers',
+];
+const ALL_ADMIN_HREFS = [
+  ...HR_ADMIN_HREFS,
+  ...MASTER_DATA_HREFS,
+  '/admin/settings',
+  '/admin/audit',
+];
 
 describe('visibleNavigation', () => {
   it('shows a new user only Home, with the empty groups hidden', () => {
@@ -100,7 +113,7 @@ describe('visibleNavigation', () => {
     expect(visibleHrefs(viewer({ roles: ['accounting'] }))).toEqual(['/']);
   });
 
-  it('shows the System Administrator all 7 modules and all 7 admin entries', () => {
+  it('shows the System Administrator all 7 modules and all 11 admin entries', () => {
     const groups = visibleNavigation(systemAdministrator);
     expect(groups.map((group) => group.label)).toEqual(['Pulse Core', 'Modules', 'Administration']);
     expect(groups[1]?.entries).toHaveLength(7);
@@ -108,7 +121,36 @@ describe('visibleNavigation', () => {
       MODULE_ENTRIES.map((entry) => entry.href),
     );
     expect(groups[2]?.entries.map((entry) => entry.href)).toEqual(ALL_ADMIN_HREFS);
-    expect(ADMIN_ENTRIES).toHaveLength(7);
+    expect(ADMIN_ENTRIES).toHaveLength(11);
+  });
+
+  it('shows the four master data entries to the System Administrator only, not HR', () => {
+    const adminLabels = visibleNavigation(systemAdministrator)
+      .find((group) => group.label === 'Administration')
+      ?.entries.map((entry) => entry.label);
+    expect(adminLabels).toEqual([
+      'Overview',
+      'Users',
+      'User access',
+      'Departments',
+      'Positions',
+      'Clients',
+      'Products',
+      'Catalog items',
+      'Suppliers',
+      'Company settings',
+      'Audit log',
+    ]);
+    for (const href of MASTER_DATA_HREFS) {
+      expect(visibleHrefs(systemAdministrator)).toContain(href);
+      expect(visibleHrefs(hr)).not.toContain(href);
+      expect(visibleHrefs(viewer({ roles: ['board'] }))).not.toContain(href);
+      // Module access alone never opens an admin page: Engage and Supply Owner see none of them.
+      const owner = viewer({
+        moduleAccess: { ...emptyModuleAccess(), engage: 'owner', supply: 'owner' },
+      });
+      expect(visibleHrefs(owner)).not.toContain(href);
+    }
   });
 
   it('rebuilds the same sections in the client shell from the visible hrefs', () => {
@@ -144,6 +186,25 @@ describe('breadcrumbFor', () => {
     });
   });
 
+  it('names the master data pages under Administration', () => {
+    expect(breadcrumbFor(adminGroups, '/admin/clients')).toEqual({
+      parent: 'Administration',
+      current: 'Clients',
+    });
+    expect(breadcrumbFor(adminGroups, '/admin/products')).toEqual({
+      parent: 'Administration',
+      current: 'Products',
+    });
+    expect(breadcrumbFor(adminGroups, '/admin/catalog-items')).toEqual({
+      parent: 'Administration',
+      current: 'Catalog items',
+    });
+    expect(breadcrumbFor(adminGroups, '/admin/suppliers')).toEqual({
+      parent: 'Administration',
+      current: 'Suppliers',
+    });
+  });
+
   it('lets a page named after its group stand alone', () => {
     expect(breadcrumbFor(adminGroups, '/admin')).toEqual({ current: 'Administration' });
   });
@@ -167,6 +228,8 @@ describe('breadcrumbFor', () => {
     const hrGroups = visibleNavigation(hr);
     expect(breadcrumbFor(hrGroups, '/admin/audit')).toEqual({ current: NO_ACCESS_PAGE_TITLE });
     expect(breadcrumbFor(hrGroups, '/admin/settings')).toEqual({ current: 'No access' });
+    expect(breadcrumbFor(hrGroups, '/admin/clients')).toEqual({ current: 'No access' });
+    expect(breadcrumbFor(hrGroups, '/admin/catalog-items')).toEqual({ current: 'No access' });
     expect(breadcrumbFor(visibleNavigation(newUser), '/talent')).toEqual({
       current: 'No access',
     });

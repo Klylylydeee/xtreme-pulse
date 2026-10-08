@@ -1,6 +1,5 @@
 import type { ClientSession, Types } from 'mongoose';
 import { connectDb, withTransaction } from '@pulse/db';
-import { EMPLOYMENT_STATUS, EMPLOYMENT_STATUSES } from '../../account';
 import { AccessDeniedError, ActionError } from '../../actions';
 import { now } from '../../dates';
 import {
@@ -11,13 +10,19 @@ import {
 } from '../../org-structure';
 import { recordAudit } from '../audit/service';
 import { snapshotForAudit, snapshotsForAudit } from '../audit/snapshot';
-import { resolveAccountStatus } from '../auth/account-status';
 import { canManageOrgStructure, type RoleHolder } from '../auth/roles';
+import {
+  ACTIVE_EMPLOYEES,
+  ACTIVE_EMPLOYMENT_STATUSES,
+  activeEmployeeMap,
+  employeeName,
+  isActiveEmployee,
+  searchActiveEmployees,
+} from '../employees/active-employees';
 import { EmployeeModel } from '../employees/model';
 import { toObjectId } from '../paging';
 import { PositionModel } from '../positions/model';
 import { isDuplicateKeyError } from '../seed/duplicate-key';
-import { UserModel } from '../users/model';
 import { type DepartmentRecord, DepartmentModel } from './model';
 
 // Spec: docs/modules/core.md#managing-departments-and-positions — HR and the System Administrator
@@ -38,10 +43,9 @@ export interface OrgStructureActor extends RoleHolder {
   email: string;
 }
 
-/** The employment statuses whose account is active (SECURITY.md#account-status). */
-export const ACTIVE_EMPLOYMENT_STATUSES = EMPLOYMENT_STATUSES.filter(
-  (status) => EMPLOYMENT_STATUS[status] === 'active',
-);
+// The active-employee rule (also used for a client's owning Account Manager) lives in
+// employees/active-employees.ts; re-exported for the services that import it from here.
+export { ACTIVE_EMPLOYEES, ACTIVE_EMPLOYMENT_STATUSES, employeeName };
 
 /** Refuses anyone but HR and the System Administrator. */
 export function assertCanManageOrgStructure(actor: OrgStructureActor): void {
@@ -53,11 +57,6 @@ export function inputError(issues: { path: PropertyKey[]; message: string }[]): 
   const issue = issues[0];
   const field = issue?.path.map(String).join('.') || undefined;
   return new ActionError(issue?.message ?? 'Check the form and try again.', { field });
-}
-
-/** `First Last`, as the directory shows it. */
-export function employeeName(employee: { firstName: string; lastName: string }): string {
-  return `${employee.firstName} ${employee.lastName}`;
 }
 
 const DEPARTMENT_GONE = 'This department no longer exists. Reload the page.';
@@ -85,56 +84,14 @@ export function countMap(rows: GroupCount[]): Map<string, number> {
   return new Map(rows.map((row) => [row._id.toHexString(), row.n]));
 }
 
-/** Matches employees whose employment status is active. */
-export const ACTIVE_EMPLOYEES = { employmentStatus: { $in: ACTIVE_EMPLOYMENT_STATUSES } };
-
-/** True when the employee exists and their account resolves to active. */
-async function isEligibleHead(
-  employeeId: Types.ObjectId,
-  session: ClientSession | null,
-): Promise<boolean> {
-  const employee = await EmployeeModel.findById(employeeId, { employmentStatus: 1 })
-    .session(session)
-    .lean();
-  if (!employee) return false;
-  const user = await UserModel.findOne(
-    { employeeId },
-    { isSystemAccount: 1, systemAccountDisabled: 1 },
-  )
-    .session(session)
-    .lean();
-  return user !== null && resolveAccountStatus(user, employee) === 'active';
-}
-
-/**
- * The heads whose account resolves to active, keyed by employee ID: the same rule as
- * {@link isEligibleHead}, so a head with no account counts as inactive.
- */
-async function activeHeads(
-  heads: { _id: Types.ObjectId; employmentStatus: string }[],
-): Promise<Map<string, boolean>> {
-  if (heads.length === 0) return new Map();
-  const users = await UserModel.find(
-    { employeeId: { $in: heads.map((head) => head._id) } },
-    { employeeId: 1, isSystemAccount: 1, systemAccountDisabled: 1 },
-  ).lean();
-  const userByEmployee = new Map(users.map((user) => [user.employeeId?.toHexString(), user]));
-  return new Map(
-    heads.map((head) => {
-      const id = head._id.toHexString();
-      const user = userByEmployee.get(id);
-      return [id, user !== undefined && resolveAccountStatus(user, head) === 'active'];
-    }),
-  );
-}
-
+/** A head must be an employee whose account resolves to active (from any department). */
 async function headIdFrom(
   value: string | null,
   session: ClientSession,
 ): Promise<Types.ObjectId | null> {
   if (value === null) return null;
   const id = toObjectId(value);
-  if (!id || !(await isEligibleHead(id, session))) {
+  if (!id || !(await isActiveEmployee(id, session))) {
     throw new ActionError(HEAD_NOT_ELIGIBLE, { field: 'headEmployeeId' });
   }
   return id;
@@ -194,7 +151,7 @@ export async function listDepartments(
     ).lean(),
   ]);
   const headNames = new Map(heads.map((head) => [head._id.toHexString(), employeeName(head)]));
-  const headActive = await activeHeads(heads);
+  const headActive = await activeEmployeeMap(heads);
 
   return departments.map((department) => {
     const id = department._id.toHexString();
@@ -223,14 +180,6 @@ export interface DepartmentHeadOption {
   departmentName: string | null;
 }
 
-const HEAD_SEARCH_LIMIT = 20;
-// Read more than the limit, since some candidates may have no active account.
-const HEAD_CANDIDATE_LIMIT = 100;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /**
  * Employees whose account resolves to active, from any department, for the department head
  * picker: matched on name or employee number, by last name, at most 20.
@@ -242,39 +191,8 @@ export async function listEligibleDepartmentHeads(
   assertCanManageOrgStructure(actor);
   await connectDb();
 
-  const filter: Record<string, unknown> = { ...ACTIVE_EMPLOYEES };
-  const words = search.trim().slice(0, 100).split(/\s+/).filter(Boolean);
-  if (words.length > 0) {
-    filter.$and = words.map((word) => {
-      const pattern = new RegExp(escapeRegExp(word), 'i');
-      return {
-        $or: [{ firstName: pattern }, { lastName: pattern }, { employeeNumber: pattern }],
-      };
-    });
-  }
-  const candidates = await EmployeeModel.find(filter, {
-    firstName: 1,
-    lastName: 1,
-    employeeNumber: 1,
-    employmentStatus: 1,
-    departmentId: 1,
-  })
-    .sort({ lastName: 1, firstName: 1, _id: 1 })
-    .limit(HEAD_CANDIDATE_LIMIT)
-    .lean();
-  if (candidates.length === 0) return [];
-
-  const users = await UserModel.find(
-    { employeeId: { $in: candidates.map((employee) => employee._id) } },
-    { employeeId: 1, isSystemAccount: 1, systemAccountDisabled: 1 },
-  ).lean();
-  const userByEmployee = new Map(users.map((user) => [user.employeeId?.toHexString(), user]));
-  const eligible = candidates
-    .filter((employee) => {
-      const user = userByEmployee.get(employee._id.toHexString());
-      return user !== undefined && resolveAccountStatus(user, employee) === 'active';
-    })
-    .slice(0, HEAD_SEARCH_LIMIT);
+  const eligible = await searchActiveEmployees(search);
+  if (eligible.length === 0) return [];
 
   // A retired department still shows its name.
   const departments = await DepartmentModel.find(

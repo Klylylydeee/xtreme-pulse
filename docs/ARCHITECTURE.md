@@ -39,7 +39,7 @@ Nothing is reachable from the public internet (see [Network exposure](../SECURIT
 | Pulse Desk | `/desk` | `packages/desk` | [desk.md](modules/desk.md) |
 | Pulse Insight | `/insight` | `packages/insight` | [insight.md](modules/insight.md) |
 
-Shared packages: `packages/db` (connection, transactions, model helpers, and the shared master-data schemas added in build step 1.8) and `packages/ui` (design tokens and components). Every other schema lives in its module's package, Core's own included (`users`, `employees`, `departments`, `positions`, `companySettings`, `allowedEmailDomains`, `employeeNumberCounters` in `packages/core`).
+Shared packages: `packages/db` (connection, transactions and model helpers) and `packages/ui` (design tokens and components). Every schema lives in its module's package, Core's own included (`users`, `employees`, `departments`, `positions`, `companySettings`, `allowedEmailDomains`, `employeeNumberCounters`, and from build step 1.8 the shared master data `clients`, `clientSites`, `clientContacts`, `brands`, `catalogItems` and `suppliers` in `packages/core`; see [ADR 0013](adr/0013-master-data-schemas-in-core.md)).
 
 ## Tech stack
 
@@ -62,13 +62,15 @@ apps/web/                         the single Xtreme Pulse Next.js app
   app/(auth)/login/               Pulse Core login (the only public page; forgot/reset password later)
   app/(pulse)/layout.tsx          signed-in shell: sidebar with the user's modules, session + status check
   app/(pulse)/page.tsx            Pulse Core home
-  app/(pulse)/admin/              system administration (HR and System Administrator), e.g. /admin/access for user access
+  app/(pulse)/admin/              system administration (HR and System Administrator), e.g. /admin/access for user access,
+                                  and the basic master data screens (/admin/clients and others, step 1.8)
   app/(pulse)/<module>/           one folder per module: engage, ops, supply, desk, fiscal, talent, insight
   app/files/[fileId]/             the one file route: checks access, then streams a stored file
   app/company-logo/               public route for the company logo only (the one exception, step 1.4)
 apps/worker/                      the BullMQ worker process (background and scheduled jobs)
-packages/core/                    auth, module access, audit log, approvals, notifications, directory, org chart, holidays
-packages/db/                      Mongo connection, model helpers, shared master-data schemas (step 1.8)
+packages/core/                    auth, module access, audit log, approvals, notifications, directory, org chart, holidays,
+                                  shared master data (schemas and services, step 1.8)
+packages/db/                      Mongo connection, transactions, model helpers
 packages/<module>/                models, services and validation for each module
 packages/ui/                      shared components
 scripts/                          seed scripts (e.g. seed-admin.ts)

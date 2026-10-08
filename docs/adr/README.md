@@ -18,3 +18,4 @@ To add one, copy [0000-template.md](0000-template.md), take the next number, and
 | [0010](0010-manual-verification-before-automated-tests.md) | Manual verification before automated tests | Accepted, narrowed by 0012 |
 | [0011](0011-file-storage-in-project-folder.md) | Files stored in a folder with the app, not S3 | Accepted |
 | [0012](0012-fail-closed-sensitive-fields.md) | Fail-closed sensitive fields, database validators and guard tests | Accepted |
+| [0013](0013-master-data-schemas-in-core.md) | Master data schemas and services in Pulse Core | Accepted |

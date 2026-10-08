@@ -70,6 +70,30 @@ export const SEED_POSITIONS: readonly SeedPosition[] = [
   position('WEB', 'developer', 'Developer'),
 ];
 
+export interface SeedBrand {
+  /** Stable across renames: the camelCase name. */
+  seedKey: string;
+  name: string;
+}
+
+// Spec: docs/modules/engage.md#deals-and-stages — the products (`brands` in code). "General" is
+// for items that don't belong to a brand; it isn't protected (docs/modules/core.md#bootstrap-system-administrator-account).
+export const SEED_BRANDS: readonly SeedBrand[] = [
+  { seedKey: 'extremeNetworks', name: 'Extreme Networks' },
+  { seedKey: 'barracudaNetworks', name: 'Barracuda Networks' },
+  { seedKey: 'paloAltoNetworks', name: 'Palo Alto Networks' },
+  { seedKey: 'iPro', name: 'i-PRO' },
+  { seedKey: 'luxriot', name: 'Luxriot' },
+  { seedKey: 'cradlepoint', name: 'Cradlepoint' },
+  { seedKey: 'verifone', name: 'Verifone' },
+  { seedKey: 'docusign', name: 'Docusign' },
+  { seedKey: 'airedale', name: 'Airedale' },
+  { seedKey: 'oper8Global', name: 'Oper8 Global' },
+  { seedKey: 'ebmPapst', name: 'ebm-papst' },
+  { seedKey: 'ziehlAbegg', name: 'Ziehl-Abegg' },
+  { seedKey: 'general', name: 'General' },
+];
+
 export interface SeedCompanyDetails {
   registeredName: string;
   businessAddress: string;

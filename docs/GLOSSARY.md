@@ -12,6 +12,7 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | offset | comp time, overtime credit | Extra hours banked as paid time off ([Offset balance & offset time off](modules/talent.md#offset-balance--offset-time-off)) |
 | cut-off | pay period | The semi-monthly period a timesheet and payroll run cover ([Pay schedule](modules/talent.md#pay-schedule)) |
 | payslip | pay stub | Generated for each employee in a finalized run |
+| retire, restore (a record) | delete, archive | A soft delete of a department, position or master data record, undone by Restore. Not the Retired employment status ([Managing master data](modules/core.md#managing-master-data)) |
 
 ## The company and the app
 

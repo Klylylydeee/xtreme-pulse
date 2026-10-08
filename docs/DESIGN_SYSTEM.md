@@ -94,6 +94,7 @@ The [Xtreme Pulse screens](https://claude.ai/artifact/REqSjEy78c7ZQUGwy3dQ9e) de
 - **Not found** (build step 1.6). An unknown URL gets a real 404 page outside the shell: a centred empty state with "Go to Home". A record or page that calls not-found inside the shell shows the same state there.
 - **Home access card** (build step 1.6). While a user has None on every module, Home shows a card under the hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It takes the place of the "Nothing needs your attention" empty state ([User access page](modules/core.md#user-access-page)).
 - Validate inline, next to the field.
+- **Non-blocking warnings** (build step 1.8). When a value is allowed but probably a mistake, such as a client name another client already has ([Managing master data](modules/core.md#managing-master-data)), the form shows the warning inline under the field, in `warning-text` with a warning icon, never in red. The primary button then reads "Save anyway", so saving is a deliberate second click; changing the field clears the warning and the button goes back to its usual label. The server runs the same check and refuses the save unless it was confirmed.
 - Destructive actions are red, name the action ("Delete draft", not "OK"), and ask for confirmation.
 - Motion is subtle and quick (about 200–300ms, ease-out) and is turned off when the user prefers reduced motion (`prefers-reduced-motion`).
 

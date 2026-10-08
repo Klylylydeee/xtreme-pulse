@@ -31,6 +31,11 @@ import {
   useShortcut,
 } from '@pulse/ui/components/shortcut-hint';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
+import {
+  EmployeePicker,
+  InactiveEmployeeBadge,
+  type PickedEmployee,
+} from '@/components/employee-picker';
 import { FormAlert } from '@/components/form-alert';
 import {
   Badge,
@@ -43,9 +48,9 @@ import {
   createDepartmentAction,
   restoreDepartmentAction,
   retireDepartmentAction,
+  searchDepartmentHeadsAction,
   updateDepartmentAction,
 } from '@/lib/actions/org-structure';
-import { DepartmentHeadPicker, type PickedHead } from './department-head-picker';
 
 // Spec: docs/modules/core.md#managing-departments-and-positions — the departments list. A row opens
 // its sheet: the edit form for a live department (name and head; the code is fixed), or its details
@@ -61,13 +66,7 @@ function headLabel(department: DepartmentView): string | null {
 }
 
 /** "Inactive" next to a head who is no longer active (escalations treat them as no head). */
-function InactiveHeadBadge() {
-  return (
-    <span title="No longer an active employee" className="inline-flex shrink-0">
-      <Badge>Inactive</Badge>
-    </span>
-  );
-}
+const InactiveHeadBadge = InactiveEmployeeBadge;
 
 const column = createDataTableColumns<DepartmentView>();
 
@@ -265,7 +264,7 @@ function DepartmentForm({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef('');
-  const [head, setHead] = useState<PickedHead | null>(
+  const [head, setHead] = useState<PickedEmployee | null>(
     department?.headEmployeeId
       ? { id: department.headEmployeeId, name: department.headName ?? 'Unknown employee' }
       : null,
@@ -351,7 +350,18 @@ function DepartmentForm({
             }
             error={save.fieldErrors.headEmployeeId}
           >
-            <DepartmentHeadPicker value={head} onChange={setHead} />
+            {/* The head is any employee whose account resolves to active, from any department,
+                searched on the server (docs/modules/core.md#managing-departments-and-positions). */}
+            <EmployeePicker
+              name="headEmployeeId"
+              value={head}
+              onChange={setHead}
+              search={searchDepartmentHeadsAction}
+              noneLabel="No head"
+              chooseLabel="Choose the department head"
+              listLabel="Department head"
+              emptyDescription="A head is picked from employees with an active account. You can save without one and set it later."
+            />
           </FormField>
         </FormSection>
         {department ? (

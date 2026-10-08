@@ -2,12 +2,16 @@ import type { Metadata } from 'next';
 import { type ReactNode, Suspense } from 'react';
 import Link from 'next/link';
 import {
+  Boxes,
   BriefcaseBusiness,
   Building2,
   ChevronRight,
+  Contact,
   ScrollText,
   Settings,
   ShieldCheck,
+  Tag,
+  Truck,
   Users,
 } from 'lucide-react';
 import { countUsersNeedingAccessFor, isSystemAdministrator } from '@pulse/core/server';
@@ -57,6 +61,34 @@ const ORG_STRUCTURE_LINKS: AdminPageLink[] = [
   },
 ];
 
+/** The shared master data (step 1.8, docs/modules/core.md#managing-master-data). */
+const MASTER_DATA_LINKS: AdminPageLink[] = [
+  {
+    href: '/admin/clients',
+    title: 'Clients',
+    description: 'Client companies, with their sites and contacts.',
+    icon: <Contact strokeWidth={1.75} />,
+  },
+  {
+    href: '/admin/products',
+    title: 'Products',
+    description: 'The brands the company sells.',
+    icon: <Tag strokeWidth={1.75} />,
+  },
+  {
+    href: '/admin/catalog-items',
+    title: 'Catalog items',
+    description: 'Part numbers under each product, with their unit, kind and default warranty.',
+    icon: <Boxes strokeWidth={1.75} />,
+  },
+  {
+    href: '/admin/suppliers',
+    title: 'Suppliers',
+    description: 'Suppliers, their contacts and the products they supply.',
+    icon: <Truck strokeWidth={1.75} />,
+  },
+];
+
 const SYSTEM_ADMINISTRATOR_LINKS: AdminPageLink[] = [
   {
     href: '/admin/settings',
@@ -97,16 +129,21 @@ async function UsersNeedingAccess() {
 // Spec: docs/modules/core.md#administration-area — HR and the System Administrator only, checked by
 // role (SECURITY.md#resolving-and-enforcing-build-step-16). HR sees users, user access (with the
 // count of users who still need access, from step 1.7), departments and positions; the System
-// Administrator also sees company settings and the audit log. Anyone else
+// Administrator also sees the master data pages (clients, products, catalog items and suppliers,
+// from step 1.8, in their own "Master data" group), company settings and the audit log. Anyone else
 // gets the no-access state (HTTP 403). Checked here on the server, and each page checks again:
 // hiding a link is never access control. The guard comes first, before anything that can suspend;
 // the reminder and the user access count, the page's only reads, stream in their own boundaries.
 export default async function AdminPage() {
   const user = await requireAdminPage('hrOrSystemAdministrator');
 
-  const links = isSystemAdministrator(user)
-    ? [...ORG_STRUCTURE_LINKS, ...SYSTEM_ADMINISTRATOR_LINKS]
-    : ORG_STRUCTURE_LINKS;
+  const groups: AdminLinkGroup[] = isSystemAdministrator(user)
+    ? [
+        { title: 'People and organization', links: ORG_STRUCTURE_LINKS },
+        { title: 'Master data', links: MASTER_DATA_LINKS },
+        { title: 'System', links: SYSTEM_ADMINISTRATOR_LINKS },
+      ]
+    : [{ title: 'People and organization', links: ORG_STRUCTURE_LINKS }];
   const { title, description } = getNavEntry('/admin');
   return (
     <>
@@ -114,31 +151,48 @@ export default async function AdminPage() {
       <Suspense fallback={null}>
         <CompanyDetailsReminder />
       </Suspense>
-      <nav aria-label="Administration pages">
-        <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
-          {links.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                className="flex min-h-18 items-center gap-3 px-4 py-3 transition-colors duration-fast hover:bg-accent-subtle/50 focus-visible:-outline-offset-2 md:px-5"
-              >
-                <IconTile className="size-11 rounded-xl [&_svg]:size-5">{link.icon}</IconTile>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-headline">{link.title}</span>
-                    {link.count ? <Suspense fallback={null}>{link.count}</Suspense> : null}
-                  </span>
-                  <span className="text-footnote text-text-secondary">{link.description}</span>
-                </span>
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-4.5 shrink-0 text-text-secondary"
-                />
-              </Link>
-            </li>
-          ))}
-        </ul>
+      <nav aria-label="Administration pages" className="flex flex-col gap-6">
+        {groups.map((group) => (
+          <AdminLinkSection key={group.title} group={group} />
+        ))}
       </nav>
     </>
+  );
+}
+
+interface AdminLinkGroup {
+  title: string;
+  links: AdminPageLink[];
+}
+
+/** One group of admin page links: a short header over a rounded card of rows. */
+function AdminLinkSection({ group }: { group: AdminLinkGroup }) {
+  const headingId = `admin-group-${group.title.toLowerCase().replace(/\W+/g, '-')}`;
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <h2 id={headingId} className="px-4 text-footnote font-semibold text-text-secondary">
+        {group.title}
+      </h2>
+      <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
+        {group.links.map((link) => (
+          <li key={link.href}>
+            <Link
+              href={link.href}
+              className="flex min-h-18 items-center gap-3 px-4 py-3 transition-colors duration-fast hover:bg-accent-subtle/50 focus-visible:-outline-offset-2 md:px-5"
+            >
+              <IconTile className="size-11 rounded-xl [&_svg]:size-5">{link.icon}</IconTile>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-headline">{link.title}</span>
+                  {link.count ? <Suspense fallback={null}>{link.count}</Suspense> : null}
+                </span>
+                <span className="text-footnote text-text-secondary">{link.description}</span>
+              </span>
+              <ChevronRight aria-hidden="true" className="size-4.5 shrink-0 text-text-secondary" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

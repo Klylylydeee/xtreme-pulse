@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, UserRound, UserRoundX, Users } from 'lucide-react';
-import type { DepartmentHeadOption } from '@pulse/core/server';
+import type { ActionResult } from '@pulse/core';
 import { cn } from '@pulse/ui';
 import {
   Command,
@@ -18,36 +18,87 @@ import { useFieldProps } from '@pulse/ui/components/form';
 import { ErrorState } from '@pulse/ui/components/error-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@pulse/ui/components/popover';
 import { Skeleton } from '@pulse/ui/components/skeleton';
-import { searchDepartmentHeadsAction } from '@/lib/actions/org-structure';
+import { Badge } from '@/components/org-structure';
 
-// Spec: docs/modules/core.md#managing-departments-and-positions — the head is optional: any
-// employee whose account resolves to active, from any department. The list is searched on the
-// server (name or employee number, at most 20), so the picker never holds the whole directory.
+// A single optional employee, picked from employees whose account resolves to active
+// (SECURITY.md#account-status): the department head (docs/modules/core.md#managing-departments-and-positions)
+// and, from step 1.8, a client's owning Account Manager (docs/modules/engage.md#clients-sites-and-contacts).
+// The list is searched on the server by the `search` Server Action (name or employee number, at
+// most 20), so the picker never holds the whole directory. The service checks the pick again on save.
 
-/** The picked head, as the form shows it. */
-export interface PickedHead {
+/** The picked employee, as the form shows it. */
+export interface PickedEmployee {
   id: string;
   name: string;
 }
 
+/** One row of the search results, as the search action returns it. */
+export interface EmployeePickerOption {
+  id: string;
+  name: string;
+  employeeNumber: string;
+  departmentName: string | null;
+}
+
+/** The search Server Action: `defineAction` with a `{ search }` schema, returning the options. */
+export type EmployeeSearchAction = (
+  previous: null,
+  input: { search: string },
+) => Promise<ActionResult<EmployeePickerOption[]>>;
+
 const SEARCH_DELAY_MS = 250;
+const LOAD_FAILED = 'The employee list couldn’t load. Try again.';
 
 type SearchState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'done'; options: DepartmentHeadOption[] };
+  | { status: 'done'; options: EmployeePickerOption[] };
 
 /**
- * A searchable picker for the department head, posted as `headEmployeeId` (empty for none). Opens
- * a popover with a search field; "No head" clears it. Shows a designed empty state while there are
- * no eligible employees (usual before employees are added).
+ * "Inactive" next to a picked employee who is no longer active (a head or Account Manager who
+ * separated after being set stays set, marked so). Color is never the only signal.
  */
-export function DepartmentHeadPicker({
+export function InactiveEmployeeBadge() {
+  return (
+    <span title="No longer an active employee" className="inline-flex shrink-0">
+      <Badge>Inactive</Badge>
+    </span>
+  );
+}
+
+/**
+ * A searchable picker for one optional employee, posted as the hidden field `name` (empty for
+ * none). Use it inside a FormField, which labels it and wires its error. Opens a popover with a
+ * search field; the "none" row clears it. Shows a designed empty state while there are no
+ * eligible employees (usual before employees are added).
+ */
+export function EmployeePicker({
+  name,
   value,
   onChange,
+  search: searchAction,
+  noneLabel,
+  chooseLabel,
+  listLabel,
+  emptyDescription,
+  valueInactive = false,
 }: {
-  value: PickedHead | null;
-  onChange: (value: PickedHead | null) => void;
+  /** The hidden input's name, e.g. `headEmployeeId` or `accountManagerEmployeeId`. */
+  name: string;
+  value: PickedEmployee | null;
+  onChange: (value: PickedEmployee | null) => void;
+  /** Searches eligible employees on the server. */
+  search: EmployeeSearchAction;
+  /** The trigger text with nobody picked, and the row that clears it: "No head". */
+  noneLabel: string;
+  /** The popover's accessible name: "Choose the department head". */
+  chooseLabel: string;
+  /** The search list's accessible name: "Department head". */
+  listLabel: string;
+  /** The empty state's text while nobody can be picked at all. */
+  emptyDescription: string;
+  /** Shows the Inactive badge in the trigger: the saved employee, no longer active, still picked. */
+  valueInactive?: boolean;
 }) {
   // Labeled by its FormField, and wired to the field's error.
   const fieldProps = useFieldProps({});
@@ -65,26 +116,23 @@ export function DepartmentHeadPicker({
     const timer = window.setTimeout(
       async () => {
         try {
-          const result = await searchDepartmentHeadsAction(null, { search });
+          const result = await searchAction(null, { search });
           if (request !== latest.current) return;
           setState(
             result.ok
               ? { status: 'done', options: result.data }
-              : {
-                  status: 'error',
-                  message: result.formError ?? 'The employee list couldn’t load. Try again.',
-                },
+              : { status: 'error', message: result.formError ?? LOAD_FAILED },
           );
         } catch {
           if (request === latest.current) {
-            setState({ status: 'error', message: 'The employee list couldn’t load. Try again.' });
+            setState({ status: 'error', message: LOAD_FAILED });
           }
         }
       },
       search ? SEARCH_DELAY_MS : 0,
     );
     return () => window.clearTimeout(timer);
-  }, [open, search, attempt]);
+  }, [open, search, attempt, searchAction]);
 
   /** Shows the loading rows at once; the effect then runs the (debounced) search. */
   function startSearch(next: string) {
@@ -92,7 +140,7 @@ export function DepartmentHeadPicker({
     setSearch(next);
   }
 
-  function pick(next: PickedHead | null) {
+  function pick(next: PickedEmployee | null) {
     onChange(next);
     setOpen(false);
   }
@@ -104,7 +152,7 @@ export function DepartmentHeadPicker({
 
   return (
     <>
-      <input type="hidden" name="headEmployeeId" value={value?.id ?? ''} />
+      <input type="hidden" name={name} value={value?.id ?? ''} />
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -125,17 +173,18 @@ export function DepartmentHeadPicker({
           >
             <UserRound aria-hidden="true" className="size-4.5 shrink-0 text-text-secondary" />
             <span className={cn('min-w-0 flex-1 truncate', !value && 'text-text-secondary')}>
-              {value ? value.name : 'No head'}
+              {value ? value.name : noneLabel}
             </span>
+            {value && valueInactive ? <InactiveEmployeeBadge /> : null}
             <ChevronDown aria-hidden="true" className="size-4.5 shrink-0 text-text-secondary" />
           </button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          aria-label="Choose the department head"
+          aria-label={chooseLabel}
           className="w-[min(24rem,calc(100vw-2rem))] p-0"
         >
-          <Command shouldFilter={false} label="Department head">
+          <Command shouldFilter={false} label={listLabel}>
             <CommandInput
               value={search}
               onValueChange={startSearch}
@@ -168,9 +217,11 @@ export function DepartmentHeadPicker({
                     headingLevel={3}
                     icon={<Users strokeWidth={1.75} />}
                     title="No employees to choose yet"
-                    description="A head is picked from employees with an active account. You can save without one and set it later."
+                    description={emptyDescription}
                   />
-                  {value ? <NoHeadItem selected={false} onSelect={() => pick(null)} /> : null}
+                  {value ? (
+                    <NoneItem label={noneLabel} selected={false} onSelect={() => pick(null)} />
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -188,7 +239,11 @@ export function DepartmentHeadPicker({
                     <>
                       <CommandEmpty>No active employee matches “{search.trim()}”.</CommandEmpty>
                       {!searching ? (
-                        <NoHeadItem selected={value === null} onSelect={() => pick(null)} />
+                        <NoneItem
+                          label={noneLabel}
+                          selected={value === null}
+                          onSelect={() => pick(null)}
+                        />
                       ) : null}
                       {options.length > 0 ? (
                         <CommandGroup heading="Employees">
@@ -224,11 +279,19 @@ export function DepartmentHeadPicker({
   );
 }
 
-function NoHeadItem({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+function NoneItem({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <CommandItem value="__none__" onSelect={onSelect}>
       <UserRoundX aria-hidden="true" className="size-4.5 shrink-0 text-text-secondary" />
-      <span className="flex-1">No head</span>
+      <span className="flex-1">{label}</span>
       {selected ? <Check aria-hidden="true" className="size-4.5 shrink-0" /> : null}
     </CommandItem>
   );

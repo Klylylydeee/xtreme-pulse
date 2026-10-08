@@ -1,7 +1,9 @@
 import {
+  Boxes,
   BriefcaseBusiness,
   Building2,
   ChartColumn,
+  Contact,
   Handshake,
   HardHat,
   Headset,
@@ -12,6 +14,8 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  Tag,
+  Truck,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -154,9 +158,9 @@ export const MODULE_ENTRIES: NavEntry[] = [
 
 /**
  * Pulse Core administration, checked by role (docs/modules/core.md#administration-area): HR and
- * the System Administrator open the first five; only the System Administrator opens Company
- * settings and the Audit log. User access (step 1.7) sits after Users, with the count of users who
- * still need access.
+ * the System Administrator open the first five; only the System Administrator opens the four master
+ * data pages (step 1.8, docs/modules/core.md#managing-master-data), Company settings and the Audit
+ * log. User access (step 1.7) sits after Users, with the count of users who still need access.
  */
 export const ADMIN_ENTRIES: NavEntry[] = [
   {
@@ -201,6 +205,38 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Positions in each department and their timesheet type',
     Icon: BriefcaseBusiness,
     adminArea: 'hrOrSystemAdministrator',
+  },
+  {
+    href: '/admin/clients',
+    label: 'Clients',
+    title: 'Clients',
+    description: 'Client companies, with their sites and contacts',
+    Icon: Contact,
+    adminArea: 'systemAdministrator',
+  },
+  {
+    href: '/admin/products',
+    label: 'Products',
+    title: 'Products',
+    description: 'The brands the company sells',
+    Icon: Tag,
+    adminArea: 'systemAdministrator',
+  },
+  {
+    href: '/admin/catalog-items',
+    label: 'Catalog items',
+    title: 'Catalog items',
+    description: 'Part numbers under each product, with their unit, kind and default warranty',
+    Icon: Boxes,
+    adminArea: 'systemAdministrator',
+  },
+  {
+    href: '/admin/suppliers',
+    label: 'Suppliers',
+    title: 'Suppliers',
+    description: 'Suppliers, their contacts and the products they supply',
+    Icon: Truck,
+    adminArea: 'systemAdministrator',
   },
   {
     href: '/admin/settings',
