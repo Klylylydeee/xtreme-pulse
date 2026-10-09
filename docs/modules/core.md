@@ -29,24 +29,25 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 
 Built in step 1.6. The `/admin` pages are checked by role, not module access ([Rules](../../SECURITY.md#rules)), and appear in the sidebar's **Administration** group:
 
-| Entry | Route | Who |
-|---|---|---|
-| Overview | `/admin` | HR and the System Administrator |
-| Users | `/admin/users` | HR and the System Administrator |
-| User access | `/admin/access` | HR and the System Administrator (build step 1.7) |
-| Departments | `/admin/departments` | HR and the System Administrator |
-| Positions | `/admin/positions` | HR and the System Administrator |
-| Clients | `/admin/clients` | The System Administrator (build step 1.8) |
-| Products | `/admin/products` | The System Administrator (build step 1.8) |
-| Catalog items | `/admin/catalog-items` | The System Administrator (build step 1.8) |
-| Suppliers | `/admin/suppliers` | The System Administrator (build step 1.8) |
-| Company settings | `/admin/settings` | The System Administrator |
-| Audit log | `/admin/audit` | The System Administrator |
+| Entry | Group | Route | Who |
+|---|---|---|---|
+| Overview | None (always at the top) | `/admin` | HR and the System Administrator |
+| Users | People and organization | `/admin/users` | HR and the System Administrator |
+| User access | People and organization | `/admin/access` | HR and the System Administrator (build step 1.7) |
+| Departments | People and organization | `/admin/departments` | HR and the System Administrator |
+| Positions | People and organization | `/admin/positions` | HR and the System Administrator |
+| Clients | Master data | `/admin/clients` | The System Administrator (build step 1.8) |
+| Products | Master data | `/admin/products` | The System Administrator (build step 1.8) |
+| Catalog items | Master data | `/admin/catalog-items` | The System Administrator (build step 1.8) |
+| Suppliers | Master data | `/admin/suppliers` | The System Administrator (build step 1.8) |
+| Company settings | System | `/admin/settings` | The System Administrator |
+| Audit log | System | `/admin/audit` | The System Administrator |
 
 - Anyone else doesn't see the group (an empty sidebar group is hidden), and gets the [no-access state](../DESIGN_SYSTEM.md#feedback--motion) (HTTP 403) on every `/admin` page, `/admin` itself included. HR gets it on `/admin/clients`, `/admin/products`, `/admin/catalog-items`, `/admin/suppliers`, `/admin/settings` and `/admin/audit`, and doesn't see those entries.
 - Breadcrumbs read "Administration › Users" and so on, from the longest matching entry. The command bar's navigation items follow the filtered sidebar.
 - From step 1.7, User access sits after Users, with a badge counting the users who still need access, and its breadcrumb reads "Administration › User access". The `/admin` overview gets a User access card with the same count ([User access page](#user-access-page)).
 - From step 1.8, the four master data entries sit before Company settings, for the System Administrator only, with breadcrumbs "Administration › Clients", "Administration › Products", "Administration › Catalog items" and "Administration › Suppliers" ([Managing master data](#managing-master-data)).
+- The entries after Overview fall into three collapsible sub-groups, in this order: **People and organization**, **Master data** and **System** (the Group column). They are the same groups, in the same order, as the cards on the `/admin` overview, which shows each group the user can see. Overview stays at the top, outside any group. A group holds only the entries the user can see, so HR, who sees only People and organization, gets those entries listed plainly under Overview with no toggle, and the System Administrator gets all three groups. How the groups open, close and show badges is in [Layout & components](../DESIGN_SYSTEM.md#layout--components). Breadcrumbs don't change ("Administration › Users"): the sub-groups aren't part of them.
 
 ## Departments and positions
 

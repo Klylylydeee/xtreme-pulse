@@ -4,8 +4,10 @@ import { canOpenAdminArea, type DepartmentRole } from '@pulse/core/server';
 import {
   activeEntry,
   ADMIN_ENTRIES,
+  ADMIN_GROUPS,
   breadcrumbFor,
   documentTitleFor,
+  groupAdminEntries,
   isStatusBreadcrumb,
   MODULE_ENTRIES,
   navBadgeLabel,
@@ -14,14 +16,16 @@ import {
   noAccessTitle,
   NOT_FOUND_PAGE_TITLE,
   type NavigationViewer,
+  visibleAdminGroups,
   visibleHrefs,
   visibleNavigation,
 } from './navigation';
 
 // Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
-// (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8) and
-// docs/modules/core.md#administration-area — the sidebar, and the command bar built from it,
-// list only what the user can open; breadcrumbs use the longest matching entry. Pure: no database.
+// (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8, and the
+// Administration sub-groups) and docs/modules/core.md#administration-area — the sidebar, and the
+// command bar built from it, list only what the user can open; breadcrumbs use the longest matching
+// entry. Pure: no database.
 
 function viewer({
   moduleAccess = emptyModuleAccess(),
@@ -156,6 +160,76 @@ describe('visibleNavigation', () => {
   it('rebuilds the same sections in the client shell from the visible hrefs', () => {
     for (const someone of [newUser, hr, systemAdministrator]) {
       expect(navigationFor(visibleHrefs(someone))).toEqual(visibleNavigation(someone));
+    }
+  });
+});
+
+describe('Administration sub-groups', () => {
+  it('has three groups in order, from one list', () => {
+    expect(ADMIN_GROUPS.map((group) => group.label)).toEqual([
+      'People and organization',
+      'Master data',
+      'System',
+    ]);
+  });
+
+  it('puts every admin entry but the Overview in a group, each group’s entries together', () => {
+    expect(ADMIN_ENTRIES.filter((entry) => !entry.adminGroup).map((entry) => entry.href)).toEqual([
+      '/admin',
+    ]);
+    // The sidebar folds consecutive entries of one group: the groups must not interleave, and they
+    // follow ADMIN_GROUPS order.
+    const order = ADMIN_ENTRIES.flatMap((entry) => (entry.adminGroup ? [entry.adminGroup] : []));
+    const runs = order.filter((key, index) => key !== order[index - 1]);
+    expect(runs).toEqual(ADMIN_GROUPS.map((group) => group.key));
+  });
+
+  it('gives the System Administrator all three groups with their entries, Overview outside', () => {
+    const { ungrouped, groups } = visibleAdminGroups(systemAdministrator);
+    expect(ungrouped.map((entry) => entry.label)).toEqual(['Overview']);
+    expect(groups.map((group) => [group.label, group.entries.map((entry) => entry.label)])).toEqual(
+      [
+        ['People and organization', ['Users', 'User access', 'Departments', 'Positions']],
+        ['Master data', ['Clients', 'Products', 'Catalog items', 'Suppliers']],
+        ['System', ['Company settings', 'Audit log']],
+      ],
+    );
+  });
+
+  it('gives HR only People and organization', () => {
+    const { ungrouped, groups } = visibleAdminGroups(hr);
+    expect(ungrouped.map((entry) => entry.href)).toEqual(['/admin']);
+    expect(groups.map((group) => group.key)).toEqual(['people']);
+    expect(groups[0]?.entries.map((entry) => entry.href)).toEqual(HR_ADMIN_HREFS.slice(1));
+  });
+
+  it('gives a viewer with no admin entries no groups', () => {
+    for (const someone of [
+      newUser,
+      viewer({ roles: ['board'] }),
+      viewer({ roles: ['accounting'] }),
+    ]) {
+      expect(visibleAdminGroups(someone)).toEqual({ ungrouped: [], groups: [] });
+    }
+  });
+
+  it('groups only the entries it is given, dropping empty groups', () => {
+    const picked = ADMIN_ENTRIES.filter((entry) =>
+      ['/admin/clients', '/admin/audit'].includes(entry.href),
+    );
+    const { ungrouped, groups } = groupAdminEntries(picked);
+    expect(ungrouped).toEqual([]);
+    expect(groups.map((group) => [group.key, group.entries.map((entry) => entry.href)])).toEqual([
+      ['masterData', ['/admin/clients']],
+      ['system', ['/admin/audit']],
+    ]);
+  });
+
+  it('matches the sidebar’s Administration entries for each viewer', () => {
+    for (const someone of [hr, systemAdministrator]) {
+      const sidebar = visibleNavigation(someone).find((group) => group.label === 'Administration');
+      const { ungrouped, groups } = visibleAdminGroups(someone);
+      expect([...ungrouped, ...groups.flatMap((group) => group.entries)]).toEqual(sidebar?.entries);
     }
   });
 });

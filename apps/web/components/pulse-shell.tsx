@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import Link, { useLinkStatus } from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AppShell } from '@pulse/ui/components/app-shell';
-import type { ShellNavSection } from '@pulse/ui/components/sidebar';
+import type { ShellNavItemGroup, ShellNavSection } from '@pulse/ui/components/sidebar';
 import { COMMAND_BAR_SHORTCUT } from '@pulse/ui/components/command-bar';
 import { ShortcutHint } from '@pulse/ui/components/shortcut-hint';
 import { Button } from '@pulse/ui/components/button';
@@ -12,6 +12,8 @@ import { APP_NAME } from '@/lib/app';
 import { visibleNavigationAction } from '@/lib/actions/navigation';
 import {
   activeEntry,
+  ADMIN_GROUPS,
+  type AdminGroupKey,
   breadcrumbFor,
   documentTitleFor,
   isStatusBreadcrumb,
@@ -123,6 +125,12 @@ function useStatusDocumentTitle(breadcrumb: Breadcrumb) {
   }, [status]);
 }
 
+/** The sidebar group for an Administration sub-group key (docs/modules/core.md#administration-area). */
+function adminGroupFor(key: AdminGroupKey): ShellNavItemGroup {
+  const group = ADMIN_GROUPS.find((candidate) => candidate.key === key);
+  return { id: `admin-${key}`, label: group?.label ?? key };
+}
+
 function sectionsFor(
   groups: readonly NavGroup[],
   pathname: string,
@@ -142,6 +150,8 @@ function sectionsFor(
         keywords: [entry.description],
         icon: <entry.Icon strokeWidth={1.75} />,
         current: entry.href === current,
+        // The Administration sub-group; the sidebar folds it only when two or more are visible.
+        ...(entry.adminGroup ? { group: adminGroupFor(entry.adminGroup) } : {}),
         ...(entry.badge && count > 0
           ? { badge: count, badgeLabel: navBadgeLabel(entry.badge, count) }
           : {}),

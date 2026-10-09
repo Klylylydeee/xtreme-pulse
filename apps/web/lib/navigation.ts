@@ -37,6 +37,8 @@ export type NavEntry = {
   module?: ModuleKey;
   /** An admin page: listed only for users whose role opens this part of the admin area. */
   adminArea?: AdminAreaKind;
+  /** The admin sub-group the entry belongs to ({@link ADMIN_GROUPS}); none for the Overview. */
+  adminGroup?: AdminGroupKey;
   /**
    * A count shown after the label, computed on the server for the signed-in user
    * ({@link NavBadges}). Hidden when zero or unknown.
@@ -77,6 +79,42 @@ export type NavGroup = {
   label: string;
   entries: NavEntry[];
 };
+
+/** The Administration sub-groups, by key. */
+export type AdminGroupKey = 'people' | 'masterData' | 'system';
+
+/**
+ * The Administration sub-groups, in order: the sidebar's collapsible groups and the `/admin`
+ * overview's card groups both come from here, so they can't drift
+ * (docs/modules/core.md#administration-area). The Overview belongs to none.
+ */
+export const ADMIN_GROUPS: readonly { key: AdminGroupKey; label: string }[] = [
+  { key: 'people', label: 'People and organization' },
+  { key: 'masterData', label: 'Master data' },
+  { key: 'system', label: 'System' },
+];
+
+/** One Administration sub-group with the entries in it. */
+export type AdminNavGroup = { key: AdminGroupKey; label: string; entries: NavEntry[] };
+
+/**
+ * Splits admin entries into those outside any group (the Overview) and the sub-groups in
+ * {@link ADMIN_GROUPS} order, each with its entries in their own order. Built from the entries
+ * given, which are already filtered for the user, so a group with none is left out.
+ */
+export function groupAdminEntries(entries: readonly NavEntry[]): {
+  ungrouped: NavEntry[];
+  groups: AdminNavGroup[];
+} {
+  return {
+    ungrouped: entries.filter((entry) => !entry.adminGroup),
+    groups: ADMIN_GROUPS.map(({ key, label }) => ({
+      key,
+      label,
+      entries: entries.filter((entry) => entry.adminGroup === key),
+    })).filter((group) => group.entries.length > 0),
+  };
+}
 
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
@@ -161,6 +199,8 @@ export const MODULE_ENTRIES: NavEntry[] = [
  * the System Administrator open the first five; only the System Administrator opens the four master
  * data pages (step 1.8, docs/modules/core.md#managing-master-data), Company settings and the Audit
  * log. User access (step 1.7) sits after Users, with the count of users who still need access.
+ * Every entry but the Overview has an `adminGroup`, and each group's entries sit together in
+ * {@link ADMIN_GROUPS} order: the sidebar folds consecutive entries of one group together.
  */
 export const ADMIN_ENTRIES: NavEntry[] = [
   {
@@ -179,6 +219,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Logins, employee numbers, employment status and password resets',
     Icon: Users,
     adminArea: 'hrOrSystemAdministrator',
+    adminGroup: 'people',
   },
   {
     href: '/admin/access',
@@ -188,6 +229,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     // The reference design's icon (docs/DESIGN_SYSTEM.md#reference-designs).
     Icon: ShieldCheck,
     adminArea: 'hrOrSystemAdministrator',
+    adminGroup: 'people',
     badge: 'usersNeedingAccess',
   },
   {
@@ -197,6 +239,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Department codes, names and heads',
     Icon: Building2,
     adminArea: 'hrOrSystemAdministrator',
+    adminGroup: 'people',
   },
   {
     href: '/admin/positions',
@@ -205,6 +248,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Positions in each department and their timesheet type',
     Icon: BriefcaseBusiness,
     adminArea: 'hrOrSystemAdministrator',
+    adminGroup: 'people',
   },
   {
     href: '/admin/clients',
@@ -213,6 +257,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Client companies, with their sites and contacts',
     Icon: Contact,
     adminArea: 'systemAdministrator',
+    adminGroup: 'masterData',
   },
   {
     href: '/admin/products',
@@ -221,6 +266,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'The brands the company sells',
     Icon: Tag,
     adminArea: 'systemAdministrator',
+    adminGroup: 'masterData',
   },
   {
     href: '/admin/catalog-items',
@@ -229,6 +275,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Part numbers under each product, with their unit, kind and default warranty',
     Icon: Boxes,
     adminArea: 'systemAdministrator',
+    adminGroup: 'masterData',
   },
   {
     href: '/admin/suppliers',
@@ -237,6 +284,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Suppliers, their contacts and the products they supply',
     Icon: Truck,
     adminArea: 'systemAdministrator',
+    adminGroup: 'masterData',
   },
   {
     href: '/admin/settings',
@@ -245,6 +293,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Company details, logo, allowed email domains and upload limits',
     Icon: Settings,
     adminArea: 'systemAdministrator',
+    adminGroup: 'system',
   },
   {
     href: '/admin/audit',
@@ -253,6 +302,7 @@ export const ADMIN_ENTRIES: NavEntry[] = [
     description: 'Every change, reveal and password change, newest first',
     Icon: ScrollText,
     adminArea: 'systemAdministrator',
+    adminGroup: 'system',
   },
 ];
 
@@ -287,6 +337,14 @@ export function isEntryVisible(entry: NavEntry, viewer: NavigationViewer): boole
   if (entry.module) return atLeast(viewer.moduleAccess[entry.module], 'read');
   if (entry.adminArea) return viewer.canOpenAdminArea(entry.adminArea);
   return true;
+}
+
+/**
+ * The Administration entries `viewer` sees, split into the Overview and the sub-groups
+ * ({@link groupAdminEntries}): the `/admin` overview's card groups and the navigation tests.
+ */
+export function visibleAdminGroups(viewer: NavigationViewer): ReturnType<typeof groupAdminEntries> {
+  return groupAdminEntries(ADMIN_ENTRIES.filter((entry) => isEntryVisible(entry, viewer)));
 }
 
 /** Keeps the entries `keep` accepts, and drops any group left empty. */
