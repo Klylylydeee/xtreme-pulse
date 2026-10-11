@@ -1,13 +1,71 @@
 import type { Metadata } from 'next';
-import { ModulePlaceholder } from '@/components/module-placeholder';
+import { Suspense } from 'react';
+import { EMPLOYMENT_STATUSES, type EmploymentStatus } from '@pulse/core';
+import { type CurrentUser, listDirectoryDepartments } from '@pulse/core/server';
+import { listEmployeeRecords } from '@pulse/talent/server';
 import { requireModulePage } from '@/lib/auth';
+import { firstParam, type SearchParams } from '@/lib/keyset-paging';
+import { EmployeesLoading } from './employees-loading';
+import { EmployeesManager } from './employees-manager';
 
-export const metadata: Metadata = { title: 'Pulse Talent' };
+export const metadata: Metadata = { title: 'Employees' };
 
-// Spec: docs/modules/talent.md. Read access or higher (SECURITY.md#resolving-and-enforcing-build-step-16):
-// the guard runs first, before anything is read; without it the page answers HTTP 403 with the
-// no-access state. The module's data, once built, goes in an in-page <Suspense>.
-export default async function TalentPage() {
-  await requireModulePage('talent', 'read');
-  return <ModulePlaceholder href="/talent" />;
+const SEARCH_MAX_LENGTH = 100;
+
+function statusParam(value: string | undefined): EmploymentStatus | null {
+  return EMPLOYMENT_STATUSES.find((status) => status === value) ?? null;
+}
+
+// Spec: docs/modules/talent.md#the-employee-record-build-step-21 — the employee list (build step
+// 2.1, decision 168). Talent Read (SECURITY.md#resolving-and-enforcing-build-step-16): the guard
+// runs first, before anything that can suspend; the list loads inside the page's own boundary
+// (docs/CODE_STYLE.md#pages-server-actions-and-route-handlers), and loading errors go to the
+// (pulse) error boundary. The list comes from the employee record service, built from Core's
+// identities: no sensitive field, date of birth or civil status is ever in it. The filters live
+// in the URL (`?q=`, `?department=`, `?status=`, `?separated=1`), and `?employee=<employeeId>`
+// opens that record in the inspector (read on the client). The inspector loads each record
+// through a Server Action that checks Talent Read again, and the service builds each section only
+// for a viewer who may see it (SECURITY.md#sensitive-data). Nothing here is logged or cached.
+export default async function TalentPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const user = await requireModulePage('talent', 'read');
+  return (
+    <Suspense fallback={<EmployeesLoading />}>
+      <Employees user={user} searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function Employees({
+  user,
+  searchParams,
+}: {
+  user: CurrentUser;
+  searchParams: Promise<SearchParams>;
+}) {
+  const params = await searchParams;
+  const search = (firstParam(params, 'q') ?? '').trim().slice(0, SEARCH_MAX_LENGTH);
+  const departmentId = (firstParam(params, 'department') ?? '').trim() || null;
+  const status = statusParam(firstParam(params, 'status'));
+  const showSeparated = firstParam(params, 'separated') === '1';
+
+  const [list, departments] = await Promise.all([
+    listEmployeeRecords(user, { q: search, departmentId, status, separated: showSeparated }),
+    listDirectoryDepartments(),
+  ]);
+
+  return (
+    <EmployeesManager
+      rows={list.rows}
+      stats={list.stats}
+      departments={departments}
+      search={search}
+      departmentId={departmentId}
+      status={status}
+      showSeparated={showSeparated}
+    />
+  );
 }

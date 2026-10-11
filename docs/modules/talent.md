@@ -41,6 +41,52 @@ Much of this module is sensitive personal information. The [Sensitive data](../.
 - Store account numbers as strings (preserve leading zeros)
 - No bank upload file is generated; the account is shown on the payroll register so HR can credit salaries
 
+### The employee record (build step 2.1)
+
+Built in step 2.1. The record holds the five groups above. Documents, the profile photo and the e-signature are added in step 2.2, allowances in step 2.3 and the work schedule in step 2.4; until then the record shows each one as "Added in a later step". Who may see, reveal and change each part is in [Sensitive data](../../SECURITY.md#sensitive-data).
+
+**Where each field lives.** Talent never writes Core's `employees` or `users` ([Architecture rules](../ARCHITECTURE.md#architecture-rules)).
+
+| Fields | Owner | Stored in |
+|---|---|---|
+| Employee number, name, login email, department, position, `reportingTo`, employment status, date hired, separation date | Core | `employees`, `users`. Talent reads them through Core's identity service ([People data ownership](core.md#people-data-ownership)) and shows them read-only, marked "Managed in Users". HR and the System Administrator get an "Edit in Users" link to `/admin/users?q=<employee number>` |
+| Timesheet type | Core (the position) | Shown read-only from the position ([Timesheet types](#timesheet-types)) |
+| Personal: date of birth, sex, civil status, nationality, present and permanent address, mobile number, personal email, emergency contact (name, relationship, mobile number) | Talent | `employeeRecords` |
+| Employment: work region, contract end date, regularization date, separation remarks | Talent | `employeeRecords` |
+| Government IDs: TIN, RDO code, SSS, PhilHealth PIN, Pag-IBIG MID | Talent | `employeeRecords.governmentIds` |
+| Payroll bank account: bank, account number, account name | Talent | `employeeRecords.bankAccount` |
+| Compensation: basic salary, rate type, minimum wage earner flag, each with its effective date | Talent | `compensationEntries`, append-only |
+
+The fields, fixed sets and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership).
+
+- **One record per employee, created on the first save.** The employee list is built from Core's employees, so a new user appears in Pulse Talent straight away, with a "Not filled in" badge until someone saves a section. A salary change counts as a save only for viewers who may see the Compensation section; for anyone else the badge stays until another section is saved, so it never tells them a salary is stored ([Sensitive data](../../SECURITY.md#sensitive-data)). The first save creates the `employeeRecords` record in its transaction; two first saves at once can't make two (unique `employeeId`), and the second gets the stale-form message below.
+- **Never deleted.** Employee records and compensation entries stay forever, separated employees included ([Record retention](../COMPLIANCE.md#record-retention)). Nothing offers a delete, and the models refuse one.
+- **Derived, not stored.** The probation end date shows as the date hired + 6 months while the status is Probationary ([Probation & contract tracking](#probation--contract-tracking) adds the alerts in step 2.13). A Contractual employee with no contract end date shows a "Contract end date missing" flag.
+- **Work region** defaults to NCR. It is one of a fixed list of Philippine regions (`WORK_REGIONS`; the codes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership)). *Assumption, to be confirmed by HR or counsel:* the list is the 18 current regions, Negros Island Region included.
+- **Formats.** Government IDs and the bank account number are stored as digit strings, leading zeros kept, and shown formatted. *Assumption, to be confirmed by HR or counsel:*
+
+  | Field | Digits | Shown as |
+  |---|---|---|
+  | TIN | 9, 12 or 14 (no branch code, a 3-digit branch code, or BIR's 5-digit branch code) | `000-000-000`, `000-000-000-000`, `000-000-000-00000` |
+  | RDO code | 3 | `000` |
+  | SSS number | 10 | `00-0000000-0` |
+  | PhilHealth PIN | 12 | `00-000000000-0` |
+  | Pag-IBIG MID | 12 | `0000-0000-0000` |
+  | Bank account number (UnionBank or RCBC) | 10 to 16 | the digits as entered |
+  | Mobile numbers | 11, starting with `09` | `0917 123 4567` |
+
+- **Compensation is effective-dated and append-only.** Each salary change is a new compensation entry: effective date, basic salary in centavos, rate type (monthly-rated or daily-rated: for a daily-rated employee the amount is the daily rate), the minimum wage earner flag and a required reason. An entry is never edited or deleted. The **current** entry is the latest one whose effective date is today or earlier in Manila; a later effective date shows as "Scheduled". To correct a mistake, add a new entry with the **same effective date** and a reason: the newer entry (by creation time) wins that date, and the old one stays in the history marked "Superseded". The effective date is on or after the date hired and at most one year ahead. The salary is entered in pesos with up to 2 decimals, converted to centavos without floating point, and must be more than zero ([Money](../DATA_MODEL.md#money)). The minimum wage warning comes in step 2.3 ([Minimum wage check](#minimum-wage-check)).
+- **Editing.** Each section (Personal, Employment, Government IDs, Payroll bank account) has its own Edit sheet, and Compensation has "Add salary change". Saving one section leaves the others unchanged. Each form sends back the record's `version` it loaded; if someone else saved first, the save is refused with "Someone else changed this record. Reload to see it." A save that changes nothing still raises the `version` and writes an `update` entry. "Add salary change" sends no `version`: it only ever adds an entry, so there is nothing to overwrite. A sensitive input is never filled in with the stored value: it starts empty with the hint "Ends in 1234", and leaving it empty keeps the stored value. A stored government ID or account number can be replaced but not cleared in step 2.1.
+- **Nobody edits their own record in Pulse Talent in step 2.1**, the System Administrator included. Employees change their own details through change requests in step 2.6 ([Self-service & record changes](#self-service--record-changes)). Supervisors in `reportingTo` editing a record also comes with step 2.6. Until then, editing needs Talent Write.
+- **Audit.** Record type `talent.employeeRecord`, labelled `<employee number> · <first name> <last name>`: the first save is a `create` entry, later saves are `update` entries with both sides snapshotted (`snapshotsForAudit`), so a changed sensitive value shows only as "Hidden (sensitive), changed". Record type `talent.compensationEntry`, labelled `<employee number> · <effective date YYYY-MM-DD>`: one `create` entry per entry. Reveals are `reveal` entries on these record types, module `talent` ([Audit logging](../../SECURITY.md#audit-logging)). Nothing in step 2.1 sends a notification.
+
+**Screens.**
+
+- **`/talent`, the employee list** (Talent Read). Page title "Employees". Stat tiles count active employees by employment status. A data table on a desktop and a list of cards on a phone: Avatar initials, name, employee number, department, position, employment status and date hired. No sensitive field, date of birth or civil status ever appears in the list. Search by name or employee number, and filter by department and employment status; separated employees are hidden unless "Show separated" is on. Sorted by last name, then first name, with no paging. The URL keeps `?q=`, `?department=`, `?status=`, `?separated=1` and `?employee=<employeeId>`, which opens that record in the inspector.
+- **The inspector** (a full-height sheet on a phone) shows the record in inset grouped sections: Personal, Employment, Compensation (current salary, rate type, minimum wage earner flag and the history), Government IDs and Payroll bank account. A section the viewer may not see isn't sent at all; the record shows one line instead: "Pay, government IDs and bank details are visible to HR, Accounting and the System Administrator." Sensitive values use the masked field: government IDs and the account number show their last 4 digits, and salary amounts show `••••` with no digits, until revealed.
+- **Manage access.** HR and the System Administrator see a "Manage access" action on an active employee's record. It links to the employee's sheet on the User access page (`/admin/access?user=<userId>`), which keeps its own checks ([User access page](core.md#user-access-page)). It shows on their own record too, where the access page opens that row read-only and says why.
+- **`/talent/me`, the employee's own record** (self-service, outside module access). Every signed-in user with an employee record opens it from "My record" in the Pulse Core sidebar group, with no Pulse Talent access needed. It shows the same sections, read-only, with Reveal on the employee's own sensitive values (each reveal is audit-logged). The bootstrap system account has no employee record, so it doesn't get the entry, and the page shows an empty state.
+
 ### Documents (201 file)
 - Employment contract, regularization evaluations, government ID copies, NBI clearance, medical certificate, diplomas/TOR, and other HR documents
 - Each document: type, file (in [file storage](../ARCHITECTURE.md#file-storage)), issue date, expiry date (if applicable), uploaded by

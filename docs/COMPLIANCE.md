@@ -11,6 +11,8 @@ The Philippine legal and regulatory obligations Xtreme Pulse implements. Each ro
 | Treat salary, allowances, payslips, government IDs, bank accounts, medical certificates, 201 files and disciplinary cases as sensitive personal information: encrypted, access-limited, masked, reveals audit-logged | [Sensitive data](../SECURITY.md#sensitive-data) |
 | Keep sensitive files private: never publicly reachable, opened only after an access check | [Sensitive data](../SECURITY.md#sensitive-data), [File storage](ARCHITECTURE.md#file-storage) |
 | Never send raw sensitive fields to analytics or dashboards | [Sensitive data](../SECURITY.md#sensitive-data), [Who sees what](modules/insight.md#who-sees-what) |
+| Limit who sees an employee's date of birth and civil status (age and marital status are sensitive personal information under RA 10173 Section 3(l)) to HR, Accounting, the System Administrator and the employee, without encrypting them. *Assumption, to be confirmed by HR or counsel* (build step 2.1) | [Sensitive data](../SECURITY.md#sensitive-data), [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+| Store government IDs and bank account numbers in the formats the agencies and banks issue (TIN 9, 12 or 14 digits; SSS 10; PhilHealth PIN 12; Pag-IBIG MID 12; UnionBank and RCBC account numbers 10 to 16 digits). *Assumption, to be confirmed by HR or counsel* (build step 2.1) | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
 | Pay can't be worked out from the ledger or project costs | [Chart of accounts and ledger](modules/fiscal.md#chart-of-accounts-and-ledger), [Project costs](modules/ops.md#project-costs) |
 
 ## Record retention
@@ -79,6 +81,7 @@ Pulse must not issue system-generated invoices or keep computerized books until 
 
 | Needed | Before | Source |
 |---|---|---|
+| Confirmation of the government ID and bank account number formats, and of the date of birth and civil status handling, assumed in build step 2.1 ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check)) | Before HR enters real records | HR, counsel, UnionBank and RCBC |
 | SSS, PhilHealth and Pag-IBIG upload file specifications | Build step 2.11 | Each agency |
 | BIR alphalist format | Build step 2.12 | BIR |
 | BIR data file formats for VAT and withholding reports | Build step 5.12 | BIR |

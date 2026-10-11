@@ -2,8 +2,12 @@ import type { AuditModule } from '../../audit';
 
 // Which sensitive fields can be revealed, and how (SECURITY.md#sensitive-data). The module that
 // owns a record with sensitive fields registers each one it lets users reveal, with its category,
-// when its service module loads. `revealSensitiveField` refuses any record type or field that
-// isn't registered, so a reveal can only reach what a module chose to expose.
+// through an explicit `register<Module>SensitiveReveals()` function (for example
+// `registerTalentSensitiveReveals()` in `@pulse/talent/server`, build step 2.1), never an import
+// side effect. The reveal Server Action calls each module's registration before
+// `revealSensitiveField` (docs/ARCHITECTURE.md#modules-and-packages). `revealSensitiveField`
+// refuses any record type or field that isn't registered, so a reveal can only reach what a module
+// chose to expose, and a missed call refuses the reveal, never lets one through.
 
 /** The kinds of sensitive data the reveal rules talk about (SECURITY.md#sensitive-data). */
 export const SENSITIVE_CATEGORIES = [

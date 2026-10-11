@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests) and the [holiday calendar tests](#holiday-calendar-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and the [employee record tests](#employee-record-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests) and [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests), [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and [Employee record tests](#employee-record-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,7 +16,7 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation).
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation); and from build step 2.1, the employee record suites (the Core identity service, the employee record and compensation models and services, section visibility, who may change what, the Talent reveals, the formats and the My record navigation).
 
 ## Sensitive-data guard tests
 
@@ -164,6 +164,69 @@ Added in build step 1.11. The directory is open to everyone, so a field that sli
   - **Home ([Home](modules/core.md#home)).** The team tile's service returns the user's active supervisors and active direct reports only, and nothing for the system account; the oldest waiting approval helper returns the oldest submit date among the requests waiting for the user, and none when nothing waits. The greeting follows the Manila hour (changing at 12:00 and 18:00) with no name for the system account, "Oldest submitted N days ago" counts Manila calendar days, and the holidays window runs from today through 60 days ahead.
   - **Navigation (`navigation.test.ts`).** Directory and Org chart sit after Holidays for every signed-in user, with the breadcrumbs "Pulse Core › Directory" and "Pulse Core › Org chart".
 
+## Employee record tests
+
+Added in build step 2.1. A record's sensitive data looks the same on screen whether it reached the browser masked or not at all, so these tests check what the server sends. A Talent Write user given a last 4, HR changing a colleague's pay, a salary entry edited in place, or a reveal returned without its audit entry would all go unseen in a browser check. They use the framework, database setup and rules of the guard tests above (Vitest, a throwaway `mongodb-memory-server` replica set, one database per file, made-up data only, never a real ID or account number).
+
+- **Where.** Next to the code they test, as `*.test.ts`:
+  - `packages/core/src/server/employees/identity.test.ts`: the identity service
+  - `packages/talent/src/validation.test.ts`: the formats and form schemas
+  - In `packages/talent/src/server/`: `employee-records/employee-records.test.ts` (the record, its sections and edits), `compensation/compensation.test.ts`, and `sensitive/reveal.test.ts` (the Talent reveals)
+  - New cases in `apps/web/lib/navigation.test.ts`
+- **What they cover.**
+  - **The identity service ([People data ownership](modules/core.md#people-data-ownership)).**
+    - Talent Read gets identities; someone with Talent None gets only their own; anyone else is refused.
+    - Separated employees appear only when asked, with Talent Read. The system account never appears.
+    - The result has exactly the listed keys.
+  - **Storage ([The employee record](modules/talent.md#the-employee-record-build-step-21)).**
+    - The TIN, SSS, PhilHealth, Pag-IBIG, account number and salary are stored as binary subtype 6, and a plain value is refused by the model and by the collection's validator.
+    - The first save creates one record; two first saves at once leave one.
+    - A stale `version` is refused and changes nothing.
+    - Every write that could delete or replace a record is refused: `deleteOne`, `deleteMany`, `findOneAndDelete`, `replaceOne`, `findOneAndReplace`, `updateMany`, a `bulkWrite` with anything but inserts, `$out`, and `save()` or `deleteOne()` on a loaded record.
+    - An empty ID or account number keeps the stored one, and a given one replaces it. The first bank account save needs an account number.
+  - **Compensation.**
+    - Entries are insert-only. These are refused: `updateOne`, `updateMany`, `findOneAndUpdate`, `findByIdAndUpdate`, `replaceOne`, `findOneAndReplace`, `deleteOne`, `deleteMany`, `findOneAndDelete`, a `bulkWrite` with anything but inserts, `$merge`, and `save()` or `deleteOne()` on a loaded entry.
+    - The current entry is the latest effective date on or before today in Manila. A same-date correction wins and marks the old one superseded. A future entry is scheduled, not current.
+    - Centavos round-trip exactly.
+    - An effective date before the date hired or more than a year ahead is refused.
+  - **Section visibility (the step's "Done when").**
+    - The record view for a Talent Write (and Owner) user with no role has no Compensation, Government IDs or Bank account section, no date of birth or civil status, and none of the values' last 4 digits anywhere in the serialized result.
+    - HR's view has the TIN's last 4.
+    - Accounting's view matches HR's.
+    - A Board member's view has the three sections for an HR-department employee only, without the date of birth or civil status.
+    - The employee's own view (`/talent/me`) has everything.
+    - The salary is masked with no digits.
+    - The record and the list are refused without Talent Read, and the system account has no own view.
+    - The list has exactly the listed keys, with no sensitive field, date of birth or civil status.
+    - A salary entry alone counts as "filled in" only for viewers who may see Compensation (HR and Accounting). It never does for a Talent Write or Read user, or for a Board member outside HR.
+    - Manage access and Edit in Users are offered to HR and the System Administrator only.
+  - **Who may change what ([Sensitive data](../SECURITY.md#sensitive-data)).**
+    - HR and the System Administrator, with Talent Write, change IDs, bank and compensation for a non-HR employee.
+    - HR is refused for an HR-department employee, where the System Administrator and a Board member with Talent Write succeed.
+    - A Board member is refused for anyone outside HR.
+    - Accounting is always refused.
+    - A Talent Write user with no role changes personal and employment fields, but is refused for the sensitive sections and for the date of birth and civil status.
+    - Nobody changes their own record.
+    - A refused change writes nothing.
+    - The employee's department is read again on save: after a move into HR, HR is refused.
+    - The actor is read again inside the transaction. A session that still says Talent Write or HR is refused once the stored access is lowered or the actor has moved out of HR.
+  - **Audit.**
+    - One `create` entry on the first save and one `update` per later save, on `talent.employeeRecord` with the employee label, in the same transaction.
+    - Changed sensitive values show as hidden and changed.
+    - One `create` per compensation entry.
+    - The raw audit JSON never holds a plaintext value or its last 4.
+    - When the audit entry can't be written, the save writes nothing.
+  - **The Talent reveals.**
+    - HR reveals a TIN, and one `reveal` entry with module `talent` and `fields: ["tin"]` is written before the value returns.
+    - A Talent Write user with no role is refused and nothing is written.
+    - The Board on an HR-department record versus another.
+    - The employee on their own record.
+    - An unregistered field is refused.
+  - **Formats.** Each ID's accepted digit counts and display format, digits-only storage with leading zeros kept, and peso input to centavos without floating point.
+  - **Navigation (`navigation.test.ts`).**
+    - My record shows in the Pulse Core group for a user with an employee record, never for the system account, with the breadcrumb "Pulse Core › My record".
+    - The Talent item isn't current on `/talent/me`.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -175,7 +238,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests) and the [holiday calendar tests](#holiday-calendar-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and the [employee record tests](#employee-record-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts. The approvals engine's tests already run (see [Approvals tests](#approvals-tests)).

@@ -32,7 +32,7 @@ Each module owns its collections, and no module writes to another module's colle
 | Module | Owns |
 |---|---|
 | Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients (`clients`) with sites (`clientSites`) and contacts (`clientContacts`), products (`brands`), catalog items (`catalogItems`), suppliers (`suppliers`), holidays (`holidays`), approval requests (`approvalRequests`), notifications (`notifications`), audit log (`auditLogs`) |
-| Talent | Employee records (personal, employment, compensation history, government IDs, bank account), 201 documents, e-signatures, certifications, work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
+| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents, e-signatures, certifications, work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
 | Supply | Purchase requests, purchase orders (`purchaseOrders`), receiving records, stock movements, serial items (`serialItems`), stock locations, delivery receipts, RMAs |
@@ -41,6 +41,44 @@ Each module owns its collections, and no module writes to another module's colle
 | Insight | Targets, month-end snapshots |
 
 Core and Talent describe the same person under one `employeeId` (see [People data ownership](modules/core.md#people-data-ownership)). Two Core fields that sign-in depends on (build step 1.5): `employees.separationDate`, the separation date (the Manila day at 00:00, stored as UTC; null unless the employee is separated), and `users.sessionsValidFrom`, set by a password reset, before which no session counts (see [Account status](../SECURITY.md#account-status), [Sign-in and passwords](../SECURITY.md#sign-in-and-passwords)). From build step 1.6 the account also holds `users.moduleAccess`, a subdocument (no `_id`) with one key per module (`engage`, `ops`, `supply`, `desk`, `fiscal`, `talent`: `none`, `read`, `write` or `owner`; `insight`: `none` or `read`), each defaulting to `none`; a missing key or subdocument reads as `none` (see [Resolving and enforcing](../SECURITY.md#resolving-and-enforcing-build-step-16)). From build step 1.7 the account also holds `users.moduleAccessChangedAt` (a date) and `users.moduleAccessChangedBy` (the acting user's id), both null until the first access change on the [User access page](modules/core.md#user-access-page), which shows them as "Last changed", and `notifications` gains `dedupeKey`, an optional string of up to 200 characters, fixed once stored, with a unique index on `{ recipientUserId, dedupeKey }` only where a key is set, so one recipient never gets the same keyed notification twice (see [Notifications](modules/core.md#notifications)). The shared master data (build step 1.8, schemas in `packages/core`, see [ADR 0013](adr/0013-master-data-schemas-in-core.md)) links by id: `clientSites.clientId` and `clientContacts.clientId` to the client, `clients.accountManagerEmployeeId` to the owning Account Manager (optional), `catalogItems.brandId` to the product, and `suppliers.brandIds` to the products supplied. Supplier contacts are embedded in the supplier (at most 20), not a collection. Seeded products carry a stable `seedKey`. Unique indexes, ignoring case (collation `en`, strength 2) and counting retired or removed records: `brands` name, `suppliers` name, `catalogItems` `{ brandId, partNumber }` and `clientSites` `{ clientId, name }`; a partial unique index allows one primary contact per client (`clientContacts` `{ clientId }` where the primary flag is set; removing a contact clears its flag). Client names and TINs aren't unique ([Managing master data](modules/core.md#managing-master-data)). The approvals engine (build step 1.9) keeps one `approvalRequests` record per submission, written only by the engine and never deleted (no soft delete): the type (`<module>.<name>`, registered), the module, the record it is about (`record.type`, `record.id`, `record.label`), title, summary, `href`, `requesterUserId`, `requesterEmployeeId`, `status` (`pending`, `approved`, `returned` or `rejected`), `currentStep`, `previousRequestId` (the returned or rejected request a resubmission follows), `submittedAt`, `settledAt`, `settledBy` and `version` (optimistic concurrency), and `steps`, each with its `kind` (`reportingTo`, `anyOf` or `allOf`), `label`, `rule` (`any` or `all`), `approvers` (`userId`, `nameSnapshot` and `asSystemAdministrator`, fixed at submit), `routedToSystemAdministrator`, `status` (`waiting`, `pending`, `approved`, `returned`, `rejected` or `skipped`) and `decisions` (`userId`, `decision`, `remarks`, `decidedAt`). Three denormalized arrays, kept by the engine, serve the lists: `pendingApproverIds` (who may decide now), `approverIds` (everyone asked, once their step became pending) and `decidedFor` (`userId`, `decidedAt`; one entry per approver per decision that ended their part in a step: the decider, and the approvers that decision took the item from), which drives the Decided list and its order (the user's latest `decidedAt`, then `_id`, newest first). Indexes: `{ pendingApproverIds, submittedAt }`, `{ decidedFor.userId }`, `{ record.type, record.id, submittedAt }`, `{ requesterUserId, submittedAt }`, and a partial unique index on `{ record.type, record.id }` where the status is `pending`, so a record has at most one pending request ([Approvals](modules/core.md#approvals)). The holiday calendar (build step 1.10) keeps one `holidays` record per holiday, with the base fields and soft delete (`deletedAt`): `name` (up to 100 characters), `date` (the Manila day at 00:00, stored as UTC, like `employees.separationDate`; it can change only within its year), `year` (derived from `date`, so fixed once created), `type` (`regular`, `specialNonWorking` or `specialWorking`), `scope` (`nationwide` or `local`), `location` (up to 100 characters, required when the scope is local, else null: saving a nationwide holiday clears it), `legalBasis` (up to 200 characters or null; required to confirm, and a confirmed holiday can't lose it), `status` (`draft` or `confirmed`), `source` (`manual`, `rule` or `online`, fixed once created), `sourceKey` (null, `rule:<key>` or `online:<YYYY-MM-DD>`, fixed once created), `declared` (true for an ad-hoc declaration), `confirmedAt` and `confirmedBy`. Indexes: `{ year, date }`, `{ status, date }`, and a partial unique index on `{ year, sourceKey }` where `sourceKey` is a string, deleted records included, so an auto-draft or online draft is never made twice ([Holiday calendar](modules/core.md#holiday-calendar)). The directory (build step 1.11) adds an index on `employees` `{ lastName, firstName, _id }` for its sort; it adds no collection or field ([Company directory](modules/core.md#company-directory)). The serial number links Supply, Ops and Desk records (see [Inventory](#inventory-pulse-supply)).
+
+**The Talent employee record** (build step 2.1, schemas in `packages/talent`; [The employee record](modules/talent.md#the-employee-record-build-step-21)). `employeeRecords` holds one record per employee, keyed by `employeeId` (Core's employee, fixed once created, with a **unique index**). It is created on the first Talent save and has the base fields and no soft delete: it is never deleted, and deletes and replacements are refused.
+
+- **Personal:**
+  - `dateOfBirth` (the Manila day at 00:00, stored as UTC)
+  - `sex` (`SEXES`: `male`, `female`)
+  - `civilStatus` (`CIVIL_STATUSES`: `single`, `married`, `widowed`, `separated`, `annulled`)
+  - `nationality` (up to 100 characters)
+  - `presentAddress` and `permanentAddress` (up to 500 characters each)
+  - `mobileNumber` (11 digits) and `personalEmail`
+  - `emergencyContact`, a subdocument with no `_id`: `name`, `relationship`, `mobileNumber`
+
+  Each is null until entered.
+- **Employment:**
+  - `workRegion` (`WORK_REGIONS`, default `NCR`). The values are `NCR`, `CAR`, `I`, `II`, `III`, `IV-A`, `MIMAROPA`, `V`, `VI`, `NIR`, `VII`, `VIII`, `IX`, `X`, `XI`, `XII`, `XIII` and `BARMM`. *Assumption, to be confirmed by HR or counsel.*
+  - `contractEndDate` and `regularizationDate` (Manila days, or null)
+  - `separationRemarks` (up to 1,000 characters, or null)
+- **`governmentIds`** (a nested object): `tin`, `sss`, `philhealth` and `pagibig`, each a `sensitiveField()` holding a digit string; and `rdoCode` (3 digits, plain, or null).
+- **`bankAccount`** (a nested object): `bank` (`PAYROLL_BANKS`: `unionbank`, `rcbc`), `accountNumber` (a `sensitiveField()` holding a digit string) and `accountName` (up to 200 characters, plain).
+- **`version`**: a number raised by every save, for the stale-form check.
+
+The collection has the `$jsonSchema` validator for its sensitive paths ([Sensitive data](../SECURITY.md#sensitive-data)).
+
+`compensationEntries` holds the append-only salary history:
+
+- **Fields:**
+  - `employeeId`
+  - `effectiveDate` (the Manila day at 00:00, stored as UTC)
+  - `basicSalaryCentavos` (a `sensitiveField()` holding a whole number of centavos)
+  - `rateType` (`RATE_TYPES`: `monthly`, `daily`)
+  - `minimumWageEarner` (true or false)
+  - `reason` (1 to 1,000 characters)
+  - the base fields
+- **Insert-only:** every update, replacement and delete is refused.
+- **Index:** `{ employeeId, effectiveDate: -1, createdAt: -1 }`.
+- **Current entry:** the latest effective date on or before today in Manila; on a tie, the latest created wins.
+
+The formats are in [The employee record](modules/talent.md#the-employee-record-build-step-21).
 
 ## Naming
 
@@ -95,11 +133,11 @@ Some records can't be edited once they reach a certain state. Corrections go thr
 - Posted journal entries: reversal entries ([Ledger](#ledger-pulse-fiscal))
 - Finalized payroll runs, and approved timesheets after the run: adjustments in the next cut-off ([Payroll run & payslips](modules/talent.md#payroll-run--payslips))
 - Closed accounting periods: postings in the current open period ([Chart of accounts and ledger](modules/fiscal.md#chart-of-accounts-and-ledger))
-- Salary and allowance history: new effective-dated entries ([Compensation](modules/talent.md#compensation))
+- Salary and allowance history: new effective-dated entries. From build step 2.1, `compensationEntries` are insert-only, and a correction is a new entry with the same effective date ([Compensation](modules/talent.md#compensation), [The employee record](modules/talent.md#the-employee-record-build-step-21))
 - Sent quotations and BOQ versions: a new revision or version ([Quotations](modules/engage.md#quotations), [Presales and BOQ](modules/engage.md#presales-and-boq))
 - Audit log entries: never changed or deleted ([Audit log](modules/core.md#audit-log))
 - Notifications: never deleted; only `readAt` changes, when the recipient marks one read (`dedupeKey` is fixed once stored) ([Notifications](modules/core.md#notifications))
-- Employee records: never deleted ([Record retention](COMPLIANCE.md#record-retention))
+- Employee records: never deleted. That covers Core's `employees` and, from build step 2.1, Talent's `employeeRecords` ([Record retention](COMPLIANCE.md#record-retention))
 
 ## Retention
 

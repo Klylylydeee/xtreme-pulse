@@ -45,6 +45,9 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Board, Board of Directors | Managing Director, Sales Director, Operations Director and Strategic Director |
 | Self-service | What every active user can do for themselves without module access ([Exceptions to module access](../SECURITY.md#exceptions-to-module-access)) |
 | Employee number, company ID | `YYYY-NN`, for example `2027-01` ([Employee number](modules/core.md#employee-number-company-id)) |
+| Employee record | Pulse Talent's record of one employee (personal, employment, compensation, government IDs, payroll bank account), beside Core's identity under the same `employeeId` ([The employee record](modules/talent.md#the-employee-record-build-step-21)) |
+| My record | The employee's own record at `/talent/me`, read-only self-service open to every user with an employee record ([The employee record](modules/talent.md#the-employee-record-build-step-21)) |
+| Reveal | Pressing a masked field's Reveal to see the full sensitive value; access-checked and audit-logged ([Sensitive data](../SECURITY.md#sensitive-data)) |
 
 ## HR and payroll
 
@@ -75,6 +78,9 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Pag-IBIG, HDMF, MID | Home Development Mutual Fund; its Membership ID number. Not the POS merchant ID, which is also called MID |
 | TIN, RDO | Tax Identification Number; Revenue District Office |
 | Minimum wage earner | An employee paid the regional minimum wage, exempt from income tax |
+| Compensation entry | One effective-dated salary change (basic salary, rate type, minimum wage earner flag, reason). Entries are never edited; a correction is a new entry with the same effective date ([The employee record](modules/talent.md#the-employee-record-build-step-21)) |
+| Monthly-rated, daily-rated | The rate type: whether the basic salary is a monthly amount or a daily rate ([Compensation](modules/talent.md#compensation)) |
+| Work region | The region whose minimum wage applies to the employee, NCR by default ([Employment](modules/talent.md#employment)) |
 
 ## Sales, projects and supply
 

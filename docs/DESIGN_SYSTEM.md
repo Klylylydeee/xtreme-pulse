@@ -68,6 +68,11 @@ The app uses the **Cobalt** palette: a saturated cobalt accent with a violet cas
 - **Directory and inspector** (build step 1.11). The directory is a data table on desktop and a list on a phone, each row an Avatar with the name, then the employee number, position, department and email. The directory card opens in the inspector panel; reporting lines are edited inline there, not in a sheet ([Company directory](modules/core.md#company-directory)).
 - **Org chart** (build step 1.11). Person cards (Avatar, name, position, department) on `surface` with the card radius, joined by hairline `separator` lines drawn in one SVG layer hidden from assistive technology, one line per supervisor. The chart sits in one scrollable region with zoom out, zoom in and Fit icon buttons (44×44px); the page never scrolls sideways. A search match gets an `accent` ring and the label "Match", and the other cards dim, so color is never the only signal. Zooming and scrolling to a match don't animate with reduced motion ([Org chart](modules/core.md#org-chart)).
 - **Home tiles** (build step 1.11). Under the hero, a grid of one column on a phone, two on a tablet and three on a desktop. Each tile is a `surface` card with a tinted icon tile, a Headline title, a Display-size count in tabular numerals where it has one, and one link; each has its own skeleton, its own zero state and its own error state, so one failing tile never blanks Home ([Home](modules/core.md#home)).
+- **Employee record** (build step 2.1). The employee list follows the directory's pattern: a data table on a desktop, cards on a phone, an Avatar with the name, and the record in the inspector panel (a full-height sheet on a phone). Above it, stat tiles count employees by status.
+  - **Sections.** The inspector holds inset grouped sections, each with an Edit action that opens a sheet; Save is ⌘S or Ctrl+S. Core's fields carry a "Managed in Users" footnote.
+  - **Masked values.** Sensitive values use the Masked field: the last 4 digits for IDs and account numbers, and `••••` with no digits for amounts. A section the viewer can't see is replaced by one `text-secondary` line on the card, never an empty or locked field.
+  - **Sensitive inputs.** In a sheet they start empty, with the hint "Ends in 1234" in `text-secondary`.
+  - **Compensation history.** A list, newest first, with "Scheduled" and "Superseded" badges that carry text, so color is never the only signal ([The employee record](modules/talent.md#the-employee-record-build-step-21)).
 
 ## Advanced look (approved direction)
 
@@ -131,7 +136,7 @@ Build these once in `packages/ui` (build steps 0.3, 0.4 and 0.8) and reuse them 
 | Chart wrapper | Recharts charts; requires an accessible name |
 | Destructive confirm dialog | Delete, cancel and void actions |
 | Shortcut hint | Key hints such as ⌘↵ / Ctrl+Enter, shown for the user's platform |
-| Masked field | Sensitive values, last 4 digits until revealed (see [Sensitive data](../SECURITY.md#sensitive-data)) |
+| Masked field | Sensitive values, last 4 digits until revealed; from build step 2.1, amounts show no digits (see [Sensitive data](../SECURITY.md#sensitive-data)) |
 | Loading, empty and error states | Skeletons, designed empty states and error messages on every screen |
 
 ## Checking a screen

@@ -1,1 +1,10 @@
-export {};
+// Pulse Talent's pure code (docs/ARCHITECTURE.md#modules-and-packages): fixed sets, form schemas
+// and formatters, safe in the browser. Models, services and registrations are server-only, in
+// `@pulse/talent/server`.
+
+export * from './fixed-sets';
+export * from './formats';
+export * from './validation';
+export * from './compensation';
+export * from './views';
+export * from './derived';

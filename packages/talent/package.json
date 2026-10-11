@@ -4,9 +4,24 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/index.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pulse/core": "workspace:*",
+    "@pulse/db": "workspace:*",
+    "mongoose": "9.10.2",
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "6.0.3"
   }
 }

@@ -3,10 +3,12 @@ import { ActionError } from '../../actions';
 import { DepartmentModel } from '../departments/model';
 import type { OrgStructureActor } from '../departments/service';
 import { EmployeeModel } from '../employees/model';
+import type { ModuleAccess } from '../../module-access';
 import { toObjectId } from '../paging';
 import { UserModel } from '../users/model';
 import { resolveAccountStatus } from './account-status';
-import { departmentRolesFor } from './roles';
+import { resolveModuleAccess } from './module-access';
+import { type DepartmentRole, departmentRolesFor } from './roles';
 
 // Spec: SECURITY.md#account-status and SECURITY.md#system-administrator — there is always at least
 // one active System Administrator (the never-zero rule), and a change made in a transaction is
@@ -19,13 +21,14 @@ const LAST_ADMINISTRATOR =
   'This would leave no active System Administrator. Keep another System Administrator active first.';
 
 /** The actor's account in the transaction, or a refusal when it is gone or no longer active. */
-async function activeActorAccount(actor: OrgStructureActor, session: ClientSession) {
+async function activeActorAccount(actor: { id: string }, session: ClientSession) {
   const actorUser = await UserModel.findById(toObjectId(actor.id), {
     email: 1,
     employeeId: 1,
     isSystemAdministrator: 1,
     isSystemAccount: 1,
     systemAccountDisabled: 1,
+    moduleAccess: 1,
   })
     .session(session)
     .lean();
@@ -49,6 +52,33 @@ export async function reloadActor(
   actor: OrgStructureActor,
   session: ClientSession,
 ): Promise<OrgStructureActor> {
+  const { id, email, isSystemAdministrator, roles } = await reloadActorAccess(actor, session);
+  return { id, email, isSystemAdministrator, roles };
+}
+
+/** The actor as {@link reloadActorAccess} finds them: a `CurrentUser`'s access fields, as now. */
+export interface ReloadedActor {
+  id: string;
+  email: string;
+  isSystemAdministrator: boolean;
+  /** HR, Accounting and Board, from the employee's current department. */
+  roles: DepartmentRole[];
+  /** Null for the bootstrap system account. */
+  employee: { id: string; departmentCode: string | null } | null;
+  /** The effective access, as `CurrentUser.moduleAccess` resolves it. */
+  moduleAccess: ModuleAccess;
+}
+
+/**
+ * Loads the actor again inside the transaction, like {@link reloadActor}, with their employee and
+ * effective module access too: for a module service that re-checks module access and the
+ * department roles in its own transaction (the Talent employee record, build step 2.1). Refuses
+ * when the account is gone or no longer active.
+ */
+export async function reloadActorAccess(
+  actor: { id: string },
+  session: ClientSession,
+): Promise<ReloadedActor> {
   const { user, employee } = await activeActorAccount(actor, session);
   let departmentCode: string | null = null;
   if (!user.isSystemAccount && employee) {
@@ -67,6 +97,9 @@ export async function reloadActor(
     email: user.email,
     isSystemAdministrator: user.isSystemAdministrator,
     roles: user.isSystemAccount ? [] : departmentRolesFor(departmentCode),
+    employee:
+      !user.isSystemAccount && employee ? { id: employee._id.toHexString(), departmentCode } : null,
+    moduleAccess: resolveModuleAccess(user),
   };
 }
 

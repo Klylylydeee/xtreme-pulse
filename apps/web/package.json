@@ -13,6 +13,7 @@
     "@next/env": "16.3.6",
     "@pulse/core": "workspace:*",
     "@pulse/db": "workspace:*",
+    "@pulse/talent": "workspace:*",
     "@pulse/ui": "workspace:*",
     "lucide-react": "1.48.0",
     "next": "16.3.6",

@@ -27,7 +27,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 
 ## Branches and commits
 
-`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`) and step 1.10 (`5f283bb`) are committed but **not pushed** (`phase-1` is 3 commits ahead). Step 1.11 is built and verified but **not committed** (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
+`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`), step 1.10 (`5f283bb`) and step 1.11 (`2d2d3ca`) are committed but **not pushed** (`phase-1` is 4 commits ahead). Phase 2 continues on `phase-1`: step 2.1 is built and verified in the working tree, not committed (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
 
 | Branch | Commit | What |
 |---|---|---|
@@ -47,6 +47,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 | | `89296fb` | Administration sidebar sub-groups (2026-10-09). Not pushed |
 | | `42e64f1` | Step 1.9 approvals engine (2026-10-11). Not pushed |
 | | `5f283bb` | Step 1.10 holiday calendar (2026-10-12). Not pushed |
+| | `2d2d3ca` | Step 1.11 directory, org chart, command bar and Home tiles (2026-10-12). Not pushed |
 
 ## Step 1.2 follow-up (committed as `8cddb26`)
 
@@ -116,7 +117,7 @@ Committed on `phase-1` as `2b7c959`. The dev-origins fix followed as `823a8d2`.
 | 1.8 Shared master data services | Done, verified, **committed** on `phase-1` as "feat(core,web): step 1.8 shared master data" and pushed (2026-10-08). Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls. See [1.8 build status](#18-build-status-2026-10-08) |
 | 1.9 Approvals engine | Done, **committed as `42e64f1`** on `phase-1` (2026-10-11), not pushed. Built per BUILD_PLAN decisions 99–110 |
 | 1.10 Holiday calendar | Done, **committed as `5f283bb`** on `phase-1` (2026-10-12), not pushed. Built per BUILD_PLAN decisions 111–132 |
-| 1.11 Directory, org chart, command bar and Home tiles | Built and verified (2026-10-12), **not committed**. Built per BUILD_PLAN decisions 133–153. Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass. **Open:** the user's hands-on checks in the browser, then the Phase 1 check. See [1.11 build](#111-build-2026-10-12) |
+| 1.11 Directory, org chart, command bar and Home tiles | Done, **committed as `2d2d3ca`** on `phase-1` (2026-10-12), not pushed. Built per BUILD_PLAN decisions 133–153. Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass. **Open:** the user's hands-on checks in the browser, then the Phase 1 check. See [1.11 build](#111-build-2026-10-12) |
 
 ### 1.1 notes
 
@@ -433,6 +434,76 @@ Committed as `be19cda` "feat(core,ui,web,worker): step 1.7 user access" on `phas
 
 - **Browser check by a person.** Agents couldn't sign in, so this is still to do: light and dark appearance, phone width, the sheet's dialogs, and the full "Done when" flow (HR sets Talent Write for a user → Talent shows in that user's sidebar → `/admin/audit` shows None → Write → HR's own row is read-only).
 
+## Phase 2 status
+
+Phase 2 (Pulse Talent) started on 2026-10-12. The user asked for it to be built fully autonomously: the agents' plan recommendations are approved as written, and each assumption that a person still has to confirm goes in [Assumptions to check](#assumptions-to-check).
+
+| Step | Status |
+|---|---|
+| 2.1 Employee record and sensitive fields | **Built and verified (2026-10-12), not committed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in), then ask before committing |
+
+### 2.1 notes
+
+- **Done when** now reads "HR reveals a masked TIN, the System Administrator finds HR's reveal in `/admin/audit`, and a Talent Write user sees none of the sensitive fields". HR can't browse the audit log (decision 154).
+- **Build order:**
+  1. In parallel: the Core identity service and the `guardWrites` export; and the `packages/talent` scaffold, models and pure schemas.
+  2. The Talent services and reveal registrations.
+  3. In parallel: the web pages and actions; and the tests.
+  4. Verification.
+- **Spec:** [The employee record](modules/talent.md#the-employee-record-build-step-21), [Sensitive data](../SECURITY.md#sensitive-data), [People data ownership](modules/core.md#people-data-ownership), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership), [Employee record tests](TESTING.md#employee-record-tests).
+
+### 2.1 review (2026-10-12)
+
+An independent review traced every service return, action return, page prop, error message, audit snapshot and log line for plaintext sensitive values and last 4 digits. It found no leak of a value or its last 4. Confirmed as built:
+
+- **Encryption.** The TIN, SSS, PhilHealth, Pag-IBIG, account number and salary are `sensitiveField()`s, stored as subtype 6. The `$jsonSchema` validator is installed with the indexes. Indexes hold no sensitive path, and nothing passes `bypassDocumentValidation` or `middleware`.
+- **The access matrix** in `policy.ts` matches decisions 158–162: the sensitive-change rule, date of birth and civil status, the Board's limits, Accounting never, never one's own. Every save reloads the actor (`reloadActorAccess`) and the employee inside its transaction and checks again.
+- **The reveals** map each field to its stored path. The subject comes from Core, and the audit entry is written before decrypting.
+- **Append-only.** `guardWrites` refuses every update, replace and delete path on compensation entries, and every delete and replace path on records.
+- **Money** is parsed with BigInt and shown with `formatPeso`, with no floats.
+- **Talent writes no Core collection.** The test fixtures write Core's models by name, in tests only.
+- **`/talent/me`** reads no request parameter. The Talent item isn't current there.
+
+Fixed in the review, each with a test:
+
+1. **The "Not filled in" badge told any Talent reader that a salary was stored** (`employee-records/service.ts`, `filledInSet` and `buildView`). An employee with only a compensation entry showed as filled in to a Talent Write or Read user, or a Board member outside HR: a "has a value" flag, against [Sensitive data](../SECURITY.md#sensitive-data). Now a compensation entry counts only for viewers who may see Compensation. talent.md says so.
+2. **The actor's in-transaction re-check had no test.** Added one: a stale session (Talent Write lowered to Read, or HR moved out of HR) is refused and writes nothing.
+3. **`/talent/me` jumped from the h1 to the sections' h3s.** The employee's name is now an h2.
+
+Also added tests for the remaining append-only write paths (`findOneAndReplace`, `findByIdAndUpdate`, `$merge`, `bulkWrite` deletes, `updateMany`, `$out`, `save()` on a loaded record). TESTING.md and talent.md now match the code.
+
+Judged and left as built:
+
+- **A save that changes nothing** still raises the `version` and writes an `update` entry. The spec says later saves are `update` entries, and the 1.4 and 1.8 services do the same. Only the access setter (1.7) and reporting lines (1.11) say "a save that changes nothing writes nothing". It doesn't contradict the spec; talent.md now says it. Listed in [Assumptions to check](#assumptions-to-check).
+- **A refused save can create the field-encryption data key.** Values are encrypted after the pre-check and before the transaction, so a save refused inside the transaction can still create the shared `sensitiveFields` data key on first use. Accepted: the key holds no personal data, and it's created on the first permitted save anyway.
+- **"Manage access" and "Edit in Users" show on your own record** for HR and the System Administrator. Accepted: both pages open your own row read-only and say why (decision 169 doesn't exclude it). talent.md says so.
+
+### 2.1 hands-on checks (by the user, signed in)
+
+Set up as in [Assumptions to check](#assumptions-to-check) item 5. Then:
+
+1. **The "Done when".** As HR with Talent Read: open `/talent`, open a filled-in employee outside HR, and reveal the masked TIN. As the System Administrator: find HR's `reveal` entry in `/admin/audit` (module `talent`, record `<number> · <name>`, field `tin`, and no value). As the Talent Write user outside HR, Accounting and the Board: open the same record. It shows no Compensation, Government IDs or bank account section, no date of birth or civil status, only the "Pay, government IDs and bank details are visible…" line.
+2. **The Reveal audit.** Reveal a salary and a bank account number, and check that each adds one `reveal` entry. Hide, then reveal again: that adds a second entry.
+3. **Editing.** Save each sheet. Add a salary change, then a same-date correction (the old one shows "Superseded"). Open one sheet in two tabs, save both, and check that the second gets "Someone else changed this record. Reload to see it." As HR, open an HR colleague: their IDs, bank and salary have no Edit action.
+4. **⌘S (Ctrl+S on Windows)** saves each open sheet, and Escape closes it.
+5. **`/talent/me`** as an ordinary user with no Talent access: "My record" sits after Org chart, the Talent item isn't highlighted, the record is read-only, and Reveal works on your own values. As the bootstrap system account: no "My record" entry, and the page shows the empty state.
+6. **Light and dark, and phone width (about 390 px):** the list becomes cards, the inspector becomes a full-height sheet, and the edit sheets and masked fields fit with no sideways scroll.
+
+## Assumptions to check
+
+Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
+
+| # | Assumption or action | Step | Who confirms | Where it lives |
+|---|---|---|---|---|
+| 1 | **Date of birth and civil status** (RA 10173 Section 3(l): age and marital status are sensitive personal information). They are limited to HR, Accounting, the System Administrator and the employee, kept out of the list, and not encrypted. They appear in audit snapshots, which only the System Administrator can browse. Confirm this is enough, or whether they must be encrypted too. *Assumption, to be confirmed by HR or counsel* | 2.1 | HR, counsel | [Sensitive data](../SECURITY.md#sensitive-data), [COMPLIANCE.md](COMPLIANCE.md#data-privacy-act-of-2012-ra-10173) |
+| 2 | **ID and account formats.** The app assumes these, all stored as digits. *Assumption, to be confirmed by HR or counsel.*<ul><li>TIN: 9, 12 or 14 digits (BIR's 5-digit branch code)</li><li>SSS: 10 digits</li><li>PhilHealth PIN: 12 digits</li><li>Pag-IBIG MID: 12 digits</li><li>UnionBank and RCBC account numbers: 10 to 16 digits</li><li>Mobile numbers: 11 digits starting with `09`</li><li>Work region: one of 18 regions, NIR included</li></ul> | 2.1 | HR, the banks | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+| 3 | **Key rotation tooling.** Nothing re-wraps the data keys for a new `FIELD_ENCRYPTION_LOCAL_KEY` yet. Decide whether to build a tool before go-live, and how often to rotate | 2.1 | The project owner | [DEPLOYMENT › Still to decide](DEPLOYMENT.md#still-to-decide) |
+| 4 | **Production `FIELD_ENCRYPTION_LOCAL_KEY`.** Generate it on the real server before any real employee data is entered, and keep an offline copy outside the server. Never put real data in a development database or under a development key | Before real data | The project owner | [Secrets](../SECURITY.md#secrets), [Runbook](RUNBOOK.md#encryption-key-lost-or-changed) |
+| 5 | **Browser-check setup for 2.1.** A role grants no module access, so on `/admin/access`:<ul><li>give the HR test user Talent Read or Write</li><li>create a user outside HR, Accounting and the Board with Talent Write, for the "sees none of the sensitive fields" check</li></ul>Then check the reveal in `/admin/audit` as the System Administrator | 2.1 | The user | [User access page](modules/core.md#user-access-page) |
+| 6 | **A save that changes nothing** still raises the record's `version` and writes an `update` audit entry, as the 1.4 and 1.8 services do. Confirm that, or say whether it should write nothing, as the access setter and reporting lines do | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+| 7 | **"Not filled in" and salary entries.** An employee with only a salary entry shows "Not filled in" to anyone who may not see Compensation (Talent Write or Read alone, or the Board outside HR), so the badge never says a salary is stored. Confirm that is acceptable | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+| 8 | **"Manage access" and "Edit in Users" on your own record.** HR and the System Administrator see both on their own record. The access and users pages open that row read-only | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+
 ## Open items for later steps
 
 | Item | When |
@@ -485,9 +556,10 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
 11. **Ask the user about the 1.8 judgement calls** ([Judgement calls left for the user](#judgement-calls-left-for-the-user)). All are left as built until they decide.
 12. ~~**Step 1.9**, "Approvals engine"~~. Done (2026-10-11): built per decisions 99–110 and committed as `42e64f1`, not pushed.
 13. ~~**Step 1.10**, "Holiday calendar"~~. Done (2026-10-12): built per decisions 111–132 and committed as `5f283bb`, not pushed.
-14. ~~**Step 1.11**, "Directory, org chart, command bar and Home tiles"~~. Built and verified (2026-10-12) per decisions 133–153, **not committed**. See [1.11 build](#111-build-2026-10-12).
-15. **The user's hands-on checks of step 1.11** in the browser ([1.11 manual checks](#111-manual-checks-by-the-user-signed-in)). Then ask the user before committing 1.11 and its docs.
+14. ~~**Step 1.11**, "Directory, org chart, command bar and Home tiles"~~. Built and verified (2026-10-12) per decisions 133–153, and committed as `2d2d3ca`, not pushed. See [1.11 build](#111-build-2026-10-12).
+15. **The user's hands-on checks of step 1.11** in the browser ([1.11 manual checks](#111-manual-checks-by-the-user-signed-in)).
 16. **The Phase 1 check** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), the "Phase check" after step 1.11), which the user runs by hand on a fresh database. With it done, Phase 1 is complete; every build step of Phase 1 is now built.
+17. **Step 2.1**, "Employee record and sensitive fields". Built and verified (2026-10-12) per decisions 154–172, **not committed** ([2.1 review](#21-review-2026-10-12)). Next: **the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in)**, then ask before committing. Check [Assumptions to check](#assumptions-to-check) before real data is entered.
 
 ## 1.11 build (2026-10-12)
 

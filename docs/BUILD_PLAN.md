@@ -125,7 +125,7 @@ When Phase 2 is done, HR runs the whole employee lifecycle in Pulse Talent, from
 ### Steps
 
 1. **2.1 Employee record and sensitive fields.** Build the Talent employee record, keyed by employeeId, with personal, employment, compensation, government ID and payroll bank details, and an append-only effective-dated compensation history. Encrypt and mask the sensitive fields, audit-log every reveal, and apply the Sensitive data rules so Talent access alone never shows them. Add the employee list with an inspector, the own record in self-service, and Manage access, which opens the Phase 1 User access sheet. Spec: [Employee information](modules/talent.md#employee-information) ([Personal](modules/talent.md#personal), [Employment](modules/talent.md#employment), [Compensation](modules/talent.md#compensation), [Government IDs](modules/talent.md#government-ids-philippines), [Payroll bank account](modules/talent.md#payroll-bank-account)); [Sensitive data](../SECURITY.md#sensitive-data); [Module access](../SECURITY.md#module-access-rwo); [User access page](modules/core.md#user-access-page); [Record retention](COMPLIANCE.md#record-retention).
-   - Done when: HR reveals a masked TIN and finds the reveal in the audit log, while a Talent Write user sees none of the sensitive fields.
+   - Done when: HR reveals a masked TIN, the System Administrator finds HR's reveal in `/admin/audit`, and a Talent Write user sees none of the sensitive fields.
 2. **2.2 201 file, profile photo, e-signature and certifications.** Add 201 file documents in file storage, served through the file route with the Sensitive data checks, and a daily job that alerts HR and the employee 30 days before expiry. Add the profile photo and a versioned e-signature applied through one owner-only service, which Phase 1 approval decisions call; signed records keep their version. Add skills and certifications with expiry alerts to the employee, reportingTo and HR, and a read service that Ops and Engage will call. Spec: [Employee information](modules/talent.md#employee-information) ([Documents (201 file)](modules/talent.md#documents-201-file), [Profile photo & e-signature](modules/talent.md#profile-photo--e-signature)); [Skills & certifications](modules/talent.md#skills--certifications); [Sensitive data](../SECURITY.md#sensitive-data).
    - Done when: an expiring document and certification raise alerts, and replacing a signature leaves already-signed records on the old version.
 3. **2.3 Payroll settings and seeded configuration.** Add Talent payroll settings on the versioned configuration store, seeded by seed:admin: cut-offs and pay days, the 261 factor and the contribution split. Seed SSS, PhilHealth and Pag-IBIG with both shares and EC, the BIR semi-monthly table, premium rates, de minimis limits and the 13th month ceiling. Add NCR minimum wage with its salary warning and wage order list, then allowance types and assignments with the auto-assigned ₱1,000 internet allowance. Spec: [Payroll](modules/talent.md#payroll) ([Pay schedule](modules/talent.md#pay-schedule), [Rates](modules/talent.md#rates), [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off), [Allowances](modules/talent.md#allowances), [Employer contributions & monthly remittances](modules/talent.md#employer-contributions--monthly-remittances), [Minimum wage check](modules/talent.md#minimum-wage-check)); [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account).
@@ -517,3 +517,58 @@ The former open questions, and the follow-ups they raised, are now answered in t
 151. **Step 1.11:** One shared Avatar in `packages/ui`: the initials (the first letter of the first name and of the last name) in an `accent-subtle` circle with `accent` text. It is hidden from assistive technology, because the name always shows beside it, and it has a photo slot left unused until Phase 2. The User access page's initials use it too. ([Spec](DESIGN_SYSTEM.md#shared-components), decision 78)
 152. **Step 1.11:** Opening the directory or the org chart, and command bar searches, are neither audit-logged nor written to the logs, and nothing from them is cached across users. ([Spec](modules/core.md#company-directory), [Audit logging](../SECURITY.md#audit-logging))
 153. **Step 1.11:** `pnpm test` adds the directory, org chart and command bar tests: the directory allowlist and visibility, the org chart graph and its layout, reporting line edits by role, the command bar registry and the people provider, the Home team and the oldest waiting approval, and the navigation. ([Spec](TESTING.md#directory-org-chart-and-command-bar-tests), [ADR 0010](adr/0010-manual-verification-before-automated-tests.md))
+154. **Step 2.1:** The step's "Done when" reads "HR reveals a masked TIN, the System Administrator finds HR's reveal in `/admin/audit`, and a Talent Write user sees none of the sensitive fields". The audit log is for the System Administrator only, and audit access isn't widened. ([Spec](modules/talent.md#the-employee-record-build-step-21), [Audit log](modules/core.md#audit-log))
+155. **Step 2.1:** Talent owns two collections. `employeeRecords` holds personal details, Talent's employment fields, government IDs and the payroll bank account: one record per employee with a unique `employeeId`, created on the first Talent save and never deleted. `compensationEntries` is the insert-only salary history. Core's identity fields (number, name, email, department, position, `reportingTo`, status, date hired, separation date) stay in Core. Talent shows them read-only, with "Edit in Users" for HR and the System Administrator. The employee list is built from Core's employees, so a new user shows "Not filled in" until the first save. ([Spec](modules/talent.md#the-employee-record-build-step-21), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership))
+156. **Step 2.1:** Core adds an identity service for other modules. `listEmployeeIdentities` and `getEmployeeIdentity` need Talent Read, or one's own employee; separated employees come back only when asked, with Talent Read. `getSensitiveSubject` returns the employee id and current department code, for the reveal rules. `@pulse/core/server` also exports `guardWrites` for append-only module models. ([Spec](modules/core.md#people-data-ownership), [Cross-module integration](ARCHITECTURE.md#cross-module-integration))
+157. **Step 2.1:** Encrypted as `sensitiveField()`s: the TIN, SSS number, PhilHealth PIN, Pag-IBIG MID, bank account number and basic salary (whole centavos). Stored plain, but sent only inside their gated section: the RDO code, bank, account name, rate type and minimum wage earner flag. Encryption uses the existing `sensitiveFields` data key and `FIELD_ENCRYPTION_LOCAL_KEY`; there is no new key. ([Spec](../SECURITY.md#sensitive-data), [ADR 0005](adr/0005-field-level-encryption.md))
+158. **Step 2.1:** The server builds the Compensation, Government IDs and Payroll bank account sections only for a viewer who may reveal that category for that employee (`canRevealSensitive`). Anyone else gets none of their content, not even the last 4 digits. They see only the line "Pay, government IDs and bank details are visible to HR, Accounting and the System Administrator." ([Spec](../SECURITY.md#sensitive-data))
+159. **Step 2.1:** Date of birth and civil status are sent only to HR, Accounting, the System Administrator and the employee, are never in the list, and aren't encrypted. Changing them needs Talent Write and HR or the System Administrator. Assumption, to be confirmed by HR or counsel (RA 10173 Section 3(l)). ([Spec](../SECURITY.md#sensitive-data), [COMPLIANCE.md](COMPLIANCE.md#data-privacy-act-of-2012-ra-10173))
+160. **Step 2.1:** Government IDs and the account number are masked to their last 4 digits. Salary amounts show `••••` with no digits. The last 4 are computed on the server, for permitted viewers only. ([Spec](../SECURITY.md#sensitive-data), [Shared components](DESIGN_SYSTEM.md#shared-components))
+161. **Step 2.1:** Who may change what:
+     - **Government IDs, the bank account or compensation:** Talent Write and HR or the System Administrator. For an HR-department employee, Talent Write and the System Administrator or a Board member, never HR.
+     - **Accounting** reveals but never changes.
+     - **Other Talent fields:** Talent Write.
+
+     Opening `/talent` needs Talent Read for everyone, Board and Accounting included, because a role grants no module access. ([Spec](../SECURITY.md#sensitive-data), [Self-service & record changes](modules/talent.md#self-service--record-changes))
+162. **Step 2.1:** Nobody edits their own Talent record in step 2.1, the System Administrator included. Editing by `reportingTo` supervisors, and the employee's own change requests, come with step 2.6. ([Spec](modules/talent.md#the-employee-record-build-step-21))
+163. **Step 2.1:** A salary change is a new compensation entry:
+     - **Each entry** needs a reason. Its effective date is on or after the date hired and at most a year ahead. The amount is entered in pesos and stored as whole centavos.
+     - **The current entry** is the latest one with an effective date on or before today in Manila. A later one shows "Scheduled".
+     - **A correction** is a new entry with the same effective date. The newer one wins, and the old one shows "Superseded".
+     - **Allowances and the minimum wage warning** wait for step 2.3.
+
+     ([Spec](modules/talent.md#the-employee-record-build-step-21), [Locked and append-only records](DATA_MODEL.md#locked-and-append-only-records))
+164. **Step 2.1:** Each section saves on its own. Each form sends back the record's `version`, and a stale save is refused with "Someone else changed this record. Reload to see it." A sensitive input starts empty with the hint "Ends in 1234", and leaving it empty keeps the stored value. A stored ID or account number can be replaced but not cleared. ([Spec](modules/talent.md#the-employee-record-build-step-21))
+165. **Step 2.1:** Formats, all stored as digit strings with leading zeros kept:
+     - TIN: 9, 12 or 14 digits
+     - RDO code: 3 digits
+     - SSS number: 10 digits
+     - PhilHealth PIN: 12 digits
+     - Pag-IBIG MID: 12 digits
+     - UnionBank and RCBC account numbers: 10 to 16 digits
+     - Mobile numbers: 11 digits, starting with `09`
+
+     The work region is one of the 18 Philippine regions, NCR by default. Assumption, to be confirmed by HR or counsel. ([Spec](modules/talent.md#the-employee-record-build-step-21))
+166. **Step 2.1:** `registerTalentSensitiveReveals()` registers Talent's reveals: `talent.employeeRecord` with `tin`, `sss`, `philhealth`, `pagibig` and `bankAccountNumber`, and `talent.compensationEntry` with `basicSalary`. The reveal Server Action calls it before `revealSensitiveField`. ([Spec](../SECURITY.md#sensitive-data))
+167. **Step 2.1:** Audit entries, all in module `talent`:
+     - `talent.employeeRecord`, labelled `<employee number> · <first name> <last name>`: a `create` entry on the first save and an `update` entry after, both sides snapshotted.
+     - `talent.compensationEntry`, labelled `<employee number> · <YYYY-MM-DD>`: a `create` entry.
+     - Reveals on both record types.
+
+     There is no new audit action and no notification. ([Spec](../SECURITY.md#audit-logging))
+168. **Step 2.1:** `/talent` lists employees, with Talent Read:
+     - **The page:** stat tiles by status, then a data table, or cards on a phone, with name, number, department, position, status and date hired.
+     - **Search and filters:** department and status filters and "Show separated"; no paging.
+     - **The URL** keeps `?q=`, `?department=`, `?status=`, `?separated=1` and `?employee=<employeeId>`, which opens the inspector.
+     - **The inspector** shows the sections, each with an Edit sheet.
+
+     ([Spec](modules/talent.md#the-employee-record-build-step-21), [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md#layout--components))
+169. **Step 2.1:** "Manage access" on an active employee's record, shown to HR and the System Administrator only, links to `/admin/access?user=<userId>`. The access page keeps its own checks. ([Spec](modules/core.md#user-access-page))
+170. **Step 2.1:** `/talent/me` is the employee's own record:
+     - **Read-only**, with Reveal on their own values.
+     - **Open to** every signed-in user with an employee record. It takes no employee id from the request.
+     - **Reached from** "My record" in the Pulse Core sidebar group, after Org chart. The system account doesn't get the entry, and the Talent item isn't marked current on that page.
+
+     ([Spec](../SECURITY.md#exceptions-to-module-access))
+171. **Step 2.1:** No key rotation tooling is built. Re-wrapping the data keys for a new master key is listed in DEPLOYMENT's "Still to decide". The production `FIELD_ENCRYPTION_LOCAL_KEY` is generated on the real server, with an offline copy, before any real employee data is entered. ([Spec](DEPLOYMENT.md#still-to-decide), [Secrets](../SECURITY.md#secrets))
+172. **Step 2.1:** `pnpm test` adds the employee record tests: the Core identity service, storage, compensation, section visibility (the "Done when"), who may change what, audit, the Talent reveals, the formats and the My record navigation. ([Spec](TESTING.md#employee-record-tests), [ADR 0010](adr/0010-manual-verification-before-automated-tests.md))

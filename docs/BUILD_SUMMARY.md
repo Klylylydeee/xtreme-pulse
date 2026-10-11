@@ -22,11 +22,14 @@ What has been built, what the user decided, and what is waiting. For the session
 | UI: Administration sidebar sub-groups | Done and committed (2026-10-09). Not pushed | `89296fb` |
 | 1.9 Approvals engine | Done and committed (decisions 99–110), 2026-10-11. Not pushed | `42e64f1` |
 | 1.10 Holiday calendar | Done and committed (decisions 111–132), 2026-10-12. Not pushed | `5f283bb` |
-| 1.11 Directory, org chart, command bar and Home tiles | Built and verified (decisions 133–153), 2026-10-12. **Not committed.** Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass; the review confirmed no code bug. **Open:** the user's hands-on checks in the browser ([HANDOFF › 1.11 build](HANDOFF.md#111-build-2026-10-12)) | — |
+| 1.11 Directory, org chart, command bar and Home tiles | Done and committed (decisions 133–153), 2026-10-12. Not pushed. Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass; the review confirmed no code bug. **Open:** the user's hands-on checks in the browser ([HANDOFF › 1.11 build](HANDOFF.md#111-build-2026-10-12)) | `2d2d3ca` |
+| 2.1 Employee record and sensitive fields | Built and verified (decisions 154–172), 2026-10-12. **Not committed.** Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. A review focused on sensitive data found no value or last-4 leak, and fixed one "has a value" leak in the "Not filled in" badge ([HANDOFF › 2.1 review](HANDOFF.md#21-review-2026-10-12)). **Open:** the user's hands-on checks ([HANDOFF › 2.1 hands-on checks](HANDOFF.md#21-hands-on-checks-by-the-user-signed-in)), and the assumptions in [HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check) | — |
 
-**Phase 1.** Every build step of Phase 1 is built. Phase 1 is complete apart from the [Phase check](BUILD_PLAN.md#phase-1-pulse-core) after step 1.11, which the user runs by hand on a fresh database, and the hands-on browser checks still open for 1.7, 1.8 and 1.11.
+**Phase 1.** Every build step of Phase 1 is built and committed. Phase 1 is complete apart from the [Phase check](BUILD_PLAN.md#phase-1-pulse-core) after step 1.11, which the user runs by hand on a fresh database, and the hands-on browser checks still open for 1.7, 1.8 and 1.11.
 
-**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed up to step 1.8: `origin/phase-1` exists and is its upstream. `89296fb`, `42e64f1` (step 1.9) and `5f283bb` (step 1.10) are not pushed yet, and step 1.11 isn't committed. No pull request is open yet.
+**Phase 2.** Started 2026-10-12, on `phase-1`, built fully autonomously at the user's request: the agents' plan recommendations are approved as written, and every assumption a person must confirm is listed in [HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check).
+
+**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed up to step 1.8: `origin/phase-1` exists and is its upstream. `89296fb`, `42e64f1` (step 1.9), `5f283bb` (step 1.10) and `2d2d3ca` (step 1.11) are not pushed yet. No pull request is open yet.
 
 **1.2 follow-up (`8cddb26`).** Users with a temporary password land on `/change-password` in the address bar. The `callbackUrl` is carried through and sanitized again.
 
@@ -206,8 +209,9 @@ Verified and committed as `84667ff` (2026-10-03). Not pushed.
 7. ~~Step 1.8, "Shared master data services".~~ Done: built, committed and pushed (2026-10-08). The user still has three judgement calls to settle ([HANDOFF › Judgement calls](HANDOFF.md#judgement-calls-left-for-the-user)).
 8. ~~Step 1.9, "Approvals engine".~~ Done: committed as `42e64f1` (2026-10-11), not pushed.
 9. ~~Step 1.10, "Holiday calendar".~~ Done: committed as `5f283bb` (2026-10-12), not pushed.
-10. ~~Step 1.11, "Directory, org chart, command bar and Home tiles".~~ Built and verified (2026-10-12), not committed. Next, **the user's hands-on checks** ([HANDOFF › 1.11 manual checks](HANDOFF.md#111-manual-checks-by-the-user-signed-in)), then ask before committing.
+10. ~~Step 1.11, "Directory, org chart, command bar and Home tiles".~~ Done: committed as `2d2d3ca` (2026-10-12), not pushed. Still open: **the user's hands-on checks** ([HANDOFF › 1.11 manual checks](HANDOFF.md#111-manual-checks-by-the-user-signed-in)).
 11. **The Phase 1 check** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core)), run by the user by hand on a fresh database. With it, Phase 1 is complete.
+12. **Step 2.1, "Employee record and sensitive fields".** Built and verified (2026-10-12, decisions 154–172), not committed. Next: **the user's hands-on checks** ([HANDOFF › 2.1 hands-on checks](HANDOFF.md#21-hands-on-checks-by-the-user-signed-in)), then ask before committing.
 
 ## Step 1.8 brief (done)
 

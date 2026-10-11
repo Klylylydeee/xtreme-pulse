@@ -14,6 +14,7 @@ import {
   ListChecks,
   Network,
   Package,
+  SquareUserRound,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -48,10 +49,20 @@ export type NavEntry = {
    */
   badge?: NavBadgeKey;
   /**
+   * Listed only for users with an employee, so never for the bootstrap system account: My record
+   * (step 2.1, `/talent/me`). The page itself is open to every signed-in user.
+   */
+  employeeOnly?: boolean;
+  /**
    * Current only on its own path, not on the pages under it: the admin Overview, so a page under
    * `/admin` the user can't open doesn't light it up. Home is always exact.
    */
   exact?: boolean;
+  /**
+   * Paths under `href` that belong to another entry and never make this one current: Talent's
+   * `/talent/me`, which is My record in Pulse Core (step 2.1).
+   */
+  exclude?: readonly string[];
 };
 
 /** The sidebar counts, by what they count. */
@@ -122,6 +133,9 @@ export function groupAdminEntries(entries: readonly NavEntry[]): {
   };
 }
 
+/** The employee's own record (step 2.1): in Pulse Core, though it lives under `/talent`. */
+export const MY_RECORD_HREF = '/talent/me';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -175,6 +189,18 @@ export const CORE_ENTRIES: NavEntry[] = [
     description: 'Who reports to whom, built from reporting lines',
     Icon: Network,
   },
+  {
+    // Step 2.1 (docs/modules/talent.md#the-employee-record-build-step-21, decision 170): the
+    // employee's own record, self-service outside module access
+    // (SECURITY.md#exceptions-to-module-access). Listed for every user with an employee, never
+    // for the bootstrap system account.
+    href: MY_RECORD_HREF,
+    label: 'My record',
+    title: 'My record',
+    description: 'Your own employee record: personal and employment details, pay, IDs and bank',
+    Icon: SquareUserRound,
+    employeeOnly: true,
+  },
 ];
 
 /** The ERP modules, in build order. */
@@ -186,6 +212,8 @@ export const MODULE_ENTRIES: NavEntry[] = [
     description: 'People & Culture',
     Icon: Users,
     module: 'talent',
+    // My record is Pulse Core's, so Talent isn't current there (decision 170).
+    exclude: [MY_RECORD_HREF],
   },
   {
     href: '/engage',
@@ -373,13 +401,16 @@ export interface NavigationViewer {
   moduleAccess: ModuleAccess;
   /** Whether the user's role opens the admin pages of `kind`. */
   canOpenAdminArea: (kind: AdminAreaKind) => boolean;
+  /** Whether the user has an employee (false only for the bootstrap system account). */
+  hasEmployee: boolean;
 }
 
 /**
- * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals, Holidays, Directory, Org chart) always, a module at Read or higher,
- * an admin page by role.
+ * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals, Holidays, Directory, Org chart)
+ * always, My record with an employee, a module at Read or higher, an admin page by role.
  */
 export function isEntryVisible(entry: NavEntry, viewer: NavigationViewer): boolean {
+  if (entry.employeeOnly) return viewer.hasEmployee;
   if (entry.module) return atLeast(viewer.moduleAccess[entry.module], 'read');
   if (entry.adminArea) return viewer.canOpenAdminArea(entry.adminArea);
   return true;
@@ -420,13 +451,22 @@ export function navigationFor(hrefs: readonly string[]): NavGroup[] {
   return filterGroups((entry) => allowed.has(entry.href));
 }
 
+/** Whether `pathname` is `href` or a page under it. */
+function isAtOrUnder(href: string, pathname: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 /**
  * Whether `pathname` is the entry's page or one of the pages under it. Home and `exact` entries
- * (the admin Overview) match their own path only.
+ * (the admin Overview) match their own path only, and an entry's `exclude` paths never match it.
  */
-export function isEntryActive(entry: { href: string; exact?: boolean }, pathname: string): boolean {
+export function isEntryActive(
+  entry: { href: string; exact?: boolean; exclude?: readonly string[] },
+  pathname: string,
+): boolean {
   if (entry.href === '/' || entry.exact) return pathname === entry.href;
-  return pathname === entry.href || pathname.startsWith(`${entry.href}/`);
+  if (entry.exclude?.some((path) => isAtOrUnder(path, pathname))) return false;
+  return isAtOrUnder(entry.href, pathname);
 }
 
 /**
@@ -464,10 +504,12 @@ export const NOT_FOUND_PAGE_TITLE = 'Page not found';
 export function breadcrumbFor(groups: readonly NavGroup[], pathname: string): Breadcrumb {
   const page = OTHER_PAGES.find((candidate) => isEntryActive(candidate, pathname));
   if (page) return { parent: page.parent, current: page.title };
-  const match = activeEntry(groups, pathname);
   // The section the path belongs to among all of them. If the user doesn't see it, they can't open
-  // the page: HR on /admin/audit, a new user on /talent.
+  // the page: HR on /admin/audit, a new user on /talent. My record is the exception: every
+  // signed-in user may open it, and the system account, which isn't given the entry, sees its
+  // empty state there.
   const section = activeEntry(NAV_GROUPS, pathname);
+  const match = activeEntry(groups, pathname) ?? (section?.entry.employeeOnly ? section : null);
   if (section && section.entry.href !== match?.entry.href) return { current: NO_ACCESS_PAGE_TITLE };
   if (!match) return { current: APP_NAME };
   const { group, entry } = match;

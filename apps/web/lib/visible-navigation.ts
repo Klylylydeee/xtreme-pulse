@@ -16,6 +16,7 @@ export function visibleHrefsFor(user: CurrentUser): string[] {
   return visibleHrefs({
     moduleAccess: user.moduleAccess,
     canOpenAdminArea: (kind) => canOpenAdminArea(user, kind),
+    hasEmployee: user.employee !== null,
   });
 }
 

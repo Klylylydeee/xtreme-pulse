@@ -354,6 +354,23 @@ export {
 } from './employees/reporting-lines';
 export { claimLiveDepartment, claimLivePosition } from './org-claims';
 
+// The identity service (docs/modules/core.md#people-data-ownership, build step 2.1): how other
+// modules read Core's employee identity, never the models. Talent Read, or one's own employee.
+export {
+  employeeAuditLabel,
+  type EmployeeIdentity,
+  getEmployeeIdentity,
+  type GetEmployeeIdentityOptions,
+  getSensitiveSubject,
+  type IdentityActor,
+  listEmployeeIdentities,
+  type ListEmployeeIdentitiesOptions,
+} from './employees/identity';
+// A module service's in-transaction re-check of the actor (build step 2.1).
+export { type ReloadedActor, reloadActorAccess } from './auth/administrators';
+// Append-only module models (docs/ARCHITECTURE.md#modules-and-packages, build step 2.1).
+export { guardWrites, hasOnlyKeys, type WriteGuardOptions } from './write-guards';
+
 // User access (docs/modules/core.md#user-access-page): the access setter, the "Needs access"
 // count and the daily reminder. HR and the System Administrator, by role.
 export {

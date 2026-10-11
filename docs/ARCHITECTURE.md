@@ -41,6 +41,14 @@ Nothing is reachable from the public internet (see [Network exposure](../SECURIT
 
 Shared packages: `packages/db` (connection, transactions and model helpers) and `packages/ui` (design tokens and components). Every schema lives in its module's package, Core's own included (`users`, `employees`, `departments`, `positions`, `companySettings`, `allowedEmailDomains`, `employeeNumberCounters`, and from build step 1.8 the shared master data `clients`, `clientSites`, `clientContacts`, `brands`, `catalogItems` and `suppliers` in `packages/core`; see [ADR 0013](adr/0013-master-data-schemas-in-core.md)).
 
+**A module package** (from build step 2.1, `packages/talent` first) follows `packages/core`'s layout:
+- **Pure code** (validation schemas, fixed sets, formatters) in `src/`, exported as `@pulse/<module>`, safe in the browser.
+- **Models, services and registrations** in `src/server/`, exported as `@pulse/<module>/server`. The `browser` condition points to a client guard, so a client import fails.
+- **Exports** are services only, never models.
+- **Dependencies** are `@pulse/core`, `@pulse/db`, `mongoose`, `zod` and `server-only`.
+- **Registrations** (sensitive reveals, file access, approval types, command bar providers) are explicit `register<Module>…()` functions that the web app's actions and routes call before use, never import side effects.
+- **Append-only models** use Core's `guardWrites`, which `@pulse/core/server` exports from step 2.1.
+
 ## Tech stack
 
 - Next.js (App Router), full-stack, TypeScript (strict)
@@ -133,6 +141,7 @@ Modules talk to each other only through the owning module's service functions. T
 | Ops, Desk | Core | Create sites during rollout and fleet imports | [Multi-site rollouts](modules/ops.md#multi-site-rollouts) |
 | Supply | Core | Manage suppliers and catalog items | [Suppliers](modules/supply.md#suppliers) |
 | Supply | Fiscal | Post equipment cost of deliveries and issues to projects | [Project costs](modules/ops.md#project-costs) |
+| Talent | Core | Read employee identity (`listEmployeeIdentities`, `getEmployeeIdentity`) and the reveal subject (`getSensitiveSubject`) for the employee record (build step 2.1) | [People data ownership](modules/core.md#people-data-ownership), [The employee record](modules/talent.md#the-employee-record-build-step-21) |
 | Talent | Core | Listen for holidays-changed (`registerHolidaysChangedListener`) to recompute the DTR for payroll periods not yet finalized (Phase 2) | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Talent | Supply | Show each employee's assigned assets | [Company-issued assets](modules/supply.md#company-issued-assets) |
 | Talent | Fiscal | Post payroll runs and final pay, record remittances | [Payroll run & payslips](modules/talent.md#payroll-run--payslips) |

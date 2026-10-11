@@ -39,7 +39,7 @@ export default function nextConfig(phase: string): NextConfig {
     agentRules: false,
     ...(phase === PHASE_DEVELOPMENT_SERVER ? { allowedDevOrigins: devOrigins() } : {}),
     // Workspace packages ship TypeScript source.
-    transpilePackages: ['@pulse/core', '@pulse/db', '@pulse/ui'],
+    transpilePackages: ['@pulse/core', '@pulse/db', '@pulse/talent', '@pulse/ui'],
     experimental: {
       // forbidden() and forbidden.tsx: a blocked page answers HTTP 403 with the no-access state
       // inside the shell (SECURITY.md#resolving-and-enforcing-build-step-16, decision 52).

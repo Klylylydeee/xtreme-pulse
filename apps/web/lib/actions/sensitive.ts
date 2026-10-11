@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { defineAction } from '@pulse/core';
 import { revealSensitiveField } from '@pulse/core/server';
+import { registerTalentSensitiveReveals } from '@pulse/talent/server';
 import { requireSignedIn, signedInUser } from '@/lib/auth';
 
 // Spec: SECURITY.md#sensitive-data — the one Server Action behind every masked field's Reveal
@@ -19,5 +20,8 @@ export const revealSensitiveAction = defineAction({
     ownerId: z.string().min(1).max(64),
     field: z.string().min(1).max(100),
   }),
-  handler: async (input) => revealSensitiveField({ actor: await signedInUser(), ...input }),
+  handler: async (input) => {
+    registerTalentSensitiveReveals();
+    return revealSensitiveField({ actor: await signedInUser(), ...input });
+  },
 });

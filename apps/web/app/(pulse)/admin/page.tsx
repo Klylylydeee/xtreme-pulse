@@ -55,6 +55,7 @@ export default async function AdminPage() {
   const { groups } = visibleAdminGroups({
     moduleAccess: user.moduleAccess,
     canOpenAdminArea: (kind) => canOpenAdminArea(user, kind),
+    hasEmployee: user.employee !== null,
   });
   const { title, description } = getNavEntry('/admin');
   return (

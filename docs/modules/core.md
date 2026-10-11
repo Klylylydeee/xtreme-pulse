@@ -10,6 +10,21 @@ Sign-in, passwords, account status, module access and the System Administrator r
 
 Every user is an employee of Xtreme Works (the only exception is the bootstrap system account). Pulse Core owns the user account and org structure (login, account status, module access, department, position, reporting lines, directory, org chart), and the employee identity fields account status depends on: employee number, name, date hired, employment status and separation date (`employees.separationDate`, see [Managing user accounts](#managing-user-accounts)). Pulse Talent owns employment, government, payroll, timesheet and document details, and shows Core's identity fields in its employee record. Both reference the same `employeeId`.
 
+**The identity service** (build step 2.1). Pulse Talent reads Core's identity through Core's service functions in `packages/core/src/server/employees/identity.ts`, never the models.
+
+- **`listEmployeeIdentities(actor, { q, departmentId, status, separated })` and `getEmployeeIdentity(actor, employeeId)`** return, field by field:
+  - the employee id and the account's user id
+  - employee number, first, middle and last name, and login email
+  - department (id, name, code) and position (id, name, timesheet type)
+  - `reportingTo` (ids and names)
+  - employment status, date hired and separation date
+  - whether the account is active
+
+  They need Talent Read, or for `getEmployeeIdentity` the actor's own employee. Separated employees come back only when asked (`separated`) and only with Talent Read. The bootstrap system account has no employee and never appears.
+- **`getSensitiveSubject(employeeId)`** returns only the employee id and current department code, for the [reveal rules](../../SECURITY.md#sensitive-data). It takes no actor, because `revealSensitiveField` has already checked the user.
+
+These reads add no audit entry, and they never feed the directory, whose allowlist is unchanged ([Company directory](#company-directory)).
+
 ## Bootstrap System Administrator account
 
 - A fresh install has no users, so a seed script creates the first System Administrator: `pnpm seed:admin` (`scripts/seed-admin.ts`).
@@ -148,7 +163,7 @@ The page where HR and the System Administrator set each user's module access. Bu
 - **System Administrator role:** the sheet has a "System Administrator" switch above the module rows, visible and editable only to System Administrators. Turning it on makes the user resolve to Owner on every module (Read on Insight) and locks the rows; the stored levels are kept and apply again if the switch is turned off. A confirmation is required, and the last remaining System Administrator can't be switched off.
 - **Read-only rows:** a user's own access, the bootstrap system account's, and the System Administrator's access when viewed by HR, are shown but cannot be edited (see [Module access](../../SECURITY.md#module-access-rwo)).
 - **After creating a user:** HR or the System Administrator goes straight to that user's access sheet, with the option to set access later.
-- **From the employee record** (Phase 2, with the Talent employee record): the user's record in Pulse Talent has a "Manage access" action that opens the same sheet (HR and System Administrator only).
+- **From the employee record** (build step 2.1, with the Talent employee record): an active employee's record in Pulse Talent has a "Manage access" action, shown to HR and the System Administrator only, that links to the same sheet (`/admin/access?user=<userId>`). The access page keeps every check of its own ([The employee record](talent.md#the-employee-record-build-step-21)).
 - **Notifications:** HR and the System Administrator are notified when a new user is created and when a user's position changes, and reminded daily while any user still needs access.
 - **New user's home** (build step 1.6): a user whose effective access is None on every module sees a card under the Home hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It never shows to the System Administrator, but can show to HR or a Board member with nothing set. It replaced the "Nothing needs your attention" empty state while it showed; from build step 1.11 that empty state is gone and the card sits under the hero, above the tiles ([Home](#home)). The company details reminder is unchanged ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Self-service stays available.
 - **Board members:** Board of Directors members normally need Insight Read for the Board dashboards, targets and weekly summary. The sheet shows this as a hint for Board members; it never grants access automatically.
@@ -174,7 +189,7 @@ Built in step 1.7:
 | `core.positionChanged` | A user's position changes on `/admin/users`, in the save's transaction | "Review Ana Cruz's access: position changed to Driver" | `/admin/access?user=<id>` |
 | `core.usersNeedAccess` | The daily job `core.accessReminder`, 08:00 Asia/Manila every day, weekends included, while anyone needs access ([Background jobs](../ARCHITECTURE.md#background-jobs)) | "3 users still need access" | `/admin/access` |
 
-- **Not in step 1.7:** "Manage access" on the Talent employee record (Phase 2), profile photos (initials only), email notifications, and changing access automatically on a position change (never).
+- **Not in step 1.7:** "Manage access" on the Talent employee record (built in step 2.1), profile photos (initials only), email notifications, and changing access automatically on a position change (never).
 
 ## Company directory
 

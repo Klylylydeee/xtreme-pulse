@@ -10,6 +10,7 @@ import {
   documentTitleFor,
   getNavEntry,
   groupAdminEntries,
+  isEntryActive,
   isStatusBreadcrumb,
   MODULE_ENTRIES,
   NAV_GROUPS,
@@ -29,7 +30,8 @@ import {
 // (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8, and the
 // Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9),
 // docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10),
-// docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11) and
+// docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11),
+// docs/TESTING.md#employee-record-tests (My record, step 2.1) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -38,13 +40,19 @@ function viewer({
   moduleAccess = emptyModuleAccess(),
   roles = [],
   isSystemAdministrator = false,
+  hasEmployee = true,
 }: {
   moduleAccess?: ModuleAccess;
   roles?: DepartmentRole[];
   isSystemAdministrator?: boolean;
+  hasEmployee?: boolean;
 } = {}): NavigationViewer {
   const holder = { roles, isSystemAdministrator };
-  return { moduleAccess, canOpenAdminArea: (kind) => canOpenAdminArea(holder, kind) };
+  return {
+    moduleAccess,
+    canOpenAdminArea: (kind) => canOpenAdminArea(holder, kind),
+    hasEmployee,
+  };
 }
 
 const newUser = viewer();
@@ -54,10 +62,16 @@ const systemAdministrator = viewer({
   isSystemAdministrator: true,
   moduleAccess: fullModuleAccess(),
 });
+// The bootstrap system account: a System Administrator with no employee.
+const systemAccount = viewer({
+  isSystemAdministrator: true,
+  moduleAccess: fullModuleAccess(),
+  hasEmployee: false,
+});
 
-// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9), then Holidays (step 1.10),
-// then Directory and Org chart (step 1.11).
-const CORE_HREFS = ['/', '/approvals', '/holidays', '/directory', '/org-chart'];
+// Pulse Core, for every signed-in user with an employee: Home, then Approvals (step 1.9), then
+// Holidays (step 1.10), then Directory and Org chart (step 1.11), then My record (step 2.1).
+const CORE_HREFS = ['/', '/approvals', '/holidays', '/directory', '/org-chart', '/talent/me'];
 
 const HR_ADMIN_HREFS = [
   '/admin',
@@ -332,6 +346,67 @@ describe('Directory and Org chart (step 1.11)', () => {
     const groups = visibleNavigation(newUser);
     expect(activeEntry(groups, '/directory')?.entry.label).toBe('Directory');
     expect(activeEntry(groups, '/org-chart')?.entry.label).toBe('Org chart');
+  });
+});
+
+describe('My record (step 2.1)', () => {
+  const withEmployee = [
+    newUser,
+    hr,
+    systemAdministrator,
+    viewer({ roles: ['board'] }),
+    viewer({ roles: ['accounting'] }),
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'write' } }),
+  ];
+
+  it('sits in Pulse Core right after Org chart for every user with an employee', () => {
+    for (const someone of withEmployee) {
+      const core = visibleNavigation(someone)[0];
+      expect(core?.label).toBe('Pulse Core');
+      const hrefs = core?.entries.map((entry) => entry.href) ?? [];
+      expect(hrefs.indexOf('/talent/me')).toBe(hrefs.indexOf('/org-chart') + 1);
+    }
+  });
+
+  it('is never shown to the bootstrap system account', () => {
+    expect(visibleHrefs(systemAccount)).not.toContain('/talent/me');
+    expect(visibleHrefs(systemAccount)).toContain('/talent');
+    expect(navigationFor(visibleHrefs(systemAccount))).toEqual(visibleNavigation(systemAccount));
+  });
+
+  it('needs no module access or role, and is a Pulse Core entry', () => {
+    const entry = getNavEntry('/talent/me');
+    expect(entry).toMatchObject({ label: 'My record', title: 'My record', employeeOnly: true });
+    expect(entry.module).toBeUndefined();
+    expect(entry.adminArea).toBeUndefined();
+    expect(entry.badge).toBeUndefined();
+    expect(CORE_ENTRIES.map((candidate) => candidate.href)).toContain('/talent/me');
+    expect(MODULE_ENTRIES.map((candidate) => candidate.href)).not.toContain('/talent/me');
+    expect(visibleHrefs(newUser)).toContain('/talent/me');
+    expect(visibleHrefs(newUser)).not.toContain('/talent');
+  });
+
+  it('reads "Pulse Core › My record" in the breadcrumb, Talent access or not', () => {
+    for (const someone of [...withEmployee, systemAccount]) {
+      expect(breadcrumbFor(visibleNavigation(someone), '/talent/me')).toEqual({
+        parent: 'Pulse Core',
+        current: 'My record',
+      });
+    }
+  });
+
+  it('is current on /talent/me, and the Talent item is not', () => {
+    const talentWriter = visibleNavigation(
+      viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'write' } }),
+    );
+    expect(activeEntry(talentWriter, '/talent/me')?.entry.label).toBe('My record');
+    expect(isEntryActive(getNavEntry('/talent'), '/talent/me')).toBe(false);
+    expect(isEntryActive(getNavEntry('/talent'), '/talent/me/anything')).toBe(false);
+    // The system account sees Talent but not My record: nothing is current there.
+    expect(activeEntry(visibleNavigation(systemAccount), '/talent/me')).toBeNull();
+    // Talent stays current on its own pages, /talent/members included.
+    expect(activeEntry(talentWriter, '/talent')?.entry.label).toBe('Talent');
+    expect(isEntryActive(getNavEntry('/talent'), '/talent/members')).toBe(true);
   });
 });
 
