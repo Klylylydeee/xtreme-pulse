@@ -1,16 +1,27 @@
 import { Suspense } from 'react';
-import { Inbox, KeyRound } from 'lucide-react';
-import { hasAnyModuleAccess } from '@pulse/core';
-import { EmptyState } from '@pulse/ui/components/empty-state';
+import { KeyRound } from 'lucide-react';
+import { hasAnyModuleAccess, now } from '@pulse/core';
 import { IconTile } from '@pulse/ui/components/icon-tile';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { CompanyDetailsReminder } from '@/components/company-details-reminder';
 import { APP_NAME } from '@/lib/app';
 import { requireCurrentUser } from '@/lib/auth';
+import { formatHeroDate, homeGreeting } from '@/lib/home';
+import {
+  APPROVALS_TILE,
+  ApprovalsWaitingTile,
+  HOLIDAYS_TILE,
+  HomeTileSkeleton,
+  NOTIFICATIONS_TILE,
+  TEAM_TILE,
+  UnreadNotificationsTile,
+  UpcomingHolidaysTile,
+  YourTeamTile,
+} from './home-tiles';
 
 /**
- * The new user's home card (docs/modules/core.md#user-access-page): shown while the user's
- * effective access is None on every module, in place of "Nothing needs your attention".
+ * The new user's home card (docs/modules/core.md#user-access-page): shown under the hero while the
+ * user's effective access is None on every module.
  */
 function AccessSetupCard() {
   return (
@@ -34,14 +45,18 @@ function AccessSetupCard() {
 }
 
 /**
- * Pulse Core home, open to every signed-in user (self-service needs no module access). A
- * placeholder until Phase 1 and 2 fill it with the user's own data. HR and the System
- * Administrator also see the company details reminder while any detail is a placeholder; it reads
- * the database, so it streams in behind its own Suspense.
+ * Pulse Core home (docs/modules/core.md#home), open to every signed-in user and showing only their
+ * own data. The hero greets the user by the Manila time of day with the Manila date (no name for
+ * the bootstrap system account); the access card of step 1.6 stays under it; then the tiles, each
+ * streaming in behind its own Suspense with its own skeleton, zero state and error state. HR and
+ * the System Administrator also see the company details reminder while any detail is a
+ * placeholder.
  */
 export default async function HomePage() {
   const user = await requireCurrentUser();
   const waitingForAccess = !hasAnyModuleAccess(user.moduleAccess);
+  const showTeam = !user.isSystemAccount && user.employee !== null;
+  const at = now();
   return (
     <>
       <PageHeader title="Home" description={`Welcome to ${APP_NAME}`} />
@@ -52,22 +67,28 @@ export default async function HomePage() {
         aria-labelledby="home-hero-title"
         className="flex flex-col gap-2 rounded-3xl bg-hero px-6 py-8 text-hero-text shadow-accent md:px-8 md:py-10"
       >
-        <h2 id="home-hero-title" className="text-title-1">
-          Your workday in one place
+        <h2 id="home-hero-title" className="text-title-1 md:text-large-title">
+          {homeGreeting(at, user.isSystemAccount ? null : user.employee?.firstName)}
         </h2>
-        <p className="max-w-2xl text-callout text-hero-text-secondary">
-          Your timesheet, leave, offset balance and latest payslip will show here.
-        </p>
+        <p className="text-callout text-hero-text-secondary">{formatHeroDate(at)}</p>
       </section>
-      {waitingForAccess ? (
-        <AccessSetupCard />
-      ) : (
-        <EmptyState
-          icon={<Inbox strokeWidth={1.75} />}
-          title="Nothing needs your attention"
-          description="Approvals and reminders that need you will show here."
-        />
-      )}
+      {waitingForAccess ? <AccessSetupCard /> : null}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Suspense fallback={<HomeTileSkeleton info={APPROVALS_TILE} />}>
+          <ApprovalsWaitingTile user={user} />
+        </Suspense>
+        <Suspense fallback={<HomeTileSkeleton info={NOTIFICATIONS_TILE} />}>
+          <UnreadNotificationsTile user={user} />
+        </Suspense>
+        <Suspense fallback={<HomeTileSkeleton info={HOLIDAYS_TILE} />}>
+          <UpcomingHolidaysTile />
+        </Suspense>
+        {showTeam ? (
+          <Suspense fallback={<HomeTileSkeleton info={TEAM_TILE} />}>
+            <YourTeamTile user={user} />
+          </Suspense>
+        ) : null}
+      </div>
     </>
   );
 }

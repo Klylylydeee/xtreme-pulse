@@ -863,6 +863,24 @@ export async function countApprovalsWaiting(userId: string): Promise<number> {
   return ApprovalRequestModel.countDocuments({ status: 'pending', pendingApproverIds: id });
 }
 
+/**
+ * When the oldest request waiting for the user was submitted, or null when nothing waits: the
+ * Home "Approvals waiting" tile's "Oldest submitted N days ago" (docs/modules/core.md#home,
+ * decision 150). Reads only the user's own waiting requests.
+ */
+export async function oldestApprovalWaitingSubmittedAt(userId: string): Promise<Date | null> {
+  const id = toObjectId(userId);
+  if (!id) return null;
+  await connectDb();
+  const oldest = await ApprovalRequestModel.findOne(
+    { status: 'pending', pendingApproverIds: id },
+    { submittedAt: 1 },
+  )
+    .sort({ submittedAt: 1, _id: 1 })
+    .lean<{ submittedAt: Date }>();
+  return oldest?.submittedAt ?? null;
+}
+
 /** True when the viewer may read the request: an approver, its requester or a System Administrator. */
 function canRead(request: ApprovalRequestRecord, viewer: ApprovalViewer, viewerId: Types.ObjectId) {
   return (

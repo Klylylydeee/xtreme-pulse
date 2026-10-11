@@ -157,3 +157,16 @@ export function canToggleSystemAdministrator(actor: AccountActor, target: Accoun
 // access. The page uses this for its controls; every holiday service checks it again itself.
 /** True when `user` may see draft holidays and add, edit, confirm, declare and delete holidays. */
 export const canManageHolidays = (user: RoleHolder) => isHR(user) || isSystemAdministrator(user);
+
+// Spec: docs/modules/core.md#reporting-lines and #company-directory (decisions 135 and 137 in
+// docs/BUILD_PLAN.md) — HR, Board members and System Administrators edit reporting lines in the
+// directory and org chart inspector, never their own (the reporting-lines service checks that and
+// the rest). Only HR and System Administrators see separated people in the directory.
+
+/** True when `user` may edit other people's reporting lines in the inspector. */
+export const canEditReportingLines = (user: RoleHolder) =>
+  isHR(user) || isBoard(user) || isSystemAdministrator(user);
+
+/** True when `user` may see separated people in the directory ("Show separated"). */
+export const canSeeSeparatedPeople = (user: RoleHolder) =>
+  isHR(user) || isSystemAdministrator(user);

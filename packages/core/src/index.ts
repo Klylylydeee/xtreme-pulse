@@ -189,3 +189,6 @@ export * from './approvals';
 // The holiday calendar (docs/modules/core.md#holiday-calendar): the fixed sets, the form schemas,
 // the auto-draft rule shapes and the date rules (Easter, the last weekday of a month).
 export * from './holidays';
+// The directory, org chart and command bar (docs/modules/core.md#company-directory, #org-chart,
+// #command-bar): the result shapes, the fixed sets and the reporting line form schema.
+export * from './directory';

@@ -49,7 +49,11 @@ import {
 } from '../employee-numbers/service';
 import { type EmployeeRecord, EmployeeModel } from '../employees/model';
 import { notify } from '../notifications/service';
-import { validateAndClaimReportingTo } from '../employees/reporting-lines';
+import {
+  resolveReportingToChange,
+  sameSupervisorIds,
+  validateAndClaimReportingTo,
+} from '../employees/reporting-lines';
 import { claimLiveDepartment, claimLivePosition } from '../org-claims';
 import { toObjectId } from '../paging';
 import { PositionModel } from '../positions/model';
@@ -267,11 +271,6 @@ async function notifyAccessReviewers(
     },
     { session },
   );
-}
-
-/** True when the two lists hold the same IDs in the same order. */
-function sameIds(a: readonly Types.ObjectId[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id, index) => id.toHexString() === b[index]);
 }
 
 // --- Reading ---------------------------------------------------------------------------------
@@ -770,18 +769,8 @@ export async function updateUser(
         await claimAssignment(departmentId, positionId, session);
       }
 
-      let reportingTo = employee.reportingTo;
-      if (!sameIds(employee.reportingTo, values.reportingTo)) {
-        const kept = new Set(employee.reportingTo.map((supervisor) => supervisor.toHexString()));
-        const unique = new Set(values.reportingTo);
-        const onlyRemoved =
-          unique.size === values.reportingTo.length &&
-          values.reportingTo.every((supervisorId) => kept.has(supervisorId));
-        // Fewer or reordered supervisors can't form a loop or add anyone inactive.
-        reportingTo = onlyRemoved
-          ? values.reportingTo.flatMap((supervisorId) => toObjectId(supervisorId) ?? [])
-          : await validateAndClaimReportingTo(employee._id, values.reportingTo, session);
-      }
+      // The change rule shared with the directory inspector (employees/reporting-lines.ts).
+      const reportingTo = await resolveReportingToChange(employee, values.reportingTo, session);
 
       const employeeChanges = {
         firstName: values.firstName,
@@ -799,7 +788,7 @@ export async function updateUser(
         employee.dateHired.getTime() !== dateHired.getTime() ||
         !employee.departmentId.equals(departmentId) ||
         !employee.positionId.equals(positionId) ||
-        !sameIds(
+        !sameSupervisorIds(
           employee.reportingTo,
           reportingTo.map((supervisor) => supervisor.toHexString()),
         );

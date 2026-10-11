@@ -28,7 +28,8 @@ import {
 // Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
 // (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8, and the
 // Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9),
-// docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10) and
+// docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10),
+// docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -54,8 +55,9 @@ const systemAdministrator = viewer({
   moduleAccess: fullModuleAccess(),
 });
 
-// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9), then Holidays (step 1.10).
-const CORE_HREFS = ['/', '/approvals', '/holidays'];
+// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9), then Holidays (step 1.10),
+// then Directory and Org chart (step 1.11).
+const CORE_HREFS = ['/', '/approvals', '/holidays', '/directory', '/org-chart'];
 
 const HR_ADMIN_HREFS = [
   '/admin',
@@ -79,7 +81,7 @@ const ALL_ADMIN_HREFS = [
 ];
 
 describe('visibleNavigation', () => {
-  it('shows a new user only Pulse Core (Home, Approvals and Holidays), with the empty groups hidden', () => {
+  it('shows a new user only Pulse Core (Home, Approvals, Holidays, Directory, Org chart), with the empty groups hidden', () => {
     const groups = visibleNavigation(newUser);
     expect(groups.map((group) => group.label)).toEqual(['Pulse Core']);
     expect(visibleHrefs(newUser)).toEqual(CORE_HREFS);
@@ -273,6 +275,63 @@ describe('Holidays (step 1.10)', () => {
 
   it('is current on /holidays, not Home or Approvals', () => {
     expect(activeEntry(visibleNavigation(newUser), '/holidays')?.entry.label).toBe('Holidays');
+  });
+});
+
+describe('Directory and Org chart (step 1.11)', () => {
+  const everyone = [
+    newUser,
+    hr,
+    systemAdministrator,
+    viewer({ roles: ['board'] }),
+    viewer({ roles: ['accounting'] }),
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  ];
+
+  it('sit in Pulse Core after Holidays, Directory then Org chart, for every signed-in user', () => {
+    for (const someone of everyone) {
+      const core = visibleNavigation(someone)[0];
+      expect(core?.label).toBe('Pulse Core');
+      const hrefs = core?.entries.map((entry) => entry.href) ?? [];
+      expect(hrefs.indexOf('/directory')).toBe(hrefs.indexOf('/holidays') + 1);
+      expect(hrefs.indexOf('/org-chart')).toBe(hrefs.indexOf('/directory') + 1);
+      expect(visibleHrefs(someone)).toEqual(expect.arrayContaining(['/directory', '/org-chart']));
+    }
+  });
+
+  it('need no module access or role, have no badge, and are not Administration entries', () => {
+    for (const [href, label] of [
+      ['/directory', 'Directory'],
+      ['/org-chart', 'Org chart'],
+    ] as const) {
+      const entry = getNavEntry(href);
+      expect(entry).toMatchObject({ label, title: label });
+      expect(entry.module).toBeUndefined();
+      expect(entry.adminArea).toBeUndefined();
+      expect(entry.adminGroup).toBeUndefined();
+      expect(entry.badge).toBeUndefined();
+      expect(ADMIN_ENTRIES.map((candidate) => candidate.href)).not.toContain(href);
+    }
+  });
+
+  it('read "Pulse Core › Directory" and "Pulse Core › Org chart" in the breadcrumb', () => {
+    for (const someone of everyone) {
+      const groups = visibleNavigation(someone);
+      expect(breadcrumbFor(groups, '/directory')).toEqual({
+        parent: 'Pulse Core',
+        current: 'Directory',
+      });
+      expect(breadcrumbFor(groups, '/org-chart')).toEqual({
+        parent: 'Pulse Core',
+        current: 'Org chart',
+      });
+    }
+  });
+
+  it('are current on their own paths, not Home or Holidays', () => {
+    const groups = visibleNavigation(newUser);
+    expect(activeEntry(groups, '/directory')?.entry.label).toBe('Directory');
+    expect(activeEntry(groups, '/org-chart')?.entry.label).toBe('Org chart');
   });
 });
 

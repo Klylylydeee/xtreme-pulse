@@ -1,6 +1,6 @@
 # Build handoff
 
-**Date:** 2026-10-11 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
+**Date:** 2026-10-12 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
 
 Where the build stands, what's half-done, and what to do next. Facts here were checked against the repo on this date. The specs in [BUILD_PLAN.md](BUILD_PLAN.md), [SECURITY.md](../SECURITY.md) and the ADRs win over this file.
 
@@ -27,7 +27,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 
 ## Branches and commits
 
-`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`) and step 1.9 (`42e64f1`) are committed but **not pushed** (`phase-1` is 2 commits ahead). No pull request is open yet. `phase-0` is not pushed.
+`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`) and step 1.10 (`5f283bb`) are committed but **not pushed** (`phase-1` is 3 commits ahead). Step 1.11 is built and verified but **not committed** (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
 
 | Branch | Commit | What |
 |---|---|---|
@@ -46,6 +46,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 | | `c1fba4f` | Step 1.8 shared master data, with `docs/HANDOFF.md` and `docs/BUILD_SUMMARY.md`. Pushed (2026-10-08) |
 | | `89296fb` | Administration sidebar sub-groups (2026-10-09). Not pushed |
 | | `42e64f1` | Step 1.9 approvals engine (2026-10-11). Not pushed |
+| | `5f283bb` | Step 1.10 holiday calendar (2026-10-12). Not pushed |
 
 ## Step 1.2 follow-up (committed as `8cddb26`)
 
@@ -114,8 +115,8 @@ Committed on `phase-1` as `2b7c959`. The dev-origins fix followed as `823a8d2`.
 | 1.7 User access page | Done, **committed as `be19cda`** on `phase-1` and pushed (2026-10-06). Built per the user's 16 decisions (BUILD_PLAN decisions 65–80). Typecheck, lint, `pnpm test` (28 files, 495 tests) and the production build pass. **Open:** the browser check by a person. See [1.7 build](#17-build-2026-10-06) |
 | 1.8 Shared master data services | Done, verified, **committed** on `phase-1` as "feat(core,web): step 1.8 shared master data" and pushed (2026-10-08). Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls. See [1.8 build status](#18-build-status-2026-10-08) |
 | 1.9 Approvals engine | Done, **committed as `42e64f1`** on `phase-1` (2026-10-11), not pushed. Built per BUILD_PLAN decisions 99–110 |
-| 1.10 Holiday calendar | In progress. The spec is written (2026-10-11, decisions 111–132, docs only, not committed); next is the plan for the build ([Next: step 1.10](#next-step-110)) |
-| 1.11 Directory, org chart, command bar and Home tiles | Not started |
+| 1.10 Holiday calendar | Done, **committed as `5f283bb`** on `phase-1` (2026-10-12), not pushed. Built per BUILD_PLAN decisions 111–132 |
+| 1.11 Directory, org chart, command bar and Home tiles | Built and verified (2026-10-12), **not committed**. Built per BUILD_PLAN decisions 133–153. Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass. **Open:** the user's hands-on checks in the browser, then the Phase 1 check. See [1.11 build](#111-build-2026-10-12) |
 
 ### 1.1 notes
 
@@ -483,11 +484,69 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
     - **1.8:** see [Manual checks still needed](#manual-checks-still-needed-by-a-person-signed-in).
 11. **Ask the user about the 1.8 judgement calls** ([Judgement calls left for the user](#judgement-calls-left-for-the-user)). All are left as built until they decide.
 12. ~~**Step 1.9**, "Approvals engine"~~. Done (2026-10-11): built per decisions 99–110 and committed as `42e64f1`, not pushed.
-13. **Step 1.10**, "Holiday calendar": the spec is written (decisions 111–132, the user's approved decisions, docs only and not yet committed). Next, show the build plan and **wait for the user's approval before any code**. See [Next: step 1.10](#next-step-110).
+13. ~~**Step 1.10**, "Holiday calendar"~~. Done (2026-10-12): built per decisions 111–132 and committed as `5f283bb`, not pushed.
+14. ~~**Step 1.11**, "Directory, org chart, command bar and Home tiles"~~. Built and verified (2026-10-12) per decisions 133–153, **not committed**. See [1.11 build](#111-build-2026-10-12).
+15. **The user's hands-on checks of step 1.11** in the browser ([1.11 manual checks](#111-manual-checks-by-the-user-signed-in)). Then ask the user before committing 1.11 and its docs.
+16. **The Phase 1 check** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), the "Phase check" after step 1.11), which the user runs by hand on a fresh database. With it done, Phase 1 is complete; every build step of Phase 1 is now built.
 
-## Next: step 1.10
+## 1.11 build (2026-10-12)
 
-**1.10 Holiday calendar** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), Phase 1 step 10).
+Built by five sub-agents (Core services; the `packages/ui` Avatar and command bar; the org chart layout; the directory and org chart pages; the command bar wiring and Home), then reviewed and verified by another. Nothing is committed: the code and the 1.11 docs are all in the working tree on `phase-1`, on top of `5f283bb`.
+
+### What was built
+
+- **Core** (`packages/core`): the result shapes, fixed sets (`COMMAND_PROVIDER_KINDS`, `COMMAND_ICONS`) and the reporting line form schema in `src/directory.ts`; the directory, card, Home team, department filter and inspector supervisor search in `server/directory/service.ts`, all built field by field from explicit projections in `server/directory/people.ts`; the org chart graph in `server/directory/org-chart.ts`; the command bar registry and Core's people provider in `server/command-bar/`; `canEditReportingLines` and `canSeeSeparatedPeople` in `roles.ts`; one reporting line change rule (`resolveReportingToChange`) shared by `updateUser` and the new `setReportingLines` in `employees/reporting-lines.ts`; `oldestApprovalWaitingSubmittedAt` in the approvals service; `firstName` on the session's employee; the `employees` index `{ lastName, firstName, _id }`.
+- **UI** (`packages/ui`): the shared `Avatar` (also on the User access page), the command bar's search props (result groups, loading and error states, icon keys) and the `/dev/ui` gallery entries.
+- **Web** (`apps/web`): `/directory` and `/org-chart` (Pulse Core sidebar, after Holidays), the shared person inspector with inline reporting line editing, the org chart layout (`lib/org-chart-layout.ts`), the SupervisorPicker moved to `components/supervisor-picker.tsx` with the search action passed in (`/admin/users` keeps its own), `reportingLineEditorsOnly()` in `lib/auth.ts`, the command bar search (`lib/actions/command-bar.ts`, wired in `pulse-shell.tsx`), and the Home hero and tiles (`app/(pulse)/page.tsx`, `home-tiles.tsx`, `lib/home.ts`).
+
+### Review (2026-10-12)
+
+Checked against decisions 133–153, Reporting lines, Company directory, Org chart, Command bar and Home in `core.md`, SECURITY.md (Roles, Rules, Command bar providers, the directory allowlist, Audit logging) and DESIGN_SYSTEM.md. No code bug was confirmed, so the code is unchanged by the review. What was checked:
+
+- **Allowlist.** Every directory, card, org chart, people result and Home team value is built field by field; the employment status is read only to resolve the account status, and the date hired, separation date, module access and password hash are never read. The action and page props carry only those shapes.
+- **Separated people.** Hidden from everyone but HR and System Administrators across the list, the card (a separated card answers like a missing one), the org chart, the command bar, the Home team and the inspector's links; the server ignores `?separated=1` for anyone else, Board members included. An inactive supervisor shows on a card only to the editors, and a Board member sees it without a link.
+- **Editing.** The role is checked in the Server Actions and again in the service; own lines (read fresh from the database), the system account and a separated or account-less employee are refused; the stale-form check counts the order; cycles stay with the claim-based check; the audit entry is written in the save's transaction, and a save that changes nothing writes nothing. The `updateUser` refactor behaves as before (its tests still pass).
+- **Command bar.** Providers are filtered by `isVisibleTo` (inside the failure guard), results are rebuilt field by field and links must pass `isInternalHref`, a failed provider is left out with only its key logged, at most 8 results per provider, queries trimmed and capped at 100. `registerCoreCommandProviders()` checks `hasCommandProvider` first, so calling it on every request never throws in production (tested with `NODE_ENV=production`).
+- **Limits.** Every search input is capped at 100 characters (directory page and service, supervisor search, card id, command bar).
+- **Home.** Each tile reads only the user's own data and loads and fails on its own; the greeting, the "Oldest submitted N days ago" day count and the holidays window use Manila time.
+- **UI.** Tokens only, 44px targets on the new controls, accessible names on cards, rows and buttons, the lines and avatars hidden from assistive technology.
+
+Docs aligned with the code: the 1.11 "Where" line in [TESTING.md](TESTING.md#directory-org-chart-and-command-bar-tests) (it was missing) and the Home helper tests; the registry's development behaviour (a second registration replaces the first outside production) and `registerCoreCommandProviders()` in [Command bar](modules/core.md#command-bar).
+
+### Assumptions and small notes (for the user)
+
+- The command bar's Server Action refuses a query over 100 characters rather than cutting it; the command bar cuts it before sending, so a user never sees this. The registry cuts it too.
+- The inspector's supervisor search, like `/admin/users`' one, leaves out the person being edited after taking the first 20 matches, so it can show 19.
+- "Upcoming holidays" covers today through the 60th day after it (61 Manila days).
+- Search waits 250 ms after the last key on the directory and the org chart, and 200 ms in the command bar (the spec fixes only the command bar's).
+
+### 1.11 manual checks (by the user, signed in)
+
+Agents here have no browser. In light and dark appearance and at phone width:
+
+1. As HR or the System Administrator, give one employee two supervisors. On `/org-chart` they appear once with two lines (the step's "Done when"); cards are named "…, reports to A and B".
+2. Press ⌘K or Ctrl+K, type part of a name, then an employee number such as `2027-01`: the person shows under People and opens their card on `/directory`.
+3. On `/directory`: search by name, number and email; filter by department; as HR, "Show separated" shows the "Inactive" badge; as an ordinary user, `?separated=1` changes nothing and a separated person's `?person=` link says they aren't in the directory.
+4. As a Board member, edit someone else's reporting lines in the inspector (Save with ⌘↵ or Ctrl+Enter); your own card says "You can’t change your own reporting lines."; as the System Administrator, `/admin/audit` shows one `update` on `core.employee` for the save. Open the same card in two tabs, save in one, then save in the other: the stale message and Reload show.
+5. On `/admin/users`, the supervisor picker still searches and saves as before.
+6. Home: the greeting and date, the four tiles and their zero states; the system account sees no name and no Your team tile.
+7. The org chart's zoom, Fit and department filter, and name search ("Match" ring, dimming, scroll) by keyboard and at phone width; the page never scrolls sideways.
+
+## Step 1.11 brief (done)
+
+Kept for the record. Built and verified on 2026-10-12, not committed.
+
+**1.11 Directory, org chart, command bar and Home tiles** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), Phase 1 step 11).
+
+The spec was changed first (2026-10-12), from the approved plan and its 20 recommendations: BUILD_PLAN decisions 133–153, [Reporting lines](modules/core.md#reporting-lines) (editing in the inspector), [Company directory](modules/core.md#company-directory), [Org chart](modules/core.md#org-chart), [Command bar](modules/core.md#command-bar) and [Home](modules/core.md#home) ("Built in step 1.11"), [SECURITY.md](../SECURITY.md#rules) (the pages, the Board's editor, the command bar provider rule, the directory allowlist, audit), [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md#layout--components) (command bar, directory, org chart, Home tiles, the Avatar), [Cross-module integration](ARCHITECTURE.md#cross-module-integration) (`registerCommandProvider`), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership) (the `employees` index), [Constants versus data](CODE_STYLE.md#constants-versus-data) (`COMMAND_PROVIDER_KINDS`, `COMMAND_ICONS`) and the [Directory, org chart and command bar tests](TESTING.md#directory-org-chart-and-command-bar-tests). These docs aren't committed yet.
+
+**Build order (from the approved plan).** Core services first (the `canEditReportingLines` role, a shared reporting line change rule used by `/admin/users` too, `setReportingLines`, the directory, org chart and team services, the oldest waiting approval, the index), the command bar registry and people provider, the `packages/ui` Avatar and command bar props, and the org chart layout, in parallel; then the web pages and actions, and the command bar wiring with the Home tiles; then verification. Home's holidays tile reads `listConfirmedHolidays` from step 1.10.
+
+**Workflow.** Dispatch sub-agents for all work (CLAUDE.md). Build, verify on a throwaway database, and don't commit without asking.
+
+## Step 1.10 brief (done)
+
+Kept for the record. Built and committed as `5f283bb` (2026-10-12).
 
 The spec was changed first (2026-10-11), from the user's approved decisions: BUILD_PLAN decisions 111–132, [Holiday calendar](modules/core.md#holiday-calendar) ("Built in step 1.10"), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership) (`holidays`, `core.holidayRules`), [SECURITY.md](../SECURITY.md#rules) (`/holidays`, audit), [Background jobs](ARCHITECTURE.md#background-jobs), [Environment variables](DEPLOYMENT.md#environment-variables) (`HOLIDAY_SOURCE_URL`), [Runbook](RUNBOOK.md#online-holiday-source-unreachable) and [Holiday calendar tests](TESTING.md#holiday-calendar-tests). These docs aren't committed yet.
 

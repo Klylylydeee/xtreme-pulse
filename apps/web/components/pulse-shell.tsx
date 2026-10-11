@@ -3,12 +3,22 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link, { useLinkStatus } from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import {
+  COMMAND_QUERY_MAX_LENGTH,
+  COMMAND_QUERY_MIN_LENGTH,
+  COMMAND_SEARCH_DELAY_MS,
+} from '@pulse/core';
 import { AppShell } from '@pulse/ui/components/app-shell';
 import type { ShellNavItemGroup, ShellNavSection } from '@pulse/ui/components/sidebar';
-import { COMMAND_BAR_SHORTCUT } from '@pulse/ui/components/command-bar';
+import {
+  COMMAND_BAR_SHORTCUT,
+  type CommandResultGroup,
+  type CommandSearchProps,
+} from '@pulse/ui/components/command-bar';
 import { ShortcutHint } from '@pulse/ui/components/shortcut-hint';
 import { Button } from '@pulse/ui/components/button';
 import { APP_NAME } from '@/lib/app';
+import { type CommandSearchGroup, commandSearchAction } from '@/lib/actions/command-bar';
 import { visibleNavigationAction } from '@/lib/actions/navigation';
 import {
   activeEntry,
@@ -80,6 +90,80 @@ function useVisibleNavigation(initial: VisibleNavigation, pathname: string): Vis
   }, [pathname]);
 
   return navigation;
+}
+
+/** The query the server is asked about: trimmed and capped, or null under 2 characters. */
+function searchTermOf(query: string): string | null {
+  const term = query.trim().slice(0, COMMAND_QUERY_MAX_LENGTH).trim();
+  return term.length >= COMMAND_QUERY_MIN_LENGTH ? term : null;
+}
+
+function toResultGroups(groups: readonly CommandSearchGroup[]): CommandResultGroup[] {
+  return groups.map((group) => ({
+    heading: group.heading,
+    items: group.results.map((result) => ({
+      id: result.id,
+      title: result.title,
+      ...(result.subtitle ? { subtitle: result.subtitle } : {}),
+      href: result.href,
+      icon: result.icon,
+    })),
+  }));
+}
+
+/**
+ * The command bar's search (docs/modules/core.md#command-bar): the server is asked 200 ms after
+ * the user stops typing, from 2 characters; below that nothing is sent. Only the latest request's
+ * answer is used (an older one arriving late is ignored), and nothing is cached: every search asks
+ * the server again, which checks the user's access each time. A failed search shows the error
+ * state, and Go to keeps working. Closing the bar clears the query, and with it the results.
+ */
+function useCommandSearch(): CommandSearchProps {
+  const [query, setQuery] = useState('');
+  const [resultGroups, setResultGroups] = useState<CommandResultGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const term = searchTermOf(query);
+
+  function onQueryChange(next: string) {
+    setQuery(next);
+    const nextTerm = searchTermOf(next);
+    if (nextTerm === term) return;
+    // A new search starts (or none is needed): the old answer no longer applies.
+    setResultGroups([]);
+    setError(false);
+    setLoading(nextTerm !== null);
+  }
+
+  const request = useRef(0);
+  useEffect(() => {
+    // Every change of term makes any request still running stale.
+    const current = ++request.current;
+    if (term === null) return;
+    const timer = setTimeout(() => {
+      commandSearchAction(null, { query: term })
+        .then((result) => {
+          if (current !== request.current) return;
+          if (result.ok) {
+            setResultGroups(toResultGroups(result.data));
+            setError(false);
+          } else {
+            setResultGroups([]);
+            setError(true);
+          }
+          setLoading(false);
+        })
+        .catch(() => {
+          if (current !== request.current) return;
+          setResultGroups([]);
+          setError(true);
+          setLoading(false);
+        });
+    }, COMMAND_SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [term]);
+
+  return { query, onQueryChange, resultGroups, loading, error };
 }
 
 /**
@@ -229,6 +313,7 @@ export function PulseShell({
   const groups = useMemo(() => navigationFor(hrefs), [hrefs]);
   const sections = useMemo(() => sectionsFor(groups, pathname, badges), [groups, pathname, badges]);
   const bell = useNotificationBell(unreadNotifications);
+  const commandSearch = useCommandSearch();
   const statusTitle = useShellPageTitleState();
   // A status page's own title wins; otherwise the path's. Either way a page the user can't open
   // never names itself.
@@ -248,6 +333,7 @@ export function PulseShell({
         linkHint={<NavLinkPendingHint />}
         routeKey={pathname}
         onNavigate={(href) => router.push(href)}
+        commandSearch={commandSearch}
         notifications={bell.panel}
         notificationsUnread={bell.unread}
         notificationsOpen={bell.open}

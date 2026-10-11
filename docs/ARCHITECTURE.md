@@ -122,6 +122,7 @@ Modules talk to each other only through the owning module's service functions. T
 | Caller | Calls | For | Spec |
 |---|---|---|---|
 | Every module | Core | Access checks, approvals, notifications, audit log, master data | [core.md](modules/core.md) |
+| Every module | Core | Add its records and actions to the command bar (`registerCommandProvider`, filtered by access; from build step 1.11) | [Command bar](modules/core.md#command-bar) |
 | Engage | Core | Create and edit clients, sites, contacts and products | [Clients, sites and contacts](modules/engage.md#clients-sites-and-contacts) |
 | Engage | Ops | Create the project when a deal is won | [Won deals → Pulse Ops](modules/engage.md#won-deals--pulse-ops) |
 | Engage, Ops | Talent | Read certifications for presales and assignments | [Skills & certifications](modules/talent.md#skills--certifications) |

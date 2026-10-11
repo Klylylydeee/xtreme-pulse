@@ -25,7 +25,14 @@ export interface CurrentUser {
   isSystemAdministrator: boolean;
   /** The bootstrap system account, which has no employee. */
   isSystemAccount: boolean;
-  employee: { id: string; name: string; departmentCode: string | null } | null;
+  employee: {
+    id: string;
+    /** `First Last`. */
+    name: string;
+    /** The first name alone, for the Home greeting. */
+    firstName: string;
+    departmentCode: string | null;
+  } | null;
   /** HR, Accounting and Board, from the employee's department. */
   roles: DepartmentRole[];
   /**
@@ -96,6 +103,7 @@ export async function loadSessionUser(
       employee = {
         id: record._id.toString(),
         name: `${record.firstName} ${record.lastName}`,
+        firstName: record.firstName,
         departmentCode: department?.code ?? null,
       };
     }

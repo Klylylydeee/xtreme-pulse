@@ -20,6 +20,7 @@ import {
 } from '@pulse/core';
 import type { SaveUserAccessResult, UserAccessDetail, UserAccessRow } from '@pulse/core/server';
 import { cn } from '@pulse/ui';
+import { Avatar } from '@pulse/ui/components/avatar';
 import { Button } from '@pulse/ui/components/button';
 import { DestructiveConfirmDialog } from '@pulse/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pulse/ui/components/dialog';
@@ -63,22 +64,17 @@ export function UserAvatar({
   row: Pick<UserAccessRow, 'firstName' | 'lastName' | 'email' | 'isSystemAccount'>;
   size?: 'md' | 'lg';
 }) {
-  const initials = row.isSystemAccount
-    ? null
-    : [row.firstName, row.lastName]
-        .map((part) => part?.trim().charAt(0) ?? '')
-        .join('')
-        .toUpperCase() || row.email.charAt(0).toUpperCase();
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full bg-accent-subtle font-semibold text-accent',
-        size === 'lg' ? 'size-12 text-callout' : 'size-11 text-subheadline',
-      )}
-    >
-      {initials ?? <ShieldCheck strokeWidth={1.75} className="size-5" />}
-    </span>
+  // The shared Avatar (decision 151). The system account has no name: a shield. A user with no
+  // name parts falls back to the email's first letter, as before.
+  return row.isSystemAccount ? (
+    <Avatar size={size} fallback={<ShieldCheck strokeWidth={1.75} className="size-5" />} />
+  ) : (
+    <Avatar
+      firstName={row.firstName}
+      lastName={row.lastName}
+      size={size}
+      fallback={row.email.charAt(0).toUpperCase()}
+    />
   );
 }
 

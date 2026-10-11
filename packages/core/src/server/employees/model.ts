@@ -60,6 +60,8 @@ employeeSchema.index({ departmentId: 1 });
 employeeSchema.index({ positionId: 1 });
 // Finds an employee's direct reports (approvals, org chart).
 employeeSchema.index({ reportingTo: 1 });
+// The directory's sort: last name, then first name (docs/modules/core.md#company-directory).
+employeeSchema.index({ lastName: 1, firstName: 1, _id: 1 });
 
 /** True when `instant` is 00:00 Manila on its day, as every business date is stored. */
 function isStartOfManilaDay(instant: Date): boolean {

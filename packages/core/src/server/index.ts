@@ -52,9 +52,11 @@ export {
   canManageOrgStructure,
   canManageUsers,
   canEditAccessOf,
+  canEditReportingLines,
   canManageAccess,
   canManageHolidays,
   canResetPasswordOf,
+  canSeeSeparatedPeople,
   canToggleSystemAdministrator,
   type DepartmentRole,
   departmentRolesFor,
@@ -342,7 +344,14 @@ export {
   employeeNumbersRunOutMessage,
   issueEmployeeNumber,
 } from './employee-numbers/service';
-export { validateAndClaimReportingTo } from './employees/reporting-lines';
+export {
+  type ReportingLineActor,
+  resolveReportingToChange,
+  sameSupervisorIds,
+  setReportingLines,
+  type SetReportingLinesResult,
+  validateAndClaimReportingTo,
+} from './employees/reporting-lines';
 export { claimLiveDepartment, claimLivePosition } from './org-claims';
 
 // User access (docs/modules/core.md#user-access-page): the access setter, the "Needs access"
@@ -461,6 +470,7 @@ export {
   listApprovalsForRecord,
   listApprovalsWaiting,
   type ListApprovalsOptions,
+  oldestApprovalWaitingSubmittedAt,
   submitApproval,
   type SubmitApprovalInput,
   type SubmittedApproval,
@@ -557,3 +567,27 @@ export {
   runHolidaysChangedListeners,
   setHolidaysChangedEnqueuer,
 } from './holidays/events';
+
+// The directory, org chart, Home team and command bar (docs/modules/core.md#company-directory,
+// #org-chart, #home, #command-bar, build step 1.11). Open to every signed-in user; directory
+// fields only (SECURITY.md#sensitive-data). Modules add command bar results through
+// `registerCommandProvider` (docs/ARCHITECTURE.md#cross-module-integration).
+export {
+  type DirectoryViewer,
+  getDirectoryPerson,
+  getOwnTeam,
+  listDirectory,
+  listDirectoryDepartments,
+  type ListDirectoryOptions,
+  searchSupervisorCandidates,
+} from './directory/service';
+export { getOrgChart, type OrgChartOptions } from './directory/org-chart';
+export {
+  type CommandBarUser,
+  type CommandProviderDefinition,
+  type CommandSearchContext,
+  normalizeCommandQuery,
+  registerCommandProvider,
+  searchCommands,
+} from './command-bar/registry';
+export { PEOPLE_PROVIDER_KEY, registerCoreCommandProviders } from './command-bar/people-provider';

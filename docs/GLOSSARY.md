@@ -145,5 +145,7 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Sheet | A slide-over panel for create and edit flows |
 | Inspector | The right-hand panel with the selected item's details |
 | Command bar | "Search or jump to…", opened with ⌘K or Ctrl+K |
+| Command provider | A module's source of command bar results (its records or actions), registered with Core and called only for users it is visible to ([Command bar](modules/core.md#command-bar)) |
+| Directory card | One person's directory fields, opened in the inspector from the directory, the org chart, the command bar or Home ([Company directory](modules/core.md#company-directory)) |
 | Hero | The solid cobalt area on Home and Login |
 | Segmented control | A row of buttons that switches between views |

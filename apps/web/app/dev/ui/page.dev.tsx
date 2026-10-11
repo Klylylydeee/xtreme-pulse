@@ -26,6 +26,7 @@ import {
 } from './gallery-controls';
 import { ChartDemo, DataTableDemo } from './gallery-data';
 import { MaskedFieldDemo } from './masked-field-demo';
+import { AvatarDemo, CommandBarDemo } from './gallery-people';
 import { NotificationBellDemo } from './gallery-notifications';
 import { AppearanceStatus, TokenValue } from './token-value';
 
@@ -324,6 +325,20 @@ export default function DevUiPage() {
             <MaskedFieldDemo />
           </Suspense>
         </div>
+      </Section>
+
+      <Section
+        title="Avatar"
+        note="Initials in an accent-subtle circle, hidden from assistive technology because the name always shows beside it. Photos fill it from Phase 2."
+      >
+        <AvatarDemo />
+      </Section>
+
+      <Section
+        title="Command bar"
+        note="Go to filters the navigation as you type; search results show as the server returns them. Pick a state, then open it. Arrow keys move, Enter opens, Escape closes."
+      >
+        <CommandBarDemo />
       </Section>
 
       <Section

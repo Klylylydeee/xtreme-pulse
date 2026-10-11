@@ -14,7 +14,7 @@ import { DESKTOP_QUERY } from '../hooks/use-media-query';
 import { useReturnFocus } from '../hooks/use-return-focus';
 import { cn } from '../lib/utils';
 import { Button } from './button';
-import { CommandBar, CommandBarTrigger } from './command-bar';
+import { CommandBar, CommandBarTrigger, type CommandSearchProps } from './command-bar';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from './sheet';
 import { ShellContext, type ShellContextValue } from './shell-context';
 import {
@@ -41,6 +41,7 @@ export function AppShell({
   linkHint,
   routeKey,
   onNavigate,
+  commandSearch,
   notifications,
   notificationsUnread,
   notificationsOpen,
@@ -65,6 +66,11 @@ export function AppShell({
   routeKey?: string;
   /** Navigates to a path chosen in the command bar. */
   onNavigate: (href: string) => void;
+  /**
+   * The command bar's search: the query, the result groups and the loading and error states
+   * (see `CommandSearchProps`). Without it the command bar only filters the navigation items.
+   */
+  commandSearch?: CommandSearchProps;
   /** The notifications popover's content (it sets its own padding). */
   notifications: ReactNode;
   /** The unread count for the bell's badge. */
@@ -338,6 +344,7 @@ export function AppShell({
         onCloseAutoFocus={onCommandCloseAutoFocus}
         items={commandItems}
         onSelect={onNavigate}
+        {...commandSearch}
       />
     </ShellContext.Provider>
   );

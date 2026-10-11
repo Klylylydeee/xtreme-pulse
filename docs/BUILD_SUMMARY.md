@@ -1,6 +1,6 @@
 # Build summary
 
-**As of:** 2026-10-11 · **Branch:** `phase-1` · **For:** the project owner and anyone picking the work up
+**As of:** 2026-10-12 · **Branch:** `phase-1` · **For:** the project owner and anyone picking the work up
 
 What has been built, what the user decided, and what is waiting. For the session-by-session detail, see [HANDOFF.md](HANDOFF.md). The specs in [BUILD_PLAN.md](BUILD_PLAN.md), [SECURITY.md](../SECURITY.md) and the [ADRs](adr/README.md) win over this file.
 
@@ -21,10 +21,12 @@ What has been built, what the user decided, and what is waiting. For the session
 | 1.8 Shared master data services | Done: built, verified and committed (decisions 81–98), pushed. Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls ([HANDOFF › 1.8 build status](HANDOFF.md#18-build-status-2026-10-08)) | `c1fba4f` |
 | UI: Administration sidebar sub-groups | Done and committed (2026-10-09). Not pushed | `89296fb` |
 | 1.9 Approvals engine | Done and committed (decisions 99–110), 2026-10-11. Not pushed | `42e64f1` |
-| 1.10 Holiday calendar | In progress: the spec is written (decisions 111–132, docs only, not committed). Next: the build plan, for the user's approval ([HANDOFF › Next: step 1.10](HANDOFF.md#next-step-110)) | — |
-| 1.11 | Not started | — |
+| 1.10 Holiday calendar | Done and committed (decisions 111–132), 2026-10-12. Not pushed | `5f283bb` |
+| 1.11 Directory, org chart, command bar and Home tiles | Built and verified (decisions 133–153), 2026-10-12. **Not committed.** Typecheck, lint, Prettier, `pnpm test` (52 files, 910 tests) and the production build pass; the review confirmed no code bug. **Open:** the user's hands-on checks in the browser ([HANDOFF › 1.11 build](HANDOFF.md#111-build-2026-10-12)) | — |
 
-**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed up to step 1.8: `origin/phase-1` exists and is its upstream. `89296fb` and `42e64f1` (step 1.9) are not pushed yet. No pull request is open yet.
+**Phase 1.** Every build step of Phase 1 is built. Phase 1 is complete apart from the [Phase check](BUILD_PLAN.md#phase-1-pulse-core) after step 1.11, which the user runs by hand on a fresh database, and the hands-on browser checks still open for 1.7, 1.8 and 1.11.
+
+**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed up to step 1.8: `origin/phase-1` exists and is its upstream. `89296fb`, `42e64f1` (step 1.9) and `5f283bb` (step 1.10) are not pushed yet, and step 1.11 isn't committed. No pull request is open yet.
 
 **1.2 follow-up (`8cddb26`).** Users with a temporary password land on `/change-password` in the address bar. The `callbackUrl` is carried through and sanitized again.
 
@@ -203,7 +205,9 @@ Verified and committed as `84667ff` (2026-10-03). Not pushed.
 6. **Browser-check steps 1.7 and 1.8 by hand**, first thing next session ([Not done](#not-done), [HANDOFF › Manual checks still needed](HANDOFF.md#manual-checks-still-needed-by-a-person-signed-in)).
 7. ~~Step 1.8, "Shared master data services".~~ Done: built, committed and pushed (2026-10-08). The user still has three judgement calls to settle ([HANDOFF › Judgement calls](HANDOFF.md#judgement-calls-left-for-the-user)).
 8. ~~Step 1.9, "Approvals engine".~~ Done: committed as `42e64f1` (2026-10-11), not pushed.
-9. **Step 1.10, "Holiday calendar":** the spec is written (decisions 111–132). Next, the build plan, for the user's approval ([HANDOFF › Next: step 1.10](HANDOFF.md#next-step-110)).
+9. ~~Step 1.10, "Holiday calendar".~~ Done: committed as `5f283bb` (2026-10-12), not pushed.
+10. ~~Step 1.11, "Directory, org chart, command bar and Home tiles".~~ Built and verified (2026-10-12), not committed. Next, **the user's hands-on checks** ([HANDOFF › 1.11 manual checks](HANDOFF.md#111-manual-checks-by-the-user-signed-in)), then ask before committing.
+11. **The Phase 1 check** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core)), run by the user by hand on a fresh database. With it, Phase 1 is complete.
 
 ## Step 1.8 brief (done)
 

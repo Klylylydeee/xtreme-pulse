@@ -28,6 +28,7 @@ import {
   listApprovalsDecided,
   listApprovalsForRecord,
   listApprovalsWaiting,
+  oldestApprovalWaitingSubmittedAt,
   submitApproval,
   type SubmitApprovalInput,
 } from './service';
@@ -1041,5 +1042,33 @@ describe('the registry', () => {
     unregisterApprovalType('talent.gone');
     await expect(decide(bea, id, 'approve', 0)).rejects.toThrow(ApprovalTypeNotRegisteredError);
     expect((await stored(id)).status).toBe('pending');
+  });
+});
+
+// The Home "Approvals waiting" tile (docs/modules/core.md#home, docs/TESTING.md#directory-org-chart-and-command-bar-tests).
+describe('oldestApprovalWaitingSubmittedAt', () => {
+  it('returns the oldest submit date among the requests waiting for the user, and none when nothing waits', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const cara = await person('Cara', { reportingTo: [bea] });
+    expect(await oldestApprovalWaitingSubmittedAt(bea.id)).toBeNull();
+
+    const first = await submit(ana);
+    await tick();
+    const second = await submit(cara);
+    const firstAt = (await stored(first.id)).submittedAt;
+    const secondAt = (await stored(second.id)).submittedAt;
+    expect(firstAt.getTime()).toBeLessThan(secondAt.getTime());
+    expect(await oldestApprovalWaitingSubmittedAt(bea.id)).toEqual(firstAt);
+
+    // Someone else's waiting requests don't count, nor the requester's own.
+    expect(await oldestApprovalWaitingSubmittedAt(ana.id)).toBeNull();
+    expect(await oldestApprovalWaitingSubmittedAt('not-an-id')).toBeNull();
+
+    // Once the oldest is decided, the next one is the oldest.
+    await decide(bea, first.id, 'approve', 0);
+    expect(await oldestApprovalWaitingSubmittedAt(bea.id)).toEqual(secondAt);
+    await decide(bea, second.id, 'approve', 0);
+    expect(await oldestApprovalWaitingSubmittedAt(bea.id)).toBeNull();
   });
 });

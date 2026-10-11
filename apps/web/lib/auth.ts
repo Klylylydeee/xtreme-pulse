@@ -11,6 +11,7 @@ import {
   assertApproverCanView,
   assertModuleAccess,
   assertSignedIn,
+  canEditReportingLines,
   canOpenAdminArea,
   type CurrentUser,
   hasModuleAccess,
@@ -154,5 +155,19 @@ export function adminOnly(kind: AdminAreaKind, message?: string): AccessCheck {
     const user = await getCurrentUser();
     assertSignedIn(user);
     if (!canOpenAdminArea(user, kind)) throw new AccessDeniedError(message);
+  };
+}
+
+/**
+ * The access check for the inspector's reporting line actions on the directory and the org chart
+ * (docs/modules/core.md#reporting-lines, decision 142): HR, Board members and System
+ * Administrators (`canEditReportingLines`), checked by role. The service checks the role again,
+ * and refuses one's own lines, the system account and a separated employee.
+ */
+export function reportingLineEditorsOnly(message?: string): AccessCheck {
+  return async () => {
+    const user = await getCurrentUser();
+    assertSignedIn(user);
+    if (!canEditReportingLines(user)) throw new AccessDeniedError(message);
   };
 }

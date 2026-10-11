@@ -2,7 +2,7 @@
 
 Pulse Core is the platform every module builds on. It covers sign-in, user accounts, system administration, the company directory and org chart, the holiday calendar, shared master data, approvals, notifications, the audit log and company settings.
 
-Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`), Approvals (`/approvals`, from build step 1.9), Holidays (`/holidays`, from build step 1.10) and administration (`/admin`). Package: `packages/core`.
+Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`), Approvals (`/approvals`, from build step 1.9), Holidays (`/holidays`, from build step 1.10), the directory (`/directory`) and the org chart (`/org-chart`, both from build step 1.11), and administration (`/admin`). Package: `packages/core`.
 
 Sign-in, passwords, account status, module access and the System Administrator role are security rules, so they live in [SECURITY.md](../../SECURITY.md).
 
@@ -88,9 +88,15 @@ Built in step 1.4.
 - `reportingTo` is an **array** of employee IDs: an employee can have one or multiple supervisors.
 - An employee cannot report to themselves, and reporting chains must never form a cycle (validate on save).
 - Anyone may have an empty `reportingTo`, such as top-level Board of Directors members. Their leave and offset time off go to HR, and the supervisor step of quotations and purchase requests is skipped (see each module's spec). When a non-Board employee is saved with no supervisor, the form hints "No supervisor: leave and offset time off go to HR."
-- Only **HR, Board of Directors members and the System Administrator** can set or change `reportingTo`. Employees and supervisors cannot. In build step 1.5 HR and the System Administrator edit it on `/admin/users` ([Managing user accounts](#managing-user-accounts)); the Board's editor arrives with the org chart in build step 1.11.
+- Only **HR, Board of Directors members and the System Administrator** can set or change `reportingTo`. Employees and supervisors cannot. HR and the System Administrator edit it on `/admin/users` (build step 1.5, [Managing user accounts](#managing-user-accounts)). From build step 1.11, HR, Board members and the System Administrator also edit it in the inspector on the directory and the org chart ([Company directory](#company-directory)).
 - **Checked on save** (build step 1.5): at most 10 supervisors, no one listed twice, and each supervisor must exist, be an employee (not the bootstrap system account) and be active when saved. The cycle check walks the upward chain inside the transaction. It writes every supervisor record it reads, and the employee's own, so two edits that would together form a cycle conflict and the retried one is refused. An edit that only removes or reorders supervisors isn't checked again (it can't add a cycle or anyone inactive), so a line to someone who later separated can stay.
-- Existing lines to someone who later separates stay as they are. The approvals engine (build step 1.9) leaves an inactive or separated supervisor out when a request is submitted, so a supervisor step goes only to the active ones ([Approvals](#approvals)); the org chart (build step 1.11) handles them there.
+- Existing lines to someone who later separates stay as they are. The approvals engine (build step 1.9) leaves an inactive or separated supervisor out when a request is submitted, so a supervisor step goes only to the active ones ([Approvals](#approvals)). The org chart (build step 1.11) doesn't draw them, and only the editors see them in the inspector ([Org chart](#org-chart)).
+- **Editing in the inspector** (build step 1.11). Who may edit: HR, Board members and the System Administrator (`canEditReportingLines`), checked by role in the Server Action and again in the service. Nobody edits their own lines ("You can’t change your own reporting lines."); the bootstrap system account has none; a separated employee's lines can't be edited from the inspector. A Board member may edit anyone else's, HR staff and System Administrators included.
+  - The inspector and `/admin/users` share one change rule in Core's reporting-lines service: the checks above, including the shortcut for an edit that only removes or reorders supervisors.
+  - **Stale form.** A save sends the supervisors the inspector opened with, in order. When the stored lines differ, it is refused with "Someone else changed <name>’s reporting lines since you opened them. Reload to see the change."
+  - **Supervisor search.** The inspector has its own search, for the same editors: active employees by name or employee number, at most 20, without the person being edited. `/admin/users`' search stays HR and System Administrator only.
+  - **Audit.** One `update` entry on `core.employee` (label `<employee number> · <first last>`, both sides snapshotted with `snapshotsForAudit`) in the save's transaction. There is no typed reason, and a save that changes nothing writes nothing.
+  - **No notification** is sent. Pending approval requests keep the approvers fixed at submit ([Approvals](#approvals)).
 - Approval workflows (leave, offset time off, timesheets, purchase requests, quotes, employee record changes, regularization) route through `reportingTo`.
 - **Any one supervisor can decide.** When an employee has multiple supervisors, the request goes to all of them, and the first decision (approve, return or reject) settles it. The other supervisors are notified of the outcome and can no longer act on it.
 - No one approves their own request. When the only approver in a step is the requester (e.g. the HR Officer's own timesheet at the HR step), the step goes to the System Administrator (see [Approvals](#approvals)).
@@ -144,7 +150,7 @@ The page where HR and the System Administrator set each user's module access. Bu
 - **After creating a user:** HR or the System Administrator goes straight to that user's access sheet, with the option to set access later.
 - **From the employee record** (Phase 2, with the Talent employee record): the user's record in Pulse Talent has a "Manage access" action that opens the same sheet (HR and System Administrator only).
 - **Notifications:** HR and the System Administrator are notified when a new user is created and when a user's position changes, and reminded daily while any user still needs access.
-- **New user's home** (build step 1.6): a user whose effective access is None on every module sees a card under the Home hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It never shows to the System Administrator, but can show to HR or a Board member with nothing set. It replaces the "Nothing needs your attention" empty state while it shows; the company details reminder is unchanged ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Self-service stays available.
+- **New user's home** (build step 1.6): a user whose effective access is None on every module sees a card under the Home hero: an icon tile and "Your access is being set up. HR will give you access to the modules you need." It never shows to the System Administrator, but can show to HR or a Board member with nothing set. It replaced the "Nothing needs your attention" empty state while it showed; from build step 1.11 that empty state is gone and the card sits under the hero, above the tiles ([Home](#home)). The company details reminder is unchanged ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Self-service stays available.
 - **Board members:** Board of Directors members normally need Insight Read for the Board dashboards, targets and weekly summary. The sheet shows this as a hint for Board members; it never grants access automatically.
 - Every change is audit-logged (see [Module access](../../SECURITY.md#module-access-rwo)).
 
@@ -176,6 +182,17 @@ Built in step 1.7:
 - Everything else in the employee record stays private (the employee, HR, Accounting and the System Administrator, per the [Sensitive data](../../SECURITY.md#sensitive-data) rules).
 - Deactivated employees are hidden from the directory by default; HR and the System Administrator can still view them.
 
+Built in step 1.11:
+
+- **Route:** `/directory`, a Pulse Core page open to every signed-in user with no module access needed ([Rules](../../SECURITY.md#rules)). It sits in the Pulse Core sidebar group after Holidays; the breadcrumb reads "Pulse Core › Directory".
+- **Fields, an allowlist.** Each person shows exactly: name, profile photo (initials until Pulse Talent adds photos in Phase 2), employee number, department, position, login email and `reportingTo`, plus their direct reports (the people whose `reportingTo` names them). Services build each result field by field from explicit projections. The date hired, employment status, separation date, module access and every Pulse Talent field never leave the server ([Sensitive data](../../SECURITY.md#sensitive-data)).
+- **Who is listed.** Employees whose account resolves to active ([Account status](../../SECURITY.md#account-status)). HR and the System Administrator get a "Show separated" switch (`?separated=1`); separated people then show with an "Inactive" badge, never their date or status. For anyone else, Board members included, the server ignores the switch, and a separated person's card answers like a missing one. The bootstrap system account never appears.
+- **List.** Sorted by last name, then first name, with no paging. Search by name, employee number or email (`?q=`) and filter by department (`?department=`). A table on desktop, a list on a phone.
+- **Directory card.** Selecting a person opens their card in the inspector (a full-height sheet on a phone); `?person=<employeeId>` opens it directly, and the command bar links there. The card shows the fields above, with "Reports to" and "Direct reports", each person opening their own card, and the email as a mail link. A line to an inactive or separated supervisor shows, with an "Inactive" badge, only to HR, Board members and the System Administrator, so they can remove it.
+- **Editing reporting lines.** For HR, Board members and the System Administrator, "Edit reporting lines" turns the "Reports to" section into the supervisor picker, inline in the inspector (not a sheet), with the hint "No supervisor: leave and offset time off go to HR." for someone outside the Board, Save (⌘↵ or Ctrl+Enter) and Cancel. The rules are in [Reporting lines](#reporting-lines).
+- **Not logged.** Opening the directory, a card or the org chart isn't audit-logged or written to the logs, and nothing is cached across users.
+- **Not in step 1.11:** profile photos (Phase 2), the rest of the employee record (Pulse Talent), and editing anything on the card but reporting lines.
+
 ## Org chart
 
 - Built automatically from `reportingTo`, so it always reflects the current structure. There is no separate chart to maintain.
@@ -184,6 +201,47 @@ Built in step 1.7:
 - Employees with more than one supervisor appear once, with a line to each supervisor.
 - Filter by department and search by name.
 - Deactivated employees and the bootstrap system account are not shown.
+
+Built in step 1.11:
+
+- **Route:** `/org-chart`, a Pulse Core page open to every signed-in user with no module access needed, after Directory in the Pulse Core sidebar group; the breadcrumb reads "Pulse Core › Org chart".
+- **Who is shown.** Active employees only, for everyone, HR and the System Administrator included. A line to a separated or inactive supervisor isn't drawn; a person left with no shown supervisor sits at the top level.
+- **Layout.** Each person appears once, placed by the longest chain of supervisors above them, with one line to each shown supervisor. The chart is one scrollable, zoomable region at every width, with zoom out, zoom in and Fit buttons; the page itself never scrolls sideways. There is no separate tree list.
+- **Cards** show the photo (initials), name, position and department. Selecting one opens that person's directory card in the inspector on the same page (`/org-chart?person=<employeeId>`), where editors can change reporting lines ([Company directory](#company-directory)).
+- **Department filter** (`?department=`), applied on the server: that department's members and the lines among them. A member whose shown supervisors are all outside the department gets the caption "Reports to <names>".
+- **Search by name** (`?q=`) highlights the matching cards with a ring and the label "Match", dims the rest and scrolls to the first match, without changing the layout.
+- **Accessibility.** Cards are buttons in reading order (by level, then position), each named with whom they report to ("Ana Cruz, Network Engineer, reports to Ben Reyes and Carla Lim"). The lines are hidden from assistive technology ([Accessibility](../DESIGN_SYSTEM.md#accessibility)).
+
+## Command bar
+
+Built in step 1.11. The command bar ("Search or jump to…", ⌘K on Mac and Ctrl+K elsewhere, [Pro-app layout](../DESIGN_SYSTEM.md#pro-app-layout)) is open to every signed-in user and searches people and actions across what the user can open.
+
+- **Go to.** The navigation items the server already filtered for the user (the same list as the sidebar), matched as the user types. These are the command bar's actions in step 1.11.
+- **People.** Core's people provider (`core.people`) finds active employees by name or employee number, for every signed-in user, and shows the name, employee number and position. Choosing one opens their directory card (`/directory?person=<employeeId>`). Separated people never appear, whoever searches.
+- **Provider registry.** Modules add their records and actions through `registerCommandProvider({ key, group, kind, isVisibleTo, search })` in `@pulse/core/server` ([Cross-module integration](../ARCHITECTURE.md#cross-module-integration)). `kind` is `records` or `actions` (`COMMAND_PROVIDER_KINDS`). A result has an id, a title, an optional subtitle, a link and an icon key from `COMMAND_ICONS` (`person`, `action` in step 1.11; modules add theirs). Registering a key a second time throws in production; in development and tests it replaces the first, since a hot reload runs the registering code again. Core's own registration (`registerCoreCommandProviders()`) registers each provider once per process, so the command bar's search calls it on every request. Core registers no action provider in step 1.11.
+- **Filtered by access.** Only providers whose `isVisibleTo(user)` accepts the user are called, and each provider still checks its own records, so a result never names something the user can't open ([Rules](../../SECURITY.md#rules)).
+- **Searching.** From 2 characters, 200 ms after the user stops typing; only the latest request's answer is used, and nothing is cached. Queries are trimmed and capped at 100 characters. Each provider returns at most 8 results. A provider that fails is left out of the answer, and the log names its key only, never the query or a record. Every result's link must be a path inside the app, by the same rule as a [notification link](#notifications); any other is dropped.
+- **Links only.** Choosing an entry goes to its link. Nothing in the command bar changes data, and searches aren't audit-logged.
+- **Not in step 1.11:** modules' records and actions (each phase registers its own), recent searches, and actions that change data.
+
+## Home
+
+Built in step 1.11. Home (`/`) is open to every signed-in user and shows only their own data.
+
+- **Hero.** "Good morning", "Good afternoon" or "Good evening" with the user's first name, by the Manila time (before 12:00, 12:00 to 17:59, from 18:00), and the Manila date. The bootstrap system account gets the greeting without a name.
+- **Access card.** While the user's effective access is None on every module, the card under the hero stays as in step 1.6 ([User access page](#user-access-page)); the company details reminder is unchanged.
+- **Tiles**, each loading and failing on its own:
+
+| Tile | Shows | Opens |
+|---|---|---|
+| Approvals waiting | The count of requests waiting for the user ([Approvals list](#approvals-list)) and "Oldest submitted N days ago", from the oldest waiting request's submit date | `/approvals` |
+| Unread notifications | The user's unread count ([Notifications](#notifications)) | `/notifications` |
+| Upcoming holidays | Up to 3 confirmed holidays in the next 60 days, with their date and type ([Holiday calendar](#holiday-calendar)) | `/holidays` |
+| Your team | The user's active supervisors and active direct reports, with directory fields only; hidden for the bootstrap system account | Each person's directory card |
+
+- **Zero states.** Each tile has its own ("Nothing is waiting for you.", "You're all caught up.", "No holidays in the next 60 days.", "No one reports to you yet."), so the "Nothing needs your attention" empty state is gone.
+- **Numbers only.** Tiles show counts and lists, with no trend charts until Pulse Talent brings data over time (Phase 2).
+- **Not in step 1.11:** the timesheet, leave, offset and payslip tiles (Phase 2).
 
 ## Holiday calendar
 
@@ -262,7 +320,7 @@ Built in step 1.10 (the details follow; the collection and its indexes are in [D
   - Confirm all enqueues one `core.holidaysChanged` job with every date it confirmed.
   - The type, scope, status and source values are fixed sets in `@pulse/core`: `HOLIDAY_TYPES`, `HOLIDAY_SCOPES`, `HOLIDAY_STATUSES` and `HOLIDAY_SOURCES` ([Constants versus data](../CODE_STYLE.md#constants-versus-data)).
   - Confirm, Confirm all and the auto-draft notify nobody; only a declaration notifies every user, and only the reminder notifies HR and the System Administrator.
-- **Not in step 1.10:** an editor for `core.holidayRules` (a new version is added through the configuration store), a restore screen for deleted holidays, unconfirming, how local holidays apply to employees and the DTR recompute (Phase 2), the Home "upcoming holidays" tile (step 1.11), and email notifications.
+- **Not in step 1.10:** an editor for `core.holidayRules` (a new version is added through the configuration store), a restore screen for deleted holidays, unconfirming, how local holidays apply to employees and the DTR recompute (Phase 2), and email notifications. The Home "upcoming holidays" tile is built in step 1.11 ([Home](#home)).
 
 ## Shared master data
 
@@ -386,7 +444,7 @@ Built in step 1.9 (the engine and the [Approvals list](#approvals-list); each mo
   - `onStepApproved` also runs for the last step: first `onStepApproved`, then `onSettled`, both in the decision's transaction.
   - The `dev.sample` type has no `whenEmpty` rule, so `pnpm dev:approval --step supervisors` is refused for a requester with no active supervisors.
   - Every approval notification links to `/approvals?request=<id>`. Titles: "Approval needed: <title>", "Settled by <name>, no action needed", "Approved: <title>", "Returned: <title>", "Rejected: <title>"; the outcome's body names who decided and carries the remarks. A request's title and summary must never hold a sensitive field.
-- **Not in step 1.9:** each module's own requests (their steps), withdrawing a pending request, re-routing a stuck one, a "My requests" view, the Home "approvals waiting" tile (step 1.11), e-signatures on decisions (Phase 2), background jobs and seed data.
+- **Not in step 1.9:** each module's own requests (their steps), withdrawing a pending request, re-routing a stuck one, a "My requests" view, e-signatures on decisions (Phase 2), background jobs and seed data. The Home "approvals waiting" tile is built in step 1.11 ([Home](#home)).
 
 ### Approvals list
 

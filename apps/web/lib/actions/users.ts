@@ -19,6 +19,8 @@ import {
   updateUser,
 } from '@pulse/core/server';
 import { adminOnly, signedInUser } from '@/lib/auth';
+// A form sends one `reportingTo` field per supervisor; the schemas take an array.
+import { withReportingToList } from '@/lib/reporting-to-list';
 
 // Spec: docs/modules/core.md#managing-user-accounts, SECURITY.md#sign-in-and-passwords and
 // SECURITY.md#system-administrator — creating and editing user accounts on `/admin/users`, for HR
@@ -36,22 +38,6 @@ const STALE_RECORD = 'This user no longer exists. Reload the page.';
 /** The user an edit, status change or reset acts on. */
 const recordId = z.string({ error: STALE_RECORD }).regex(OBJECT_ID_PATTERN, STALE_RECORD);
 const byId = z.object({ id: recordId });
-
-/**
- * A form sends one `reportingTo` field per supervisor: none, one (a plain string) or several (an
- * array, see `formDataToObject`). The schemas take an array.
- */
-function withReportingToList(raw: unknown): unknown {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const { reportingTo, ...rest } = raw as Record<string, unknown>;
-  const list =
-    reportingTo === undefined || reportingTo === null || reportingTo === ''
-      ? []
-      : Array.isArray(reportingTo)
-        ? reportingTo
-        : [reportingTo];
-  return { ...rest, reportingTo: list };
-}
 
 /** The pages whose lists change with a user: users, and the employee counts on the others. */
 function revalidateAdministration() {

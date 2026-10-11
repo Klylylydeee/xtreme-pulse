@@ -30,14 +30,15 @@ import {
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import { FormAlert } from '@/components/form-alert';
 import { Badge, ReadOnlyField, useActionSubmit } from '@/components/org-structure';
+import { type PickedSupervisor, SupervisorPicker } from '@/components/supervisor-picker';
 import {
   createUserAction,
   getUserAction,
   resetPasswordAction,
+  searchSupervisorsAction,
   updateUserAction,
 } from '@/lib/actions/users';
 import { EmploymentStatusDialog } from './employment-status-dialog';
-import { type PickedSupervisor, SupervisorPicker } from './supervisor-picker';
 import { SystemAccountStatusRow } from './system-account-status';
 import type { TemporaryPasswordNotice } from './temporary-password-dialog';
 
@@ -601,6 +602,7 @@ function UserForm({
               }}
               excludeEmployeeId={detail?.employeeId ?? null}
               showNoSupervisorHint={!department?.isBoard}
+              searchAction={searchSupervisorsAction}
               error={errorFor(save.fieldErrors, 'reportingTo')}
             />
           </FormSection>

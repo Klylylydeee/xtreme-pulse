@@ -2,8 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { CircleAlert, Plus, UserRound, Users, X } from 'lucide-react';
-import { MAX_SUPERVISORS, NO_SUPERVISOR_HINT } from '@pulse/core';
-import type { DepartmentHeadOption } from '@pulse/core/server';
+import { MAX_SUPERVISORS, NO_SUPERVISOR_HINT, type ServerAction } from '@pulse/core';
 import { Button } from '@pulse/ui/components/button';
 import {
   Command,
@@ -18,13 +17,26 @@ import { ErrorState } from '@pulse/ui/components/error-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@pulse/ui/components/popover';
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import { Badge } from '@/components/org-structure';
-import { searchSupervisorsAction } from '@/lib/actions/users';
 
 // Spec: docs/modules/core.md#reporting-lines — `reportingTo` is a list of supervisors: none (with
 // the hint for a non-Board employee), or up to MAX_SUPERVISORS, each an active employee and never
 // the person themselves. A supervisor who separated after the line was set stays, marked
-// "Inactive". The list is searched on the server (name or employee number, at most 20); the
-// service checks the limits and cycles again on save.
+// "Inactive". The list is searched on the server (name or employee number, at most 20) by the
+// Server Action the page passes in: `/admin/users` its own (HR and System Administrators), the
+// directory and org chart inspector theirs (the reporting line editors, step 1.11). The service
+// checks the limits and cycles again on save.
+
+/** A person the search offers. */
+export interface SupervisorOption {
+  /** The employee ID. */
+  id: string;
+  name: string;
+  employeeNumber: string;
+  departmentName: string | null;
+}
+
+/** The Server Action that searches for supervisors. */
+export type SupervisorSearchAction = ServerAction<SupervisorOption[]>;
 
 /** A supervisor on the form. */
 export interface PickedSupervisor {
@@ -41,7 +53,7 @@ const LOAD_FAILED = 'The employee list couldn’t load. Try again.';
 type SearchState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'done'; options: DepartmentHeadOption[] };
+  | { status: 'done'; options: SupervisorOption[] };
 
 /**
  * The supervisors, posted as one `reportingTo` field each, in order. Rows inside a FormSection:
@@ -52,6 +64,8 @@ export function SupervisorPicker({
   onChange,
   excludeEmployeeId,
   showNoSupervisorHint,
+  searchAction,
+  disabled = false,
   error,
 }: {
   value: PickedSupervisor[];
@@ -60,6 +74,10 @@ export function SupervisorPicker({
   excludeEmployeeId: string | null;
   /** True for a non-Board employee: an empty list sends leave and offset to HR. */
   showNoSupervisorHint: boolean;
+  /** Searches active employees by name or employee number; the page's own Server Action. */
+  searchAction: SupervisorSearchAction;
+  /** While a save is pending: Remove and "Add supervisor" are off. */
+  disabled?: boolean;
   error?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -78,7 +96,7 @@ export function SupervisorPicker({
     const timer = window.setTimeout(
       async () => {
         try {
-          const result = await searchSupervisorsAction(null, { search, excludeEmployeeId });
+          const result = await searchAction(null, { search, excludeEmployeeId });
           if (request !== latest.current) return;
           setState(
             result.ok
@@ -92,14 +110,14 @@ export function SupervisorPicker({
       search ? SEARCH_DELAY_MS : 0,
     );
     return () => window.clearTimeout(timer);
-  }, [open, search, attempt, excludeEmployeeId]);
+  }, [open, search, attempt, excludeEmployeeId, searchAction]);
 
   function startSearch(next: string) {
     setState({ status: 'loading' });
     setSearch(next);
   }
 
-  function add(option: DepartmentHeadOption) {
+  function add(option: SupervisorOption) {
     if (value.length >= MAX_SUPERVISORS || value.some((picked) => picked.id === option.id)) return;
     onChange([
       ...value,
@@ -153,6 +171,7 @@ export function SupervisorPicker({
                 variant="plain"
                 size="icon"
                 aria-label={`Remove ${picked.name}`}
+                disabled={disabled}
                 onClick={() => remove(picked.id)}
               >
                 <X aria-hidden="true" />
@@ -173,7 +192,7 @@ export function SupervisorPicker({
             <Button
               ref={addRef}
               variant="tinted"
-              disabled={full}
+              disabled={full || disabled}
               aria-haspopup="dialog"
               aria-describedby={[hintId, error ? errorId : null].filter(Boolean).join(' ')}
               aria-invalid={error ? true : undefined}

@@ -1,7 +1,17 @@
 import type { ClientSession, Types } from 'mongoose';
-import { ActionError } from '../../actions';
+import { withTransaction } from '@pulse/db';
+import { AccessDeniedError, ActionError } from '../../actions';
+import {
+  OWN_REPORTING_LINES,
+  type ReportingLinesInput,
+  reportingLinesChangedMessage,
+  reportingLinesInputSchema,
+} from '../../directory';
 import { MAX_SUPERVISORS } from '../../user-accounts';
+import { recordAudit } from '../audit/service';
+import { snapshotsForAudit } from '../audit/snapshot';
 import { resolveAccountStatus } from '../auth/account-status';
+import { canEditReportingLines, type RoleHolder } from '../auth/roles';
 import { toObjectId } from '../paging';
 import { UserModel } from '../users/model';
 import { type EmployeeRecord, EmployeeModel } from './model';
@@ -232,4 +242,158 @@ export async function validateAndClaimReportingTo(
   // Nobody reports to a new hire yet, so their chain can't loop back to them.
   if (subject) await assertNoCycle(subject, supervisors, session);
   return ids;
+}
+
+/** True when the two lists hold the same IDs in the same order. */
+export function sameSupervisorIds(a: readonly Types.ObjectId[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id.toHexString() === b[index]);
+}
+
+/**
+ * The one change rule for an employee's `reportingTo`, shared by `/admin/users` and the directory
+ * and org chart inspector (decision 137 in docs/BUILD_PLAN.md). Returns the lines to save, in the
+ * order given: the stored ones when nothing changed; the new ones as they are when the edit only
+ * removes or reorders supervisors (that can't form a loop or add anyone inactive, so a line to
+ * someone who later separated can stay); otherwise the new ones after every check of
+ * {@link validateAndClaimReportingTo}. Run it in the transaction that saves the line.
+ */
+export async function resolveReportingToChange(
+  employee: Pick<EmployeeRecord, '_id' | 'reportingTo'>,
+  supervisorIds: readonly string[],
+  session: ClientSession,
+): Promise<Types.ObjectId[]> {
+  if (sameSupervisorIds(employee.reportingTo, supervisorIds)) return employee.reportingTo;
+  const kept = new Set(employee.reportingTo.map((supervisor) => supervisor.toHexString()));
+  const unique = new Set(supervisorIds);
+  const onlyRemoved =
+    unique.size === supervisorIds.length &&
+    supervisorIds.every((supervisorId) => kept.has(supervisorId));
+  // Fewer or reordered supervisors can't form a loop or add anyone inactive.
+  return onlyRemoved
+    ? supervisorIds.flatMap((supervisorId) => toObjectId(supervisorId) ?? [])
+    : await validateAndClaimReportingTo(employee._id, supervisorIds, session);
+}
+
+// --- Editing in the inspector ------------------------------------------------------------------
+
+// Spec: docs/modules/core.md#reporting-lines ("Editing in the inspector", decisions 137–141 in
+// docs/BUILD_PLAN.md) — HR, Board members and System Administrators edit reporting lines in the
+// directory and org chart inspector. Never their own, never the bootstrap system account (it has
+// no employee record) and never a separated employee. A save sends the lines the inspector opened
+// with (`expected`); when the stored ones differ it is refused. One `update` entry on
+// `core.employee` in the save's transaction; a save that changes nothing writes nothing. No
+// notification is sent.
+
+const EMPLOYEE_RECORD_TYPE = 'core.employee';
+const NOT_AN_EDITOR = 'Only HR, the Board and the System Administrator can change reporting lines.';
+const PERSON_GONE = 'This person no longer exists. Reload the page.';
+const SYSTEM_ACCOUNT_LINES = 'The system account has no reporting lines.';
+
+/** Who edits reporting lines: a role holder with an ID and email (a `CurrentUser` fits). */
+export interface ReportingLineActor extends RoleHolder {
+  id: string;
+  email: string;
+}
+
+/** What {@link setReportingLines} did. */
+export interface SetReportingLinesResult {
+  /** False when the save changed nothing (and wrote nothing). */
+  changed: boolean;
+}
+
+/** `<employee number> · <first last>`, the `core.employee` audit label. */
+function employeeAuditLabel(
+  employee: Pick<EmployeeRecord, 'employeeNumber' | 'firstName' | 'lastName'>,
+): string {
+  return `${employee.employeeNumber} · ${nameOf(employee)}`;
+}
+
+/**
+ * Sets `employeeId`'s supervisors from the inspector. Refuses anyone but HR, Board members and
+ * System Administrators ({@link AccessDeniedError}), the actor's own lines, the system account, a
+ * separated employee, and a stale form (`expected` isn't what is stored). The new lines go through
+ * {@link resolveReportingToChange}, so the checks of `/admin/users` apply unchanged.
+ */
+export async function setReportingLines(
+  actor: ReportingLineActor,
+  employeeId: string,
+  input: ReportingLinesInput,
+): Promise<SetReportingLinesResult> {
+  if (!canEditReportingLines(actor)) throw new AccessDeniedError(NOT_AN_EDITOR);
+  const parsed = reportingLinesInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new ActionError(issue?.message ?? 'Check the supervisors and try again.', {
+      field: FIELD,
+    });
+  }
+  const { supervisorIds, expected } = parsed.data;
+  const id = toObjectId(employeeId);
+  if (!id) throw new ActionError(PERSON_GONE);
+  const actorId = toObjectId(actor.id);
+
+  return withTransaction(async (session) => {
+    // The actor's own employee, read fresh: nobody edits their own lines.
+    const actorUser = actorId
+      ? await UserModel.findById(actorId, { employeeId: 1 }).session(session).lean()
+      : null;
+    if (actorUser?.employeeId?.equals(id)) throw new AccessDeniedError(OWN_REPORTING_LINES);
+
+    const employee = await EmployeeModel.findById(id).session(session).lean();
+    if (!employee) {
+      // The system account has no employee record; its user ID gets its own answer.
+      const systemAccount = await UserModel.exists({ _id: id, isSystemAccount: true }).session(
+        session,
+      );
+      throw new ActionError(systemAccount ? SYSTEM_ACCOUNT_LINES : PERSON_GONE);
+    }
+    const user = await UserModel.findOne(
+      { employeeId: id },
+      { isSystemAccount: 1, systemAccountDisabled: 1 },
+    )
+      .session(session)
+      .lean();
+    if (user?.isSystemAccount) throw new ActionError(SYSTEM_ACCOUNT_LINES);
+    // As in the directory: an employee counts only when their account resolves to active.
+    if (!user || resolveAccountStatus(user, employee) !== 'active') {
+      throw new ActionError(
+        `${nameOf(employee)} is no longer active, so their reporting lines can’t be changed here.`,
+      );
+    }
+
+    if (!sameSupervisorIds(employee.reportingTo, expected)) {
+      throw new ActionError(reportingLinesChangedMessage(nameOf(employee)));
+    }
+
+    const reportingTo = await resolveReportingToChange(employee, supervisorIds, session);
+    if (
+      sameSupervisorIds(
+        employee.reportingTo,
+        reportingTo.map((supervisor) => supervisor.toHexString()),
+      )
+    ) {
+      return { changed: false };
+    }
+
+    // Writing the employee also makes two overlapping saves conflict: the retried one then sees
+    // the other's lines and is refused as stale.
+    await EmployeeModel.updateOne(
+      { _id: id },
+      { $set: { reportingTo, updatedBy: actorId } },
+      { session, runValidators: true },
+    );
+    const after = await EmployeeModel.findById(id).session(session).lean().orFail();
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorEmail: actor.email,
+        module: 'core',
+        action: 'update',
+        record: { type: EMPLOYEE_RECORD_TYPE, id, label: employeeAuditLabel(after) },
+        ...snapshotsForAudit(EmployeeModel, employee, after),
+      },
+      { session },
+    );
+    return { changed: true };
+  });
 }

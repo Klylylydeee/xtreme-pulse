@@ -12,6 +12,7 @@ import {
   Landmark,
   LayoutGrid,
   ListChecks,
+  Network,
   Package,
   ScrollText,
   Settings,
@@ -156,6 +157,23 @@ export const CORE_ENTRIES: NavEntry[] = [
     title: 'Holidays',
     description: 'Regular holidays and special days, by year',
     Icon: CalendarDays,
+  },
+  {
+    // Step 1.11 (docs/modules/core.md#company-directory): every signed-in user, no module access
+    // needed. Directory fields only; the directory services decide who is listed.
+    href: '/directory',
+    label: 'Directory',
+    title: 'Directory',
+    description: 'Names, numbers, departments, positions, emails and reporting lines',
+    Icon: Contact,
+  },
+  {
+    // Step 1.11 (docs/modules/core.md#org-chart): every signed-in user, built from reporting lines.
+    href: '/org-chart',
+    label: 'Org chart',
+    title: 'Org chart',
+    description: 'Who reports to whom, built from reporting lines',
+    Icon: Network,
   },
 ];
 
@@ -358,7 +376,7 @@ export interface NavigationViewer {
 }
 
 /**
- * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals, Holidays) always, a module at Read or higher,
+ * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals, Holidays, Directory, Org chart) always, a module at Read or higher,
  * an admin page by role.
  */
 export function isEntryVisible(entry: NavEntry, viewer: NavigationViewer): boolean {
