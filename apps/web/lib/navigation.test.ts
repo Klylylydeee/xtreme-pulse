@@ -6,13 +6,17 @@ import {
   ADMIN_ENTRIES,
   ADMIN_GROUPS,
   breadcrumbFor,
+  CORE_ENTRIES,
   documentTitleFor,
+  getNavEntry,
   groupAdminEntries,
   isStatusBreadcrumb,
   MODULE_ENTRIES,
+  NAV_GROUPS,
   navBadgeLabel,
   navigationFor,
   NO_ACCESS_PAGE_TITLE,
+  NO_NAV_BADGES,
   noAccessTitle,
   NOT_FOUND_PAGE_TITLE,
   type NavigationViewer,
@@ -23,7 +27,8 @@ import {
 
 // Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
 // (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8, and the
-// Administration sub-groups) and docs/modules/core.md#administration-area — the sidebar, and the
+// Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9) and
+// docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
 
@@ -48,6 +53,9 @@ const systemAdministrator = viewer({
   moduleAccess: fullModuleAccess(),
 });
 
+// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9).
+const CORE_HREFS = ['/', '/approvals'];
+
 const HR_ADMIN_HREFS = [
   '/admin',
   '/admin/users',
@@ -70,15 +78,15 @@ const ALL_ADMIN_HREFS = [
 ];
 
 describe('visibleNavigation', () => {
-  it('shows a new user only Home, with the empty groups hidden', () => {
+  it('shows a new user only Pulse Core (Home and Approvals), with the empty groups hidden', () => {
     const groups = visibleNavigation(newUser);
     expect(groups.map((group) => group.label)).toEqual(['Pulse Core']);
-    expect(visibleHrefs(newUser)).toEqual(['/']);
+    expect(visibleHrefs(newUser)).toEqual(CORE_HREFS);
   });
 
   it('adds Talent for Read on Talent, and nothing else', () => {
     const talentReader = viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } });
-    expect(visibleHrefs(talentReader)).toEqual(['/', '/talent']);
+    expect(visibleHrefs(talentReader)).toEqual([...CORE_HREFS, '/talent']);
     expect(visibleNavigation(talentReader).map((group) => group.label)).toEqual([
       'Pulse Core',
       'Modules',
@@ -87,11 +95,15 @@ describe('visibleNavigation', () => {
 
   it('lists a module for Write and Owner too', () => {
     const access = { ...emptyModuleAccess(), ops: 'write', fiscal: 'owner' } as const;
-    expect(visibleHrefs(viewer({ moduleAccess: access }))).toEqual(['/', '/ops', '/fiscal']);
+    expect(visibleHrefs(viewer({ moduleAccess: access }))).toEqual([
+      ...CORE_HREFS,
+      '/ops',
+      '/fiscal',
+    ]);
   });
 
   it('shows HR the five HR admin entries, User access included, and no modules of its own', () => {
-    expect(visibleHrefs(hr)).toEqual(['/', ...HR_ADMIN_HREFS]);
+    expect(visibleHrefs(hr)).toEqual([...CORE_HREFS, ...HR_ADMIN_HREFS]);
     const admin = visibleNavigation(hr).find((group) => group.label === 'Administration');
     expect(admin?.entries.map((entry) => entry.label)).toEqual([
       'Overview',
@@ -113,8 +125,8 @@ describe('visibleNavigation', () => {
 
   it('shows a Board member or Accounting no admin group', () => {
     // Board members and Accounting never see User access (nor its count) in the sidebar.
-    expect(visibleHrefs(viewer({ roles: ['board'] }))).toEqual(['/']);
-    expect(visibleHrefs(viewer({ roles: ['accounting'] }))).toEqual(['/']);
+    expect(visibleHrefs(viewer({ roles: ['board'] }))).toEqual(CORE_HREFS);
+    expect(visibleHrefs(viewer({ roles: ['accounting'] }))).toEqual(CORE_HREFS);
   });
 
   it('shows the System Administrator all 7 modules and all 11 admin entries', () => {
@@ -161,6 +173,61 @@ describe('visibleNavigation', () => {
     for (const someone of [newUser, hr, systemAdministrator]) {
       expect(navigationFor(visibleHrefs(someone))).toEqual(visibleNavigation(someone));
     }
+  });
+});
+
+describe('Approvals (step 1.9)', () => {
+  const everyone = [
+    newUser,
+    hr,
+    systemAdministrator,
+    viewer({ roles: ['board'] }),
+    viewer({ roles: ['accounting'] }),
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  ];
+
+  it('sits in Pulse Core right after Home for every signed-in user', () => {
+    for (const someone of everyone) {
+      const core = visibleNavigation(someone)[0];
+      expect(core?.label).toBe('Pulse Core');
+      expect(core?.entries.map((entry) => entry.href)).toEqual(CORE_HREFS);
+      expect(visibleHrefs(someone).slice(0, 2)).toEqual(CORE_HREFS);
+    }
+  });
+
+  it('needs no module access or role, and is not an Administration entry', () => {
+    const entry = getNavEntry('/approvals');
+    expect(entry).toMatchObject({ label: 'Approvals', title: 'Approvals' });
+    expect(entry.module).toBeUndefined();
+    expect(entry.adminArea).toBeUndefined();
+    expect(entry.adminGroup).toBeUndefined();
+    expect(CORE_ENTRIES.map((candidate) => candidate.href)).toEqual(CORE_HREFS);
+    expect(ADMIN_ENTRIES.map((candidate) => candidate.href)).not.toContain('/approvals');
+  });
+
+  it('reads "Pulse Core › Approvals" in the breadcrumb', () => {
+    for (const someone of [newUser, hr, systemAdministrator]) {
+      expect(breadcrumbFor(visibleNavigation(someone), '/approvals')).toEqual({
+        parent: 'Pulse Core',
+        current: 'Approvals',
+      });
+    }
+  });
+
+  it('is current on /approvals, not Home', () => {
+    expect(activeEntry(visibleNavigation(newUser), '/approvals')?.entry.label).toBe('Approvals');
+  });
+
+  it('carries the waiting count as its badge, read as "N waiting"', () => {
+    expect(getNavEntry('/approvals').badge).toBe('approvalsWaiting');
+    const counted = NAV_GROUPS.flatMap((group) => group.entries).filter((entry) => entry.badge);
+    expect(counted.map((entry) => [entry.href, entry.badge])).toEqual([
+      ['/approvals', 'approvalsWaiting'],
+      ['/admin/access', 'usersNeedingAccess'],
+    ]);
+    expect(navBadgeLabel('approvalsWaiting', 3)).toBe('waiting');
+    expect(navBadgeLabel('approvalsWaiting', 1)).toBe('waiting');
+    expect(NO_NAV_BADGES).toEqual({ usersNeedingAccess: null, approvalsWaiting: null });
   });
 });
 

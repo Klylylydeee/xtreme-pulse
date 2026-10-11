@@ -8,6 +8,7 @@ import {
 } from '@pulse/core';
 import {
   type AdminAreaKind,
+  assertApproverCanView,
   assertModuleAccess,
   assertSignedIn,
   canOpenAdminArea,
@@ -85,6 +86,31 @@ export async function requireModulePage<M extends ModuleKey>(
 ): Promise<CurrentUser> {
   const user = await requireCurrentUser();
   if (!hasModuleAccess(user, module, level)) forbidden();
+  return user;
+}
+
+/**
+ * The signed-in user for a module's record page that an approver may open read-only (step 1.9,
+ * SECURITY.md#exceptions-to-module-access): passes with at least `level` on `module`, or when the
+ * user is or was an approver on any request for the record (`assertApproverCanView`; a System
+ * Administrator passes anyway). Anyone else gets `forbidden()`, like {@link requireModulePage}.
+ * The page still shows the record read-only unless the user's module access allows more. Call it
+ * first in the page, before anything that can suspend.
+ */
+export async function requireModulePageOrApprover<M extends ModuleKey>(
+  module: M,
+  level: RequiredLevel<M>,
+  recordType: string,
+  recordId: string,
+): Promise<CurrentUser> {
+  const user = await requireCurrentUser();
+  if (hasModuleAccess(user, module, level)) return user;
+  try {
+    await assertApproverCanView(user, recordType, recordId);
+  } catch (error) {
+    if (error instanceof AccessDeniedError) forbidden();
+    throw error;
+  }
   return user;
 }
 

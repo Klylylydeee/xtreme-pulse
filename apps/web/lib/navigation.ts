@@ -10,6 +10,7 @@ import {
   House,
   Landmark,
   LayoutGrid,
+  ListChecks,
   Package,
   ScrollText,
   Settings,
@@ -52,26 +53,29 @@ export type NavEntry = {
 };
 
 /** The sidebar counts, by what they count. */
-export type NavBadgeKey = 'usersNeedingAccess';
+export type NavBadgeKey = 'usersNeedingAccess' | 'approvalsWaiting';
 
 /**
  * The sidebar counts for the signed-in user, computed on the server; null or 0 hides the badge.
  * `usersNeedingAccess` is User access's count, given to HR and System Administrators only
- * (docs/modules/core.md#user-access-page).
+ * (docs/modules/core.md#user-access-page). `approvalsWaiting` is Approvals' count of the requests
+ * waiting for the user, given to everyone (docs/modules/core.md#approvals-list, step 1.9).
  */
 export type NavBadges = Record<NavBadgeKey, number | null>;
 
 /** No counts: every badge hidden. */
-export const NO_NAV_BADGES: NavBadges = { usersNeedingAccess: null };
+export const NO_NAV_BADGES: NavBadges = { usersNeedingAccess: null, approvalsWaiting: null };
 
 /**
  * What a badge's count means, read after the label by screen readers: "User access, 3 need
- * access" (docs/DESIGN_SYSTEM.md#layout--components).
+ * access", "Approvals, 3 waiting" (docs/DESIGN_SYSTEM.md#layout--components).
  */
 export function navBadgeLabel(key: NavBadgeKey, count: number): string {
   switch (key) {
     case 'usersNeedingAccess':
       return count === 1 ? 'needs access' : 'need access';
+    case 'approvalsWaiting':
+      return 'waiting';
   }
 }
 
@@ -131,6 +135,16 @@ export const CORE_ENTRIES: NavEntry[] = [
     title: 'Home',
     description: 'Your day at a glance',
     Icon: House,
+  },
+  {
+    // Step 1.9 (docs/modules/core.md#approvals-list): every signed-in user, no module access
+    // needed; the approvals services check the person. The badge counts what waits for them.
+    href: '/approvals',
+    label: 'Approvals',
+    title: 'Approvals',
+    description: 'Requests waiting for your decision, and the ones you decided',
+    Icon: ListChecks,
+    badge: 'approvalsWaiting',
   },
 ];
 
@@ -332,7 +346,10 @@ export interface NavigationViewer {
   canOpenAdminArea: (kind: AdminAreaKind) => boolean;
 }
 
-/** Whether `viewer` sees `entry`: Home always, a module at Read or higher, an admin page by role. */
+/**
+ * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals) always, a module at Read or higher,
+ * an admin page by role.
+ */
 export function isEntryVisible(entry: NavEntry, viewer: NavigationViewer): boolean {
   if (entry.module) return atLeast(viewer.moduleAccess[entry.module], 'read');
   if (entry.adminArea) return viewer.canOpenAdminArea(entry.adminArea);

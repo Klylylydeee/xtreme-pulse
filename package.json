@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "recover:admin": "tsx scripts/recover-admin.ts",
+    "dev:approval": "tsx scripts/dev-approval.ts",
     "test": "vitest run"
   },
   "devDependencies": {

@@ -62,6 +62,7 @@ apps/web/                         the single Xtreme Pulse Next.js app
   app/(auth)/login/               Pulse Core login (the only public page; forgot/reset password later)
   app/(pulse)/layout.tsx          signed-in shell: sidebar with the user's modules, session + status check
   app/(pulse)/page.tsx            Pulse Core home
+  app/(pulse)/approvals/          Pulse Core Approvals list, open to every signed-in user (step 1.9)
   app/(pulse)/admin/              system administration (HR and System Administrator), e.g. /admin/access for user access,
                                   and the basic master data screens (/admin/clients and others, step 1.8)
   app/(pulse)/<module>/           one folder per module: engage, ops, supply, desk, fiscal, talent, insight
@@ -141,6 +142,8 @@ Modules talk to each other only through the owning module's service functions. T
 | Desk | Ops | Schedule site visits on the Ops calendar | [On-site visits and service reports](modules/desk.md#on-site-visits-and-service-reports) |
 | Desk | Fiscal | Invoice support contracts and chargeable work | [Chargeable work](modules/desk.md#chargeable-work) |
 | Insight | Every module | Read-only figures | [Pulse Insight](modules/insight.md) |
+
+**Approvals** (build step 1.9). A module that sends records for approval registers each approval type with Core's `registerApprovalType` (name `<module>.<name>`, steps, allowed decisions, what an empty step does, and its hooks: `onSettled`, optionally `onStepApproved` and `outcomeRecipients`). Registrations are explicit calls, like the [file access registrations](#file-storage); an unregistered type is refused. The module calls `submitApproval()` inside its own transaction, so the request commits or rolls back with the module's change. Decisions run in the engine's transaction, which calls the module's hooks in it: the hook updates and audits the module's own record in that transaction, so the decision, both audit entries and the notifications commit together, and a hook that throws rolls them all back. Core reaches the module only through the hooks it registered and never writes the module's collections, and the module never writes `approvalRequests` ([Approvals](modules/core.md#approvals)).
 
 The business lifecycle these calls support:
 

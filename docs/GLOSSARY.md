@@ -12,6 +12,8 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | offset | comp time, overtime credit | Extra hours banked as paid time off ([Offset balance & offset time off](modules/talent.md#offset-balance--offset-time-off)) |
 | cut-off | pay period | The semi-monthly period a timesheet and payroll run cover ([Pay schedule](modules/talent.md#pay-schedule)) |
 | payslip | pay stub | Generated for each employee in a finalized run |
+| return (a request) | send back, decline | An approver sends a request back with remarks so the requester can fix it and submit again; the resubmission is a new request that starts from the first step ([Approvals](modules/core.md#approvals)) |
+| reject (a request) | deny, return | An approver turns a request down, with remarks. Only request types that allow it offer Reject; timesheets, payroll runs and payments don't ([Approvals](modules/core.md#approvals)) |
 | retire, restore (a record) | delete, archive | A soft delete of a department, position or master data record, undone by Restore. Not the Retired employment status ([Managing master data](modules/core.md#managing-master-data)) |
 
 ## The company and the app
@@ -36,6 +38,7 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Bootstrap account | The first System Administrator (`sysadmin@xtreme-works.com`), a system account rather than an employee ([Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account)) |
 | `reportingTo` | An employee's supervisors, one or more ([Reporting lines](modules/core.md#reporting-lines)) |
 | Supervisor | Anyone in an employee's `reportingTo` |
+| Approval step | One stage of an approval request, with its approvers fixed at submit. An any-one step is settled by the first decision; an all-of step needs every approver to approve ([Approvals](modules/core.md#approvals)) |
 | Department head | The employee who receives a department's escalations |
 | Board, Board of Directors | Managing Director, Sales Director, Operations Director and Strategic Director |
 | Self-service | What every active user can do for themselves without module access ([Exceptions to module access](../SECURITY.md#exceptions-to-module-access)) |

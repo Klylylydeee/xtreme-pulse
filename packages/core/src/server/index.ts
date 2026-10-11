@@ -435,3 +435,60 @@ export {
   restoreClientContact,
   updateClientContact,
 } from './clients/contacts';
+
+// The approvals engine (docs/modules/core.md#approvals, build step 1.9): registering approval
+// types, submitting inside the module's transaction, deciding, the Approvals list's reads and the
+// read-only approver check. Services only; the model is never exported.
+export {
+  APPROVAL_OUTCOME_EVENTS,
+  APPROVAL_REQUESTED_EVENT,
+  APPROVAL_SETTLED_EVENT,
+  type ApprovalActor,
+  type ApprovalDetail,
+  ApprovalInvalidError,
+  type ApprovalPage,
+  type ApprovalRow,
+  type ApprovalStepView,
+  type ApprovalViewer,
+  assertApproverCanView,
+  countApprovalsWaiting,
+  decideApproval,
+  type DecidedApproval,
+  getApproval,
+  isApproverFor,
+  listApprovalsDecided,
+  listApprovalsForRecord,
+  listApprovalsWaiting,
+  type ListApprovalsOptions,
+  submitApproval,
+  type SubmitApprovalInput,
+  type SubmittedApproval,
+} from './approvals/service';
+export {
+  type ApprovalHookContext,
+  type ApprovalRequestSnapshot,
+  type ApprovalStepApprovedContext,
+  type ApprovalStepSpec,
+  type ApprovalTypeDefinition,
+  ApprovalTypeNotRegisteredError,
+  type ApproverSet,
+  DEV_SAMPLE_APPROVAL_RECORD_TYPE,
+  DEV_SAMPLE_APPROVAL_TYPE,
+  registerApprovalType,
+  registerCoreApprovalTypes,
+} from './approvals/registry';
+export {
+  activeBoardApprovers,
+  activeHrApprovers,
+  activeSystemAdministrators,
+  type ApproverCandidate,
+  NO_OTHER_SYSTEM_ADMINISTRATOR,
+} from './approvals/routing';
+export {
+  DEV_SAMPLE_STEP_HELP,
+  type DevSampleApprovalInput,
+  type DevSampleApprovalResult,
+  type DevSampleStep,
+  parseDevSampleStep,
+  submitDevSampleApproval,
+} from './approvals/dev-sample';

@@ -184,3 +184,5 @@ export {
 // Shared master data (docs/modules/core.md#managing-master-data): the fixed sets, field helpers
 // and form schemas for clients, sites, contacts, products, catalog items and suppliers.
 export * from './master-data';
+// Approvals (docs/modules/core.md#approvals): the fixed sets and the decision schema.
+export * from './approvals';

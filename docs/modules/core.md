@@ -2,7 +2,7 @@
 
 Pulse Core is the platform every module builds on. It covers sign-in, user accounts, system administration, the company directory and org chart, the holiday calendar, shared master data, approvals, notifications, the audit log and company settings.
 
-Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`) and administration (`/admin`). Package: `packages/core`.
+Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`), Approvals (`/approvals`, from build step 1.9) and administration (`/admin`). Package: `packages/core`.
 
 Sign-in, passwords, account status, module access and the System Administrator role are security rules, so they live in [SECURITY.md](../../SECURITY.md).
 
@@ -89,10 +89,10 @@ Built in step 1.4.
 - Anyone may have an empty `reportingTo`, such as top-level Board of Directors members. Their leave and offset time off go to HR, and the supervisor step of quotations and purchase requests is skipped (see each module's spec). When a non-Board employee is saved with no supervisor, the form hints "No supervisor: leave and offset time off go to HR."
 - Only **HR, Board of Directors members and the System Administrator** can set or change `reportingTo`. Employees and supervisors cannot. In build step 1.5 HR and the System Administrator edit it on `/admin/users` ([Managing user accounts](#managing-user-accounts)); the Board's editor arrives with the org chart in build step 1.11.
 - **Checked on save** (build step 1.5): at most 10 supervisors, no one listed twice, and each supervisor must exist, be an employee (not the bootstrap system account) and be active when saved. The cycle check walks the upward chain inside the transaction. It writes every supervisor record it reads, and the employee's own, so two edits that would together form a cycle conflict and the retried one is refused. An edit that only removes or reorders supervisors isn't checked again (it can't add a cycle or anyone inactive), so a line to someone who later separated can stay.
-- Existing lines to someone who later separates stay as they are; the approvals engine (build step 1.9) and the org chart (build step 1.11) handle them.
+- Existing lines to someone who later separates stay as they are. The approvals engine (build step 1.9) leaves an inactive or separated supervisor out when a request is submitted, so a supervisor step goes only to the active ones ([Approvals](#approvals)); the org chart (build step 1.11) handles them there.
 - Approval workflows (leave, offset time off, timesheets, purchase requests, quotes, employee record changes, regularization) route through `reportingTo`.
-- **Any one supervisor can decide.** When an employee has multiple supervisors, the request goes to all of them, and the first approval or rejection settles it. The other supervisors are notified of the outcome and can no longer act on it.
-- No one approves their own request. When the only approver in a step is the requester (e.g. the HR Officer's own timesheet at the HR step), the step goes to the System Administrator.
+- **Any one supervisor can decide.** When an employee has multiple supervisors, the request goes to all of them, and the first decision (approve, return or reject) settles it. The other supervisors are notified of the outcome and can no longer act on it.
+- No one approves their own request. When the only approver in a step is the requester (e.g. the HR Officer's own timesheet at the HR step), the step goes to the System Administrator (see [Approvals](#approvals)).
 
 ## Employee number (company ID)
 
@@ -262,7 +262,7 @@ The approvals engine (build step 1.9) supports three kinds of step:
 - **Any one of a set:** for example, any one Board of Directors member.
 - **All of a set:** for example, both payment approvers.
 
-A return always needs remarks. A step whose only approver is the requester goes to the System Administrator (see [Reporting lines](#reporting-lines)). Approvers can open what they're asked to approve read-only, even without module access (see [Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)).
+A return or a rejection always needs remarks. A step whose only approver is the requester goes to the System Administrator (see [Reporting lines](#reporting-lines)). Approvers can open what they're asked to approve read-only, even without module access (see [Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)).
 
 Every approval in the app, for reference. The linked section is the rule; this table is only an index.
 
@@ -283,10 +283,62 @@ Every approval in the app, for reference. The linked section is the rule; this t
 | Chargeable work | A Desk Owner | [Chargeable work](desk.md#chargeable-work) |
 | A module's other approvals | That module's Owner | [Module access](../../SECURITY.md#module-access-rwo) |
 
+Built in step 1.9 (the engine and the [Approvals list](#approvals-list); each module wires its own requests in its own step):
+
+- **Approval types.** A module registers each kind of request it sends for approval with Core's `registerApprovalType`: its name (`<module>.<name>`), its steps, the decisions it allows, what an empty step does, and its hooks. Submitting an unregistered type is refused. The module submits a request with `submitApproval()` inside its own transaction, so the request commits or rolls back with the module's change. Modules never read or write `approvalRequests` themselves ([Cross-module integration](../ARCHITECTURE.md#cross-module-integration)).
+- **Stored** in `approvalRequests`, one record per submission, written only by the engine and never deleted (no soft delete). A request holds its type, its module, the record it is about (type, id and label), a title, a summary, a link to the record, the requester (user and employee), its status (`pending`, `approved`, `returned` or `rejected`), the current step, the request it follows (`previousRequestId`, for a resubmission), when it was submitted and settled and who settled it, and a `version` that guards against overlapping decisions. Each step holds its kind, a label, its rule (any one or all), its approvers (each user with their name as it was at submit), whether it was routed to the System Administrator, its status (`waiting`, `pending`, `approved`, `returned`, `rejected` or `skipped`) and its decisions (who, which decision, remarks and when). Fields and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership).
+- **One pending request per record.** A record has at most one pending request at a time, held by a partial unique index.
+- **Step kinds.** `reportingTo`: the requester's supervisors, each mapped to their active user account. `anyOf`: any one of a set, for example the Board of Directors members. `allOf`: every one of a set, for example the payment approvers. A type lists its steps in order.
+- **Approvers are fixed at submit.** Each step's approvers are worked out when the request is submitted: inactive and separated people are left out, and the requester is removed from every set. After that they don't change: a later change to `reportingTo` or to a set doesn't re-route a pending request. Re-routing a stuck pending request is not built in step 1.9.
+- **The requester never decides.** When the requester was a step's only approver (or every approver in it), the step goes to every active System Administrator as an any-one step, never to the requester, and is marked as routed to the System Administrator. In an all-of step where the requester is one of the set, any one System Administrator fills the requester's place. If no System Administrator other than the requester is active, the submit is refused with a clear message. "The System Administrator" here means any one active System Administrator, the bootstrap system account included while it is enabled.
+- **Empty steps.** A step left with nobody for another reason (no one listed, or everyone listed inactive) follows the type's `whenEmpty` rule: skip the step (status `skipped`), send it to HR, or send it to the System Administrator. A type without the rule refuses the submit.
+- **Decisions:** approve, return and reject. Each type declares which it allows; timesheets, payroll runs and payments allow approve and return only. A return or a rejection needs remarks, up to 1,000 characters. Only a named approver of the pending step can decide.
+- **Any-one steps.** The first decision settles the step. The other approvers are notified that it was settled by that person and that no action is needed, and the request moves from their Waiting list to Decided.
+- **All-of steps.** Every approver must approve, in any order. Any return or rejection ends the request.
+- **Next step.** When a step is approved, the next step becomes pending and its approvers are notified. When the last step is approved, the request is approved.
+- **Returned and rejected requests are final.** They are never reopened. To try again, the module submits a new request linked to the old one (`previousRequestId`), which starts again from the first step; the old request and its decisions stay as history.
+- **Overlapping decisions.** When two decisions overlap, exactly one wins. A decision from a form loaded before the request last changed is refused.
+- **Hooks.** A type registers `onSettled` (the request was approved, returned or rejected), and optionally `onStepApproved` (a step was approved) and `outcomeRecipients` (who hears the outcome). Decisions call the module's hooks inside the engine's transaction, so the module updates and audits its own record together with the decision. A hook that throws rolls back the decision, its audit entry and its notifications.
+- **Notifications** are sent in the transaction of the submit or decision that causes them, as in-app [notifications](#notifications). The outcome goes to the requester, unless the type names its own `outcomeRecipients` (for example Accounting for a payment, see [Payments](fiscal.md#payments-disbursements)).
+
+| Event | When | To |
+|---|---|---|
+| `core.approvalRequested` | A step becomes pending: at submit, or when the step before it is approved | The step's approvers |
+| `core.approvalSettled` | A decision takes the item from approvers who didn't decide: an any-one step is decided, a System Administrator fills the requester's place in an all-of step, or an all-of step is returned or rejected | The approvers it takes the item from (the any-one step's other approvers, the other System Administrators who could fill the place, or the all-of step's approvers still pending): settled by that person, no action needed |
+| `core.approvalApproved` | The last step is approved | The requester, or the type's `outcomeRecipients` |
+| `core.approvalReturned` | The request is returned | The requester, or the type's `outcomeRecipients` |
+| `core.approvalRejected` | The request is rejected | The requester, or the type's `outcomeRecipients` |
+
+- **Audit:** module `core`, record type `core.approvalRequest`. Submitting writes a `create` entry, and each decision an `update` entry with its remarks as the reason, in the same transaction ([Audit logging](../../SECURITY.md#audit-logging)). No new audit action is added. The module's hook writes the entry for its own record.
+- **Who can see and decide.** The services check the person, not module access: deciding needs a named approver of the pending step; reading a request needs one of its approvers (current or past), its requester, or a System Administrator. Anyone who is or was an approver on any request for a record may also open that record read-only, while the request is pending and afterwards; each module checks this beside its module access ([Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)).
+- **Development script.** `pnpm dev:approval --requester <email> --step supervisors|board|all:<email,email>|self` submits a sample request of the type `dev.sample` from the requester: to their supervisors, to any one Board member, to all of the listed users, or to a step whose only approver is the requester. It runs in development only and refuses in production, where `dev.sample` isn't registered. It is how step 1.9's "Done when" is checked before any module sends requests.
+- **Clarifications (step 1.9 build).**
+  - An approval may carry optional remarks; a return or a rejection must.
+  - `whenEmpty` "hr" makes the step an any-one step to every active HR user but the requester (and to the System Administrator when the requester is the only active HR user).
+  - When every step is skipped, the request is stored as approved at submit; no hook runs and no one is notified, and the module acts on the returned status.
+  - A step's approvers only count as having been asked (for the Decided list, reading the request and the read-only record exception) once that step becomes pending.
+  - In an all-of step, the System Administrators who may fill the requester's place are stored as approvers marked "as System Administrator"; the first of them to approve fills it, and the others are told it was settled. When an all-of step is returned or rejected, the approvers still pending are also told it was settled.
+  - Audit label for `core.approvalRequest`: `<type label> · <record label>` (for example `Leave · LV-0001`).
+  - **Decided list.** A request is listed under Decided for the user once their part in a step has ended: they decided it, another approver settled the any-one step, another System Administrator filled the place in an all-of step they were also asked to fill, or the request was returned or rejected while they were still pending. This holds whatever the request's status, so a request pending at a later step is listed too. Each decision records, for the decider and for every approver it takes the item from, when their part ended (`decidedFor` in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership)). Decided is sorted by the user's latest such time, newest first, ties broken by the request's id, and "Load more" pages in that order. It isn't sorted by `settledAt`, which stays empty while a later step is pending. Nothing ever leaves both Waiting for you and Decided.
+  - A decision on a request the person may not read (see "Who can see and decide") gets the same answer as one on a request that doesn't exist, so ids can't be probed. Its requester, or a System Administrator, who isn't an approver is told they aren't an approver.
+  - `onStepApproved` also runs for the last step: first `onStepApproved`, then `onSettled`, both in the decision's transaction.
+  - The `dev.sample` type has no `whenEmpty` rule, so `pnpm dev:approval --step supervisors` is refused for a requester with no active supervisors.
+  - Every approval notification links to `/approvals?request=<id>`. Titles: "Approval needed: <title>", "Settled by <name>, no action needed", "Approved: <title>", "Returned: <title>", "Rejected: <title>"; the outcome's body names who decided and carries the remarks. A request's title and summary must never hold a sensitive field.
+- **Not in step 1.9:** each module's own requests (their steps), withdrawing a pending request, re-routing a stuck one, a "My requests" view, the Home "approvals waiting" tile (step 1.11), e-signatures on decisions (Phase 2), background jobs and seed data.
+
+### Approvals list
+
+Built in step 1.9, at `/approvals`. It is a Pulse Core page, open to every signed-in user with no module access needed ([Rules](../../SECURITY.md#rules)); what each person sees is checked by the services above.
+
+- **Sidebar:** Approvals sits in the Pulse Core group after Home, with a badge counting the requests waiting for the user (read as "3 waiting", see [Layout & components](../DESIGN_SYSTEM.md#layout--components)). The breadcrumb reads "Pulse Core › Approvals".
+- **Segments:** **Waiting for you** (requests whose pending step names the user) and **Decided** (requests where the user's part in a step has ended: they decided it, someone else settled it, or the request was returned or rejected), newest first by when their part ended. A request shows under Decided as soon as the user's part in a step ends, even while a later step is still pending; its row and inspector then show its current status and step. A request that asks the user again at a later step shows in both segments.
+- **Rows:** the type's label, the title, the requester, when it was submitted, the step's label, the progress of an all-of step ("1 of 2 approved"), and "Sent to you as System Administrator" when the step was routed to the System Administrator.
+- **Inspector:** selecting a row opens the inspector (a full-height sheet on a phone) with the steps, their approvers and decisions, a link to the record, and Approve, Return and, when the type allows it, Reject. Return and Reject show a required remarks field inline. ⌘↵ or Ctrl+Enter approves. `?request=<id>` opens a request directly; notifications link there.
+
 ## Notifications
 
 - All notifications are delivered in-app through Pulse Core (email later, once the email system ships). Each user has a notification list with an unread badge.
-- Pulse Core's own events: HR and the System Administrator hear about new users, users still needing access (daily) and position changes to review ([User access page](#user-access-page)), and company details that are still placeholders ([Company details](#company-details-pending-from-the-client)). Every user is notified of ad-hoc holiday declarations, and HR gets the weekly reminder when next year's holidays aren't confirmed ([Holiday calendar](#holiday-calendar)).
+- Pulse Core's own events: HR and the System Administrator hear about new users, users still needing access (daily) and position changes to review ([User access page](#user-access-page)), and company details that are still placeholders ([Company details](#company-details-pending-from-the-client)). Every user is notified of ad-hoc holiday declarations, and HR gets the weekly reminder when next year's holidays aren't confirmed ([Holiday calendar](#holiday-calendar)). From build step 1.9 the approvals engine sends the approval events for every module: a request waiting for an approver (`core.approvalRequested`), a step settled by another approver (`core.approvalSettled`), and the outcome (`core.approvalApproved`, `core.approvalReturned`, `core.approvalRejected`) ([Approvals](#approvals)).
 - Each module lists its own events in its spec, for example [Pulse Talent notifications](talent.md#notifications).
 
 Built in step 1.3:
