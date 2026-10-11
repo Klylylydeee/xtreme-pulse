@@ -37,7 +37,7 @@ The Philippine legal and regulatory obligations Xtreme Pulse implements. Each ro
 | Certificate of Employment within 3 days of the request | DOLE Labor Advisory No. 06-2020 | [HR documents](modules/talent.md#hr-documents) |
 | Just-cause dismissal: twin notices, at least 5 calendar days to reply | Labor Code Art. 297 | [Termination due process](modules/talent.md#termination-due-process) |
 | Authorized-cause termination: 30-day notice to the employee and DOLE, and separation pay minimums | Labor Code Arts. 298–299 | [Termination due process](modules/talent.md#termination-due-process) |
-| Holidays as declared by Presidential Proclamation | Official Gazette | [Holiday calendar](modules/core.md#holiday-calendar) |
+| Holidays as declared by Presidential Proclamation. The seeded auto-draft types follow RA 9492 as amended for regular holidays; every draft is checked against the year's proclamation before it is confirmed | Official Gazette; RA 9492 as amended | [Holiday calendar](modules/core.md#holiday-calendar) |
 
 The offset arrangement for Standard-timesheet positions (extra hours become offset time off instead of overtime pay) is company policy set in the employment contract. See [Extra hours: Standard timesheet (offset)](modules/talent.md#extra-hours-standard-timesheet-offset). Have it reviewed along with the contract templates.
 
@@ -73,7 +73,7 @@ Pulse must not issue system-generated invoices or keep computerized books until 
 - **Before the first real payroll**, HR checks the seeded SSS, PhilHealth, Pag-IBIG, BIR withholding and minimum wage tables against current issuances (build step 2.3).
 - **Before go-live**, every seeded rate is checked against its latest official issuance, including the VAT rate, ATC codes and EWT rates once Fiscal is in use (see [Going live](DEPLOYMENT.md#going-live), item 3).
 - **When a new wage order takes effect**, HR reviews the employees who fall below it (see [Minimum wage check](modules/talent.md#minimum-wage-check)).
-- **Every year**, HR confirms the holidays against the proclamation (see [Holiday calendar](modules/core.md#holiday-calendar)).
+- **Every year**, HR confirms the holidays against the proclamation, checking each auto-draft's date and type and entering its legal basis (see [Holiday calendar](modules/core.md#holiday-calendar)). From build step 1.10 the auto-draft rules are versioned configuration (`core.holidayRules`); a holiday added or changed by law becomes a new version.
 
 ## Inputs to get before building
 

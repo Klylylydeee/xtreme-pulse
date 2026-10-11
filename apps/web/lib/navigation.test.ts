@@ -27,7 +27,8 @@ import {
 
 // Spec: docs/TESTING.md#module-access-tests (navigation), docs/TESTING.md#user-access-tests
 // (navigation, step 1.7), docs/TESTING.md#master-data-tests (navigation, step 1.8, and the
-// Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9) and
+// Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9),
+// docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -53,8 +54,8 @@ const systemAdministrator = viewer({
   moduleAccess: fullModuleAccess(),
 });
 
-// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9).
-const CORE_HREFS = ['/', '/approvals'];
+// Pulse Core, for every signed-in user: Home, then Approvals (step 1.9), then Holidays (step 1.10).
+const CORE_HREFS = ['/', '/approvals', '/holidays'];
 
 const HR_ADMIN_HREFS = [
   '/admin',
@@ -78,7 +79,7 @@ const ALL_ADMIN_HREFS = [
 ];
 
 describe('visibleNavigation', () => {
-  it('shows a new user only Pulse Core (Home and Approvals), with the empty groups hidden', () => {
+  it('shows a new user only Pulse Core (Home, Approvals and Holidays), with the empty groups hidden', () => {
     const groups = visibleNavigation(newUser);
     expect(groups.map((group) => group.label)).toEqual(['Pulse Core']);
     expect(visibleHrefs(newUser)).toEqual(CORE_HREFS);
@@ -191,7 +192,7 @@ describe('Approvals (step 1.9)', () => {
       const core = visibleNavigation(someone)[0];
       expect(core?.label).toBe('Pulse Core');
       expect(core?.entries.map((entry) => entry.href)).toEqual(CORE_HREFS);
-      expect(visibleHrefs(someone).slice(0, 2)).toEqual(CORE_HREFS);
+      expect(visibleHrefs(someone).slice(0, CORE_HREFS.length)).toEqual(CORE_HREFS);
     }
   });
 
@@ -228,6 +229,50 @@ describe('Approvals (step 1.9)', () => {
     expect(navBadgeLabel('approvalsWaiting', 3)).toBe('waiting');
     expect(navBadgeLabel('approvalsWaiting', 1)).toBe('waiting');
     expect(NO_NAV_BADGES).toEqual({ usersNeedingAccess: null, approvalsWaiting: null });
+  });
+});
+
+describe('Holidays (step 1.10)', () => {
+  const everyone = [
+    newUser,
+    hr,
+    systemAdministrator,
+    viewer({ roles: ['board'] }),
+    viewer({ roles: ['accounting'] }),
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  ];
+
+  it('sits in Pulse Core right after Approvals for every signed-in user', () => {
+    for (const someone of everyone) {
+      const core = visibleNavigation(someone)[0];
+      expect(core?.label).toBe('Pulse Core');
+      const hrefs = core?.entries.map((entry) => entry.href) ?? [];
+      expect(hrefs.indexOf('/holidays')).toBe(hrefs.indexOf('/approvals') + 1);
+      expect(visibleHrefs(someone)).toContain('/holidays');
+    }
+  });
+
+  it('needs no module access or role, has no badge, and is not an Administration entry', () => {
+    const entry = getNavEntry('/holidays');
+    expect(entry).toMatchObject({ label: 'Holidays', title: 'Holidays' });
+    expect(entry.module).toBeUndefined();
+    expect(entry.adminArea).toBeUndefined();
+    expect(entry.adminGroup).toBeUndefined();
+    expect(entry.badge).toBeUndefined();
+    expect(ADMIN_ENTRIES.map((candidate) => candidate.href)).not.toContain('/holidays');
+  });
+
+  it('reads "Pulse Core › Holidays" in the breadcrumb', () => {
+    for (const someone of everyone) {
+      expect(breadcrumbFor(visibleNavigation(someone), '/holidays')).toEqual({
+        parent: 'Pulse Core',
+        current: 'Holidays',
+      });
+    }
+  });
+
+  it('is current on /holidays, not Home or Approvals', () => {
+    expect(activeEntry(visibleNavigation(newUser), '/holidays')?.entry.label).toBe('Holidays');
   });
 });
 

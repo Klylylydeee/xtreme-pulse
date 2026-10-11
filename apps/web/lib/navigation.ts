@@ -2,6 +2,7 @@ import {
   Boxes,
   BriefcaseBusiness,
   Building2,
+  CalendarDays,
   ChartColumn,
   Contact,
   Handshake,
@@ -145,6 +146,16 @@ export const CORE_ENTRIES: NavEntry[] = [
     description: 'Requests waiting for your decision, and the ones you decided',
     Icon: ListChecks,
     badge: 'approvalsWaiting',
+  },
+  {
+    // Step 1.10 (docs/modules/core.md#holiday-calendar): every signed-in user, no module access
+    // needed. Everyone sees confirmed holidays; HR and System Administrators also see drafts and
+    // manage holidays, checked by role on the server.
+    href: '/holidays',
+    label: 'Holidays',
+    title: 'Holidays',
+    description: 'Regular holidays and special days, by year',
+    Icon: CalendarDays,
   },
 ];
 
@@ -347,7 +358,7 @@ export interface NavigationViewer {
 }
 
 /**
- * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals) always, a module at Read or higher,
+ * Whether `viewer` sees `entry`: Pulse Core's (Home, Approvals, Holidays) always, a module at Read or higher,
  * an admin page by role.
  */
 export function isEntryVisible(entry: NavEntry, viewer: NavigationViewer): boolean {

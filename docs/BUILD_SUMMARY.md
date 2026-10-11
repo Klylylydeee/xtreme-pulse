@@ -1,6 +1,6 @@
 # Build summary
 
-**As of:** 2026-10-08 · **Branch:** `phase-1` · **For:** the project owner and anyone picking the work up
+**As of:** 2026-10-11 · **Branch:** `phase-1` · **For:** the project owner and anyone picking the work up
 
 What has been built, what the user decided, and what is waiting. For the session-by-session detail, see [HANDOFF.md](HANDOFF.md). The specs in [BUILD_PLAN.md](BUILD_PLAN.md), [SECURITY.md](../SECURITY.md) and the [ADRs](adr/README.md) win over this file.
 
@@ -18,10 +18,13 @@ What has been built, what the user decided, and what is waiting. For the session
 | 1.5 User accounts and employee numbers | Done, verified, with the review fixes (decisions 31–49) | `45f1dc4` |
 | 1.6 Module access and the signed-in shell | Done, verified, with the review follow-ups (decisions 50–64) | `61c2ccb` |
 | 1.7 User access page | Done and committed (decisions 65–80). Typecheck, lint and `pnpm test` pass. **Open:** the browser check by a person ([Step 1.7 summary](#step-17-summary-committed-as-be19cda)) | `be19cda` |
-| 1.8 Shared master data services | Done: built, verified and committed (decisions 81–98), pushed. Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls ([HANDOFF › 1.8 build status](HANDOFF.md#18-build-status-2026-10-08)) | "feat(core,web): step 1.8 shared master data" |
-| 1.9–1.11 | Not started. Next: 1.9 Approvals engine ([HANDOFF › Next: step 1.9](HANDOFF.md#next-step-19)) | — |
+| 1.8 Shared master data services | Done: built, verified and committed (decisions 81–98), pushed. Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls ([HANDOFF › 1.8 build status](HANDOFF.md#18-build-status-2026-10-08)) | `c1fba4f` |
+| UI: Administration sidebar sub-groups | Done and committed (2026-10-09). Not pushed | `89296fb` |
+| 1.9 Approvals engine | Done and committed (decisions 99–110), 2026-10-11. Not pushed | `42e64f1` |
+| 1.10 Holiday calendar | In progress: the spec is written (decisions 111–132, docs only, not committed). Next: the build plan, for the user's approval ([HANDOFF › Next: step 1.10](HANDOFF.md#next-step-110)) | — |
+| 1.11 | Not started | — |
 
-**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed: `origin/phase-1` exists and is its upstream. No pull request is open yet.
+**Pushed (2026-10-08, with step 1.8).** `phase-1` is pushed up to step 1.8: `origin/phase-1` exists and is its upstream. `89296fb` and `42e64f1` (step 1.9) are not pushed yet. No pull request is open yet.
 
 **1.2 follow-up (`8cddb26`).** Users with a temporary password land on `/change-password` in the address bar. The `callbackUrl` is carried through and sanitized again.
 
@@ -199,7 +202,8 @@ Verified and committed as `84667ff` (2026-10-03). Not pushed.
 5. ~~Step 1.4, "Departments, positions and company settings".~~ Done: `238a9f0`. Steps 1.5 (`45f1dc4`), 1.6 (`61c2ccb`) and 1.7 (`be19cda`) followed; details in [HANDOFF.md](HANDOFF.md#phase-1-status).
 6. **Browser-check steps 1.7 and 1.8 by hand**, first thing next session ([Not done](#not-done), [HANDOFF › Manual checks still needed](HANDOFF.md#manual-checks-still-needed-by-a-person-signed-in)).
 7. ~~Step 1.8, "Shared master data services".~~ Done: built, committed and pushed (2026-10-08). The user still has three judgement calls to settle ([HANDOFF › Judgement calls](HANDOFF.md#judgement-calls-left-for-the-user)).
-8. **Step 1.9, "Approvals engine": plan first** ([HANDOFF › Next: step 1.9](HANDOFF.md#next-step-19)).
+8. ~~Step 1.9, "Approvals engine".~~ Done: committed as `42e64f1` (2026-10-11), not pushed.
+9. **Step 1.10, "Holiday calendar":** the spec is written (decisions 111–132). Next, the build plan, for the user's approval ([HANDOFF › Next: step 1.10](HANDOFF.md#next-step-110)).
 
 ## Step 1.8 brief (done)
 

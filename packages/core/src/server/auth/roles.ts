@@ -151,3 +151,9 @@ export function canEditAccessOf(actor: AccountActor, target: AccountTarget): boo
 export function canToggleSystemAdministrator(actor: AccountActor, target: AccountTarget): boolean {
   return isSystemAdministrator(actor) && actor.id !== target.id && !target.isSystemAccount;
 }
+
+// Spec: docs/modules/core.md#holiday-calendar (decision 114 in docs/BUILD_PLAN.md) — HR and the
+// System Administrator see drafts and manage holidays on `/holidays`, checked by role, not module
+// access. The page uses this for its controls; every holiday service checks it again itself.
+/** True when `user` may see draft holidays and add, edit, confirm, declare and delete holidays. */
+export const canManageHolidays = (user: RoleHolder) => isHR(user) || isSystemAdministrator(user);

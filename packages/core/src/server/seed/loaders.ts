@@ -1,10 +1,16 @@
 import type { UpdateQuery } from 'mongoose';
 import { ALLOWED_EMAIL_DOMAINS } from '../../account';
-import { now } from '../../dates';
+import { businessToday, now } from '../../dates';
 import { AllowedEmailDomainModel } from '../allowed-email-domains/model';
 import { BrandModel } from '../brands/model';
 import { COMPANY_SETTINGS_KEY, CompanySettingsModel } from '../company-settings/model';
+import { addConfigVersion, ConfigVersionExistsError, listConfigVersions } from '../config';
 import { DepartmentModel } from '../departments/model';
+import {
+  HOLIDAY_RULES_SETTING,
+  SEED_HOLIDAY_RULES,
+  SEED_HOLIDAY_RULES_SOURCE,
+} from '../holidays/rules';
 import { LEGACY_POSITION_NAME_INDEX, POSITION_NAME_INDEX, PositionModel } from '../positions/model';
 import { MASTER_DATA_COLLATION } from '../master-data-collation';
 import {
@@ -252,6 +258,31 @@ const companySettingsLoader: SeedLoader = {
   },
 };
 
+// Spec: docs/modules/core.md#holiday-calendar (decisions 112 and 129 in docs/BUILD_PLAN.md) — the
+// first version of `core.holidayRules`, added only when the setting has no version at all, and
+// effective from the Manila day it is seeded. Once any version exists the seed never adds or
+// changes one: later rule changes are new versions added through the configuration store.
+const holidayRulesLoader: SeedLoader = {
+  name: 'holidayRules',
+  async run() {
+    const existing = await listConfigVersions(HOLIDAY_RULES_SETTING);
+    if (existing.length > 0) return { added: 0, skipped: 1 };
+    try {
+      await addConfigVersion(HOLIDAY_RULES_SETTING, {
+        effectiveFrom: businessToday(),
+        value: SEED_HOLIDAY_RULES,
+        source: SEED_HOLIDAY_RULES_SOURCE,
+        actorId: null,
+      });
+      return { added: 1, skipped: 0 };
+    } catch (error) {
+      // Another seed run added it at the same moment.
+      if (error instanceof ConfigVersionExistsError) return { added: 0, skipped: 1 };
+      throw error;
+    }
+  },
+};
+
 /** Core's base data loaders, in the order they must run (positions need departments). */
 export const coreSeedLoaders: readonly SeedLoader[] = [
   allowedEmailDomainsLoader,
@@ -259,4 +290,5 @@ export const coreSeedLoaders: readonly SeedLoader[] = [
   positionsLoader,
   companySettingsLoader,
   brandsLoader,
+  holidayRulesLoader,
 ];

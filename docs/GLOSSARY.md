@@ -39,6 +39,8 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | `reportingTo` | An employee's supervisors, one or more ([Reporting lines](modules/core.md#reporting-lines)) |
 | Supervisor | Anyone in an employee's `reportingTo` |
 | Approval step | One stage of an approval request, with its approvers fixed at submit. An any-one step is settled by the first decision; an all-of step needs every approver to approve ([Approvals](modules/core.md#approvals)) |
+| Draft holiday, confirmed holiday | A draft is a proposed holiday that only HR and the System Administrator see; once checked against the proclamation and given its legal basis, it is confirmed, and only confirmed holidays affect attendance, leave and payroll ([Holiday calendar](modules/core.md#holiday-calendar)) |
+| Declared holiday | A holiday announced at short notice (for example Eid'l Fitr or a weather-related special non-working day), added already confirmed, with every user notified ([Holiday calendar](modules/core.md#holiday-calendar)) |
 | Department head | The employee who receives a department's escalations |
 | Board, Board of Directors | Managing Director, Sales Director, Operations Director and Strategic Director |
 | Self-service | What every active user can do for themselves without module access ([Exceptions to module access](../SECURITY.md#exceptions-to-module-access)) |

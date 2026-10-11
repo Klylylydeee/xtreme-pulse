@@ -53,7 +53,7 @@ Finalized runs are locked. Add a manual adjustment with a reason in the next dra
 
 ### A holiday was added or moved late
 
-Adding or changing a confirmed holiday recomputes the DTR for periods not yet finalized. Finalized periods are adjusted in the next payroll (see [Holiday calendar](modules/core.md#holiday-calendar)).
+Adding or changing a confirmed holiday recomputes the DTR for periods not yet finalized. Finalized periods are adjusted in the next payroll (see [Holiday calendar](modules/core.md#holiday-calendar)). The recompute arrives with Pulse Talent in Phase 2; in Phase 1 the holidays-changed job runs but has nothing to do.
 
 ### The 100th hire of the year fails
 
@@ -82,6 +82,16 @@ The same merchant TIN and receipt number can't be claimed twice, whether as a re
 3. After a restart, check that jobs that should have run while it was down did run, for example that day's SLA breaches and renewals.
 
 The list of jobs is in [Background jobs](ARCHITECTURE.md#background-jobs).
+
+### Online holiday source unreachable
+
+**Symptom:** the holiday auto-draft (the October 1 job, or "Run auto-draft" on `/holidays`) adds the rule-based drafts but reports that the online source failed, and the worker log shows the error.
+
+This doesn't block anything: the online source only adds drafts for HR to check, and the rule-based drafts are still made (see [Holiday calendar](modules/core.md#holiday-calendar)).
+
+1. Check that `HOLIDAY_SOURCE_URL` is right, with `{year}` where the year goes (see [Environment variables](DEPLOYMENT.md#environment-variables)), and that the server can reach it.
+2. Once it is reachable, run the auto-draft again from `/holidays` for that year. It is safe to rerun: it adds only what is missing.
+3. If the server has no internet access, leave `HOLIDAY_SOURCE_URL` empty. HR adds the holidays the rules don't cover (for example Chinese New Year) by hand from the proclamation.
 
 ## Data and recovery
 

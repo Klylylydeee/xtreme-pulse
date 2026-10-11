@@ -186,3 +186,6 @@ export {
 export * from './master-data';
 // Approvals (docs/modules/core.md#approvals): the fixed sets and the decision schema.
 export * from './approvals';
+// The holiday calendar (docs/modules/core.md#holiday-calendar): the fixed sets, the form schemas,
+// the auto-draft rule shapes and the date rules (Easter, the last weekday of a month).
+export * from './holidays';

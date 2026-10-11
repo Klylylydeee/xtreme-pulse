@@ -53,6 +53,7 @@ export {
   canManageUsers,
   canEditAccessOf,
   canManageAccess,
+  canManageHolidays,
   canResetPasswordOf,
   canToggleSystemAdministrator,
   type DepartmentRole,
@@ -492,3 +493,67 @@ export {
   parseDevSampleStep,
   submitDevSampleApproval,
 } from './approvals/dev-sample';
+
+// The holiday calendar (docs/modules/core.md#holiday-calendar, build step 1.10): the services
+// behind `/holidays` (HR and the System Administrator manage, by role; everyone else reads
+// confirmed holidays only), the confirmed-holidays read for other modules, the auto-draft, the
+// online source, the reminder, and the holidays-changed event. Services only; the model is never
+// exported.
+export {
+  assertCanManageHolidays,
+  type ConfirmedHoliday,
+  confirmHoliday,
+  confirmHolidayYear,
+  createHoliday,
+  declareHoliday,
+  deleteHoliday,
+  findHolidaysOnDate,
+  getHoliday,
+  HOLIDAY_DECLARED_EVENT,
+  HOLIDAY_RECORD_TYPE,
+  type HolidayActor,
+  HolidayLegalBasisMissingError,
+  HOLIDAYS_HREF,
+  type HolidayView,
+  listConfirmedHolidays,
+  listHolidays,
+  listHolidayYears,
+  type SameDateHoliday,
+  updateHoliday,
+} from './holidays/service';
+export { HOLIDAY_RULES_SETTING, SEED_HOLIDAY_RULES } from './holidays/rules';
+export {
+  HOLIDAY_AUTO_DRAFT_JOB,
+  HOLIDAY_AUTO_DRAFT_SCHEDULE,
+  type HolidayAutoDraftResult,
+  runHolidayAutoDraft,
+  type RunHolidayAutoDraftOptions,
+  runScheduledHolidayAutoDraft,
+} from './holidays/auto-draft';
+export {
+  HOLIDAY_SOURCE_URL_ENV,
+  type HolidayFetch,
+  type OnlineSourceResult,
+} from './holidays/online-source';
+export {
+  HOLIDAY_REMINDER_DECEMBER_SCHEDULE,
+  HOLIDAY_REMINDER_JANUARY_FEBRUARY_SCHEDULE,
+  HOLIDAY_REMINDER_JOB,
+  HOLIDAY_REMINDER_SCHEDULES,
+  type HolidayReminderResult,
+  holidayReminderKey,
+  holidayReminderYear,
+  HOLIDAYS_UNCONFIRMED_EVENT,
+  runHolidayReminder,
+} from './holidays/reminder';
+export {
+  enqueueHolidaysChanged,
+  HOLIDAYS_CHANGED_JOB,
+  type HolidaysChangedEnqueuer,
+  type HolidaysChangedEvent,
+  type HolidaysChangedListener,
+  type HolidaysChangedResult,
+  registerHolidaysChangedListener,
+  runHolidaysChangedListeners,
+  setHolidaysChangedEnqueuer,
+} from './holidays/events';

@@ -132,6 +132,7 @@ Modules talk to each other only through the owning module's service functions. T
 | Ops, Desk | Core | Create sites during rollout and fleet imports | [Multi-site rollouts](modules/ops.md#multi-site-rollouts) |
 | Supply | Core | Manage suppliers and catalog items | [Suppliers](modules/supply.md#suppliers) |
 | Supply | Fiscal | Post equipment cost of deliveries and issues to projects | [Project costs](modules/ops.md#project-costs) |
+| Talent | Core | Listen for holidays-changed (`registerHolidaysChangedListener`) to recompute the DTR for payroll periods not yet finalized (Phase 2) | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Talent | Supply | Show each employee's assigned assets | [Company-issued assets](modules/supply.md#company-issued-assets) |
 | Talent | Fiscal | Post payroll runs and final pay, record remittances | [Payroll run & payslips](modules/talent.md#payroll-run--payslips) |
 | Fiscal | Talent | Duplicate-receipt check for petty cash; list the compensation tax forms | [Reimbursements](modules/talent.md#reimbursements), [BIR tax reports](modules/fiscal.md#bir-tax-reports) |
@@ -144,6 +145,8 @@ Modules talk to each other only through the owning module's service functions. T
 | Insight | Every module | Read-only figures | [Pulse Insight](modules/insight.md) |
 
 **Approvals** (build step 1.9). A module that sends records for approval registers each approval type with Core's `registerApprovalType` (name `<module>.<name>`, steps, allowed decisions, what an empty step does, and its hooks: `onSettled`, optionally `onStepApproved` and `outcomeRecipients`). Registrations are explicit calls, like the [file access registrations](#file-storage); an unregistered type is refused. The module calls `submitApproval()` inside its own transaction, so the request commits or rolls back with the module's change. Decisions run in the engine's transaction, which calls the module's hooks in it: the hook updates and audits the module's own record in that transaction, so the decision, both audit entries and the notifications commit together, and a hook that throws rolls them all back. Core reaches the module only through the hooks it registered and never writes the module's collections, and the module never writes `approvalRequests` ([Approvals](modules/core.md#approvals)).
+
+**Holidays changed** (build step 1.10). After a change to confirmed holidays commits, Core enqueues the BullMQ job `core.holidaysChanged` with the affected dates. The worker runs every listener a module registered with `registerHolidaysChangedListener`, an explicit call like the other registrations. Pulse Talent registers one in Phase 2; until then there are none and the job does nothing. Because the job is enqueued after the commit, a crash in between can lose it; this is accepted, and Phase 2 reconciles at payroll finalize ([Holiday calendar](modules/core.md#holiday-calendar)).
 
 The business lifecycle these calls support:
 
@@ -176,8 +179,9 @@ All scheduled work runs in the BullMQ worker on Asia/Manila time. Where the spec
 
 | Job | When | Spec |
 |---|---|---|
-| Next year's holidays drafted | Every October 1 | [Holiday calendar](modules/core.md#holiday-calendar) |
-| Unconfirmed holidays reminder to HR | Weekly from December 1 until confirmed | [Holiday calendar](modules/core.md#holiday-calendar) |
+| Next year's holidays drafted (`core.holidayAutoDraft`), with the optional online source | Every October 1 at 8:00 AM (cron `0 8 1 10 *`); HR or a System Administrator can also run the same service from `/holidays` for the current or next year | [Holiday calendar](modules/core.md#holiday-calendar) |
+| Unconfirmed holidays reminder (`core.holidayReminder`) to HR and the System Administrator | December 1, 8, 15, 22 and 29 at 8:00 AM for next year (cron `0 8 1,8,15,22,29 12 *`), and Mondays at 8:00 AM in January and February for the current year (cron `0 8 * 1,2 1`), while that year has no confirmed holidays; at most once per recipient per year per Manila day (`notify()`'s `dedupeKey`) | [Holiday calendar](modules/core.md#holiday-calendar) |
+| Holidays changed (`core.holidaysChanged`, with `{ dates }`) | Enqueued after a change to confirmed holidays commits, not scheduled; runs the listeners registered with `registerHolidaysChangedListener` (none until Phase 2) | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Users still needing access (`core.accessReminder`) to HR and the System Administrator | Daily at 8:00 AM, weekends included, while any user needs access; at most once per recipient per Manila day (`notify()`'s `dedupeKey`) | [User access page](modules/core.md#user-access-page) |
 | Company details reminder (`core.companyDetailsReminder`) to HR and the System Administrator | Weekly, Mondays 8:00 AM, while any company detail is a placeholder; at most once per recipient per Manila day | [Company settings page](modules/core.md#company-settings-page) |
 | Timesheet reminders and missing list | Before and at the deadline | [Submission & approval](modules/talent.md#submission--approval) |

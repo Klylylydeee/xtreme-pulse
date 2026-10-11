@@ -1,6 +1,6 @@
 # Build handoff
 
-**Date:** 2026-10-08 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
+**Date:** 2026-10-11 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
 
 Where the build stands, what's half-done, and what to do next. Facts here were checked against the repo on this date. The specs in [BUILD_PLAN.md](BUILD_PLAN.md), [SECURITY.md](../SECURITY.md) and the ADRs win over this file.
 
@@ -27,7 +27,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 
 ## Branches and commits
 
-`phase-1` is pushed (2026-10-08, with step 1.8): `origin/phase-1` exists and is its upstream. No pull request is open yet. `phase-0` is not pushed.
+`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`) and step 1.9 (`42e64f1`) are committed but **not pushed** (`phase-1` is 2 commits ahead). No pull request is open yet. `phase-0` is not pushed.
 
 | Branch | Commit | What |
 |---|---|---|
@@ -43,7 +43,9 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 | | `45f1dc4` | Step 1.5 user accounts and employee numbers (with the review fixes) |
 | | `61c2ccb` | Step 1.6 module access and the signed-in shell (with the review follow-ups) |
 | | `be19cda` | Step 1.7 user access (57 files). Pushed |
-| | "feat(core,web): step 1.8 shared master data" | Step 1.8 shared master data, with `docs/HANDOFF.md` and `docs/BUILD_SUMMARY.md`. Pushed (2026-10-08) |
+| | `c1fba4f` | Step 1.8 shared master data, with `docs/HANDOFF.md` and `docs/BUILD_SUMMARY.md`. Pushed (2026-10-08) |
+| | `89296fb` | Administration sidebar sub-groups (2026-10-09). Not pushed |
+| | `42e64f1` | Step 1.9 approvals engine (2026-10-11). Not pushed |
 
 ## Step 1.2 follow-up (committed as `8cddb26`)
 
@@ -111,8 +113,8 @@ Committed on `phase-1` as `2b7c959`. The dev-origins fix followed as `823a8d2`.
 | 1.6 Module access and the signed-in shell | Done, verified, **committed as `61c2ccb`** on `phase-1` (2026-10-05), including the [1.6 review follow-ups](#16-review-follow-ups-2026-10-05). Typecheck, lint, `pnpm test` (449), Prettier, and the real 403/404 and browser checks in dev and a production build pass. See [Approved 1.6 plan](#approved-16-plan) |
 | 1.7 User access page | Done, **committed as `be19cda`** on `phase-1` and pushed (2026-10-06). Built per the user's 16 decisions (BUILD_PLAN decisions 65–80). Typecheck, lint, `pnpm test` (28 files, 495 tests) and the production build pass. **Open:** the browser check by a person. See [1.7 build](#17-build-2026-10-06) |
 | 1.8 Shared master data services | Done, verified, **committed** on `phase-1` as "feat(core,web): step 1.8 shared master data" and pushed (2026-10-08). Typecheck, lint, Prettier, `pnpm test` (37 files, 671 tests) and the production build pass. **Open:** the browser check by a person and three judgement calls. See [1.8 build status](#18-build-status-2026-10-08) |
-| 1.9 Approvals engine | Not started. **Next build step** ([Next: step 1.9](#next-step-19)) |
-| 1.10 Holiday calendar | Not started |
+| 1.9 Approvals engine | Done, **committed as `42e64f1`** on `phase-1` (2026-10-11), not pushed. Built per BUILD_PLAN decisions 99–110 |
+| 1.10 Holiday calendar | In progress. The spec is written (2026-10-11, decisions 111–132, docs only, not committed); next is the plan for the build ([Next: step 1.10](#next-step-110)) |
 | 1.11 Directory, org chart, command bar and Home tiles | Not started |
 
 ### 1.1 notes
@@ -480,9 +482,22 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
     - **1.7:** `/admin/access`; HR sets Talent Write for a user → Talent shows in that user's sidebar → `/admin/audit` shows None → Write; HR's own row is read-only; the sheet's dialogs; the "Needs access" group and the sidebar badge; light and dark, phone width. See [Not done](#not-done).
     - **1.8:** see [Manual checks still needed](#manual-checks-still-needed-by-a-person-signed-in).
 11. **Ask the user about the 1.8 judgement calls** ([Judgement calls left for the user](#judgement-calls-left-for-the-user)). All are left as built until they decide.
-12. **Step 1.9**, "Approvals engine": read its Spec docs, then show a plan and **wait for the user's approval before any code**. See [Next: step 1.9](#next-step-19).
+12. ~~**Step 1.9**, "Approvals engine"~~. Done (2026-10-11): built per decisions 99–110 and committed as `42e64f1`, not pushed.
+13. **Step 1.10**, "Holiday calendar": the spec is written (decisions 111–132, the user's approved decisions, docs only and not yet committed). Next, show the build plan and **wait for the user's approval before any code**. See [Next: step 1.10](#next-step-110).
 
-## Next: step 1.9
+## Next: step 1.10
+
+**1.10 Holiday calendar** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), Phase 1 step 10).
+
+The spec was changed first (2026-10-11), from the user's approved decisions: BUILD_PLAN decisions 111–132, [Holiday calendar](modules/core.md#holiday-calendar) ("Built in step 1.10"), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership) (`holidays`, `core.holidayRules`), [SECURITY.md](../SECURITY.md#rules) (`/holidays`, audit), [Background jobs](ARCHITECTURE.md#background-jobs), [Environment variables](DEPLOYMENT.md#environment-variables) (`HOLIDAY_SOURCE_URL`), [Runbook](RUNBOOK.md#online-holiday-source-unreachable) and [Holiday calendar tests](TESTING.md#holiday-calendar-tests). These docs aren't committed yet.
+
+**Spec (docs to read):** the links in the step's **Spec** line in BUILD_PLAN.
+
+**Workflow.** Dispatch sub-agents for all work (CLAUDE.md). Show the build plan and wait for the user's approval before any code. Then build, verify on a throwaway database, and don't commit without asking.
+
+## Step 1.9 brief (done)
+
+Kept for the record. Built and committed as `42e64f1` (2026-10-11).
 
 **1.9 Approvals engine** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), Phase 1 step 9).
 

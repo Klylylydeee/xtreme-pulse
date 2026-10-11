@@ -2,7 +2,7 @@
 
 Pulse Core is the platform every module builds on. It covers sign-in, user accounts, system administration, the company directory and org chart, the holiday calendar, shared master data, approvals, notifications, the audit log and company settings.
 
-Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`), Approvals (`/approvals`, from build step 1.9) and administration (`/admin`). Package: `packages/core`.
+Built in [Phase 1](../BUILD_PLAN.md#phase-1-pulse-core). Routes: the login page, Home (`/`), Approvals (`/approvals`, from build step 1.9), Holidays (`/holidays`, from build step 1.10) and administration (`/admin`). Package: `packages/core`.
 
 Sign-in, passwords, account status, module access and the System Administrator role are security rules, so they live in [SECURITY.md](../../SECURITY.md).
 
@@ -21,9 +21,10 @@ Every user is an employee of Xtreme Works (the only exception is the bootstrap s
 - A loader may fill a field that is absent on an existing record; it never changes an existing value.
 - Seeded positions carry a stable seed key, so renaming a seeded position doesn't make the seed add it again.
 - **Products** (build step 1.8): the seed loads the 13 products listed in [Deals and stages](engage.md#deals-and-stages), each with a stable `seedKey`, and inserts only the missing ones. A product added by hand with the same name (ignoring case) counts as present, and a renamed seeded product isn't added again. "General" isn't protected: it can be renamed or retired like any product ([Managing master data](#managing-master-data)).
+- **Holiday rules** (build step 1.10): the seed adds the first version of the `core.holidayRules` setting only when the setting has no version, so a later run never replaces it ([Holiday calendar](#holiday-calendar)).
 - Seed writes are system writes (`createdBy` is null) and are not audit-logged. They are not backfilled when the [audit log](#audit-log) arrives in build step 1.3.
 - The seed only loads the allowed email domains. The allowed-domain check runs in services (bootstrap, sign-in and user creation) against the stored `allowedEmailDomains` records, not in the users schema.
-- The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), products (build step 1.8), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
+- The same seed run loads base data: allowed email domains, departments and positions (see [Departments and positions](#departments-and-positions)), products (build step 1.8), the holiday rules (build step 1.10), leave types, payroll settings (cut-offs, daily rate factor), contribution tables, holiday premium rates, regional minimum wage rates (NCR), the default work schedule, the internet allowance, HR document templates, and company settings placeholders.
 
 ## Administration area
 
@@ -186,9 +187,9 @@ Built in step 1.7:
 
 ## Holiday calendar
 
-- Shared master data in Pulse Core, managed by HR (and the System Administrator). Used by timesheets, payroll, leave (holidays are not deducted from leave balances) and later by SLA timers in Pulse Desk.
+- Shared master data in Pulse Core, managed by HR and the System Administrator. Used by timesheets, payroll, leave (holidays are not deducted from leave balances) and later by SLA timers in Pulse Desk.
 - Each holiday: name, date, type (regular holiday, special non-working day, special working day), scope (nationwide or a specific city/municipality), legal basis (e.g. Proclamation No.), status (draft or confirmed).
-- Only **confirmed** holidays affect attendance, leave and payroll. Drafts are shown to HR only.
+- Only **confirmed** holidays affect attendance, leave and payroll. Drafts are shown to HR and the System Administrator only.
 
 ### Keeping it updated
 1. **Yearly auto-draft:** every October 1, a background job creates next year's holidays as drafts:
@@ -199,8 +200,69 @@ Built in step 1.7:
 2. **Optional online source:** if the server has internet access, also pull a public Philippine holiday API or calendar feed and add anything missing as drafts (e.g. Chinese New Year). Never auto-confirm from an outside source.
 3. **HR confirms against the official proclamation:** each year's holidays are declared by Presidential Proclamation, published in the Official Gazette, usually a few months before the year starts. HR checks the drafts against it, moves dates that were shifted, adds missing ones, deletes ones not declared, and confirms.
 4. **Ad-hoc declarations:** Eid'l Fitr and Eid'l Adha are declared by separate proclamation close to the date, and special non-working days can be declared at any time (e.g. weather or national events). HR adds them when announced, and all users are notified.
-5. **Reminders:** if next year has no confirmed holidays by December 1, alert HR weekly until it is done.
-6. Adding or changing a holiday recomputes the DTR for payroll periods not yet finalized. Finalized periods get adjustments in the next payroll.
+5. **Reminders:** if next year has no confirmed holidays by December 1, alert HR and the System Administrator weekly until it is done.
+6. Adding or changing a holiday recomputes the DTR for payroll periods not yet finalized. Finalized periods get adjustments in the next payroll. (From Phase 2: in step 1.10 the holidays-changed event has no listeners, see below.)
+
+Built in step 1.10 (the details follow; the collection and its indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership)):
+
+- **Route:** `/holidays`, a Pulse Core page open to every signed-in user with no module access needed ([Rules](../../SECURITY.md#rules)). It sits in the Pulse Core sidebar group after Approvals; the breadcrumb reads "Pulse Core › Holidays".
+- **Who sees what.** HR and System Administrators see drafts and confirmed holidays. Everyone else sees confirmed holidays only, filtered in the server query, so a draft never reaches their browser.
+- **Who manages.** HR and System Administrators add, edit, confirm, declare, delete and run the auto-draft on the same page. This is checked by role on the server, in the Server Actions and again in the service; nobody else gets the controls or can call them.
+- **Fields.** Name (up to 100 characters), date (a Manila day), type (`regular`, `specialNonWorking` or `specialWorking`, shown as "Regular holiday", "Special non-working day" and "Special working day"), scope (`nationwide` or `local`), location (free text up to 100 characters, required when the scope is local; a nationwide holiday stores none, and a location left in the form is cleared on save), legal basis (up to 200 characters, for example "Proclamation No. 1006"), status (`draft` or `confirmed`). How a local holiday applies to employees is decided in Phase 2.
+- **Adding** a holiday creates a draft (source `manual`). The legal basis is optional on a draft.
+- **Confirming** needs a legal basis: a draft without one can't be confirmed. Confirm sets `confirmedAt` and `confirmedBy`. **Confirm all** confirms a year's drafts at once, and is refused while any of them has no legal basis; the refusal lists those drafts. Confirming doesn't notify every user.
+- **Declare holiday** is the ad-hoc path for a holiday announced at short notice (Eid'l Fitr, Eid'l Adha, a special non-working day for weather or a national event). It creates a holiday that is confirmed at once and marked `declared`, needs a legal basis, and notifies every active user except the person declaring it (`core.holidayDeclared`) in the same transaction, so a failed save notifies no one. The bootstrap system account is never notified.
+- **Editing and deleting.** A draft is edited or deleted freely. A holiday's date can be changed only within its year: a move to another year is refused, and the user deletes the holiday and adds a new one instead. A confirmed holiday can be edited or deleted after a confirmation dialog, but an edit can't remove its legal basis. There is no unconfirm. Deleting is a soft delete (`deletedAt` set) with no restore screen.
+- **Same date.** Several holidays may share a date. The same name on the same date, ignoring case, is refused among live (not deleted) holidays. When the chosen date already has a holiday, the form shows a non-blocking warning naming it.
+- **Auto-draft rules** are versioned configuration: the setting `core.holidayRules` ([Versioned configuration](../DATA_MODEL.md#versioned-configuration)), defined with `defineConfigSetting`. `pnpm seed:admin` seeds its first version once, only when no version exists, effective from the day it is seeded. An auto-draft run uses the version in effect on the day it runs (Manila). Step 1.10 has no editor for it. Each rule has a stable key, a name, a default type and one of three kinds:
+  - `fixed`: a month and a day.
+  - `lastWeekday`: a month and a weekday, the last one in that month (National Heroes Day is the last Monday of August).
+  - `easterOffset`: a number of days from Easter Sunday (Maundy Thursday −3, Good Friday −2, Black Saturday −1). Easter Sunday is computed with the anonymous Gregorian algorithm.
+- **Seeded rules.** Regular holidays follow RA 9492 as amended; the others default to special non-working days, apart from the EDSA anniversary, which recent proclamations have made a special working day. Types and dates change by proclamation, so HR checks every auto-draft against the year's proclamation before confirming it.
+
+| Holiday | Rule | Default type |
+|---|---|---|
+| New Year's Day | Fixed, January 1 | Regular holiday |
+| EDSA People Power Revolution Anniversary | Fixed, February 25 | Special working day |
+| Maundy Thursday | Easter −3 days | Regular holiday |
+| Good Friday | Easter −2 days | Regular holiday |
+| Black Saturday | Easter −1 day | Special non-working day |
+| Araw ng Kagitingan | Fixed, April 9 | Regular holiday |
+| Labor Day | Fixed, May 1 | Regular holiday |
+| Independence Day | Fixed, June 12 | Regular holiday |
+| Ninoy Aquino Day | Fixed, August 21 | Special non-working day |
+| National Heroes Day | Last Monday of August | Regular holiday |
+| All Saints' Day | Fixed, November 1 | Special non-working day |
+| All Souls' Day | Fixed, November 2 | Special non-working day |
+| Bonifacio Day | Fixed, November 30 | Regular holiday |
+| Feast of the Immaculate Conception | Fixed, December 8 | Special non-working day |
+| Christmas Eve | Fixed, December 24 | Special non-working day |
+| Christmas Day | Fixed, December 25 | Regular holiday |
+| Rizal Day | Fixed, December 30 | Regular holiday |
+| Last Day of the Year | Fixed, December 31 | Special non-working day |
+
+- **The auto-draft.** The job `core.holidayAutoDraft` runs every October 1 at 08:00 Asia/Manila and drafts next year ([Background jobs](../ARCHITECTURE.md#background-jobs)). HR or a System Administrator can also run it from the page for the current or the next year ("Run auto-draft"); that calls the same service directly, not through the worker, and shows how many drafts were added and how many were skipped. Each rule's draft carries `sourceKey` `rule:<key>`, nationwide scope, no legal basis and source `rule`. A run adds a draft only when no holiday of that year, deleted ones included, has that `sourceKey`, so it can run any number of times, and a deleted or moved auto-draft is never drafted again. A rule is also skipped when its date already has a live holiday added by hand or from the online source (HR covered that day before the run); its `sourceKey` stays unused, so a later run drafts it if that day is free again. Another rule's draft on the same date doesn't block it: two rules can fall on one day (Black Saturday and Araw ng Kagitingan are both April 9 in 2039), and both are drafted.
+- **The online source** is off unless the server has `HOLIDAY_SOURCE_URL` set ([Environment variables](../DEPLOYMENT.md#environment-variables)). When it is set, each auto-draft run also fetches the year's holidays from it (`{year}` in the URL is replaced by the year, for example `https://date.nager.at/api/v3/PublicHolidays/{year}/PH`), as a Nager.Date-style JSON list (each entry's `date` as `YYYY-MM-DD` and its `name`). Every date with no holiday yet, deleted ones included, becomes a draft with type special non-working day, nationwide scope, no legal basis, source `online` and `sourceKey` `online:<YYYY-MM-DD>`, for HR to check. It matches by date only, and never confirms anything. If the source fails (unreachable, an error answer or a payload that doesn't parse), the failure is logged, the rule-based drafts are still made, and the run's result says the online source failed ([Runbook](../RUNBOOK.md#online-holiday-source-unreachable)).
+- **The reminder.** The job `core.holidayReminder` notifies every active HR user and System Administrator (`core.holidaysUnconfirmed`) while a year has no confirmed holidays: on December 1, 8, 15, 22 and 29 at 08:00 Asia/Manila for next year, and every Monday at 08:00 in January and February for the then-current year. Each recipient gets it at most once per year per Manila day (`notify()`'s duplicate check, key `core.holidayReminder:<year>:<Manila date>`). Nothing is sent once that year has a confirmed holiday.
+- **Holidays changed.** After a change that touches confirmed holidays commits (confirm, confirm all, declare, or editing or deleting a confirmed holiday), the service enqueues the BullMQ job `core.holidaysChanged` with `{ dates }`, the affected dates as `YYYY-MM-DD`; a move sends both the old and the new date. The worker runs every listener registered with `registerHolidaysChangedListener`. There are none until Phase 2 (Pulse Talent recomputes the DTR for payroll periods not yet finalized, [Cross-module integration](../ARCHITECTURE.md#cross-module-integration)), so in step 1.10 it does nothing. The job is enqueued after the commit, so a crash between the two loses it; this is accepted, and Phase 2 reconciles at payroll finalize. Changes to drafts don't enqueue it.
+- **Audit:** module `core`, record type `core.holiday`, labelled `<name> · <YYYY-MM-DD>` (for example `Christmas Day · 2027-12-25`), using the name and date after the change (before it, for a delete). Adding, declaring and each auto-drafted holiday write a `create` entry; editing and confirming write `update` entries; deleting writes a `delete` entry with `after` null. Each is written in the change's transaction. A scheduled auto-draft run writes its entries with no actor (a system action); a run by HR or a System Administrator writes them with that person as the actor ([Audit logging](../../SECURITY.md#audit-logging)).
+
+| Event | When | To | Link |
+|---|---|---|---|
+| `core.holidayDeclared` | A holiday is declared, in the declare transaction | Every active user except the person declaring it, never the bootstrap system account | `/holidays` |
+| `core.holidaysUnconfirmed` | The job `core.holidayReminder`, December 1, 8, 15, 22 and 29 for next year and Mondays in January and February for the current year, 08:00 Asia/Manila, while that year has no confirmed holidays ([Background jobs](../ARCHITECTURE.md#background-jobs)) | Every active HR user and System Administrator | `/holidays` |
+
+- **Clarifications (step 1.10 spec).**
+  - `date` is the Manila day at 00:00 stored as UTC, like `employees.separationDate`; `year` is derived from it.
+  - `source` (`manual`, `rule` or `online`) and `sourceKey` are fixed once created. Moving an auto-draft to another date keeps its `sourceKey`, which is why it isn't drafted again.
+  - A declared holiday has source `manual` and `declared` true. A normal add has `declared` false.
+  - The online source treats a date as taken when any holiday of that date exists, deleted ones included, so a holiday HR deleted isn't brought back from the feed either.
+  - A move keeps the holiday in its year (`year` never changes after create), so `{ year, sourceKey }` stays valid; to move a holiday to another year, delete it and add a new one.
+  - The seeded `core.holidayRules` version is effective from its seed day, so a run on or after that day, the current year included (Going live item 4), uses it.
+  - Confirm all enqueues one `core.holidaysChanged` job with every date it confirmed.
+  - The type, scope, status and source values are fixed sets in `@pulse/core`: `HOLIDAY_TYPES`, `HOLIDAY_SCOPES`, `HOLIDAY_STATUSES` and `HOLIDAY_SOURCES` ([Constants versus data](../CODE_STYLE.md#constants-versus-data)).
+  - Confirm, Confirm all and the auto-draft notify nobody; only a declaration notifies every user, and only the reminder notifies HR and the System Administrator.
+- **Not in step 1.10:** an editor for `core.holidayRules` (a new version is added through the configuration store), a restore screen for deleted holidays, unconfirming, how local holidays apply to employees and the DTR recompute (Phase 2), the Home "upcoming holidays" tile (step 1.11), and email notifications.
 
 ## Shared master data
 
@@ -338,7 +400,7 @@ Built in step 1.9, at `/approvals`. It is a Pulse Core page, open to every signe
 ## Notifications
 
 - All notifications are delivered in-app through Pulse Core (email later, once the email system ships). Each user has a notification list with an unread badge.
-- Pulse Core's own events: HR and the System Administrator hear about new users, users still needing access (daily) and position changes to review ([User access page](#user-access-page)), and company details that are still placeholders ([Company details](#company-details-pending-from-the-client)). Every user is notified of ad-hoc holiday declarations, and HR gets the weekly reminder when next year's holidays aren't confirmed ([Holiday calendar](#holiday-calendar)). From build step 1.9 the approvals engine sends the approval events for every module: a request waiting for an approver (`core.approvalRequested`), a step settled by another approver (`core.approvalSettled`), and the outcome (`core.approvalApproved`, `core.approvalReturned`, `core.approvalRejected`) ([Approvals](#approvals)).
+- Pulse Core's own events: HR and the System Administrator hear about new users, users still needing access (daily) and position changes to review ([User access page](#user-access-page)), and company details that are still placeholders ([Company details](#company-details-pending-from-the-client)). Every user is notified of ad-hoc holiday declarations (`core.holidayDeclared`), and HR and the System Administrator get the weekly reminder while a year's holidays aren't confirmed (`core.holidaysUnconfirmed`, from build step 1.10) ([Holiday calendar](#holiday-calendar)). From build step 1.9 the approvals engine sends the approval events for every module: a request waiting for an approver (`core.approvalRequested`), a step settled by another approver (`core.approvalSettled`), and the outcome (`core.approvalApproved`, `core.approvalReturned`, `core.approvalRejected`) ([Approvals](#approvals)).
 - Each module lists its own events in its spec, for example [Pulse Talent notifications](talent.md#notifications).
 
 Built in step 1.3:
