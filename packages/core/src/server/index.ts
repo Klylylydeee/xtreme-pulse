@@ -94,9 +94,19 @@ export {
 export {
   authorizeFileAccess,
   type FileAccessCheck,
+  type FileAccessOptions,
+  type FileAuditRecord,
+  type FileAuditView,
   findAccessibleFile,
+  openAccessibleFile,
+  type OpenedFile,
   registerFileAccess,
 } from './files/access';
+export {
+  TRANSFORMABLE_TYPES,
+  UPLOAD_TRANSFORMS,
+  type UploadTransform,
+} from './files/image-transform';
 export { registerCoreFileAccess } from './files/registrations';
 export {
   GENERATED_TYPES,
@@ -366,6 +376,22 @@ export {
   listEmployeeIdentities,
   type ListEmployeeIdentitiesOptions,
 } from './employees/identity';
+// The profile photo (docs/modules/core.md#people-data-ownership, build step 2.2): the employee,
+// HR and the System Administrator, never the system account.
+export {
+  canChangeEmployeePhoto,
+  EMPLOYEE_PHOTO_OWNER_TYPE,
+  type EmployeePhotoActor,
+  employeePhotoUrl,
+  removeEmployeePhoto,
+  setEmployeePhoto,
+} from './employees/photo';
+// Alert recipients for background jobs (build step 2.2). Server-only, no actor, never for a page.
+export {
+  activeHrUserIds,
+  type EmployeeNotificationContact,
+  employeeNotificationContacts,
+} from './employees/notification-contacts';
 // A module service's in-transaction re-check of the actor (build step 2.1).
 export { type ReloadedActor, reloadActorAccess } from './auth/administrators';
 // Append-only module models (docs/ARCHITECTURE.md#modules-and-packages, build step 2.1).
@@ -505,6 +531,16 @@ export {
   registerApprovalType,
   registerCoreApprovalTypes,
 } from './approvals/registry';
+// E-signatures on approve decisions (build step 2.2): Pulse Talent registers the one signer.
+export {
+  type ApprovalSignatureStamp,
+  type ApprovalSigner,
+  type ApprovalSignerContext,
+  ApprovalSignerNotRegisteredError,
+  hasApprovalSigner,
+  registerApprovalSigner,
+  unregisterApprovalSigner,
+} from './approvals/signer';
 export {
   activeBoardApprovers,
   activeHrApprovers,
@@ -602,6 +638,7 @@ export { getOrgChart, type OrgChartOptions } from './directory/org-chart';
 export {
   type CommandBarUser,
   type CommandProviderDefinition,
+  type CommandProviderResult,
   type CommandSearchContext,
   normalizeCommandQuery,
   registerCommandProvider,

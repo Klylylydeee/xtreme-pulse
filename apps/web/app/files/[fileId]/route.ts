@@ -1,10 +1,5 @@
-import {
-  contentDisposition,
-  findAccessibleFile,
-  openStoredFile,
-  registerCoreFileAccess,
-  StoredFileMissingError,
-} from '@pulse/core/server';
+import { contentDisposition, openAccessibleFile, registerCoreFileAccess } from '@pulse/core/server';
+import { registerTalentFileAccess } from '@pulse/talent/server';
 import { getCurrentUser } from '@/lib/auth';
 
 // The one Route Handler that serves stored files (docs/ARCHITECTURE.md#file-storage). Nothing
@@ -12,7 +7,10 @@ import { getCurrentUser } from '@/lib/auth';
 // only from that record's generated storage key, never from the request, so `../` and similar get
 // nowhere. The viewer must be signed in and active (step 1.2), and the owner type's registered
 // access check runs before any content is read (step 1.6). A refused file and a missing one get the
-// same 404 "File not found.", so no answer reveals whether an id exists.
+// same 404 "File not found.", so no answer reveals whether an id exists. From step 2.2 an owner type
+// can ask for each view to be audit-logged (the 201 documents): `openAccessibleFile` writes and
+// commits the `reveal` entry before any content is read, and if it can't, the error propagates and
+// no bytes are sent (SECURITY.md#sensitive-data).
 
 const NOT_FOUND = 'File not found.';
 
@@ -38,32 +36,28 @@ export async function GET(
   const user = await getCurrentUser();
   if (!user || user.mustChangePassword) return refuse(401, 'Sign in to open this file.');
 
-  // Core's owner types, registered explicitly (once per process; later calls do nothing).
+  // Core's and Talent's owner types, registered explicitly (once per process; later calls do
+  // nothing).
   registerCoreFileAccess();
+  registerTalentFileAccess();
 
-  // Missing and refused alike come back as null, and get the same answer.
+  // Missing, refused and missing from storage alike come back as null, and get the same answer. A
+  // failed view audit throws here, before any content is read, so nothing is sent.
   const { fileId } = await params;
-  const file = await findAccessibleFile(user, fileId);
-  if (!file) return refuse(404, NOT_FOUND);
-
-  let content;
-  try {
-    content = await openStoredFile(file);
-  } catch (error) {
-    if (error instanceof StoredFileMissingError) return refuse(404, NOT_FOUND);
-    throw error;
-  }
+  const opened = await openAccessibleFile(user, fileId);
+  if (!opened) return refuse(404, NOT_FOUND);
+  const { file, stream, sizeBytes } = opened;
 
   // Images may open in the page (`?inline=1`, for photos); everything else downloads.
   const inline =
     new URL(request.url).searchParams.get('inline') === '1' &&
     file.contentType.startsWith('image/');
 
-  return new Response(content.stream, {
+  return new Response(stream, {
     status: 200,
     headers: {
       'Content-Type': file.contentType,
-      'Content-Length': String(content.sizeBytes),
+      'Content-Length': String(sizeBytes),
       'Content-Disposition': contentDisposition(file, inline ? 'inline' : 'attachment'),
       'X-Content-Type-Options': 'nosniff',
       // Files belong to records someone was allowed to open: never keep them in shared caches.

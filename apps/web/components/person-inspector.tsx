@@ -313,7 +313,7 @@ function PersonCardBody({
 
       <section aria-label="Details" className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <PersonAvatar initials={card.initials} size="lg" />
+          <PersonAvatar initials={card.initials} photoUrl={card.photoUrl} size="lg" />
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="flex flex-wrap items-center gap-2">
               <span className="text-headline break-words">{card.name}</span>
@@ -478,7 +478,7 @@ function PersonLinkRow({
   const detail = [person.positionName, person.departmentName].filter(Boolean).join(' · ');
   const content = (
     <>
-      <PersonAvatar initials={person.initials} size="sm" />
+      <PersonAvatar initials={person.initials} photoUrl={person.photoUrl} size="sm" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="text-subheadline break-words">{person.name}</span>

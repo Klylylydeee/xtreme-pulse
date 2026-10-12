@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Search, Users } from 'lucide-react';
+import { CircleCheck, Search, Settings, Users } from 'lucide-react';
 import {
   type DirectoryDepartmentOption,
   EMPLOYMENT_STATUS,
@@ -10,7 +10,7 @@ import {
   type EmploymentStatus,
   formatDate,
 } from '@pulse/core';
-import type { EmployeeListRow } from '@pulse/talent';
+import type { EmployeeListRow, ExpiryAlertSettingsView } from '@pulse/talent';
 import { Button } from '@pulse/ui/components/button';
 import {
   createDataTableColumns,
@@ -21,9 +21,12 @@ import { EmptyState } from '@pulse/ui/components/empty-state';
 import { Input, Select, Switch } from '@pulse/ui/components/form';
 import { InspectorLayout } from '@pulse/ui/components/inspector-panel';
 import { PageHeader } from '@pulse/ui/components/page-header';
+import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
+import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge, plural } from '@/components/org-structure';
 import { PersonAvatar } from '@/components/person-avatar';
-import { EmployeeInspector, useEmployeeInspector } from './employee-inspector';
+import { ExpiryAlertsSheet } from './employee-documents-sheets';
+import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
 // list: stat tiles counting active employees by employment status, then a data table on a desktop
@@ -58,7 +61,7 @@ const COLUMNS: DataTableColumn<EmployeeListRow>[] = column.columns([
       const row = info.row.original;
       return (
         <span className="flex min-w-44 items-center gap-3 py-1">
-          <PersonAvatar initials={row.initials} size="sm" />
+          <PersonAvatar initials={row.initials} photoUrl={row.photoUrl} size="sm" />
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium">{row.name}</span>
             <Badges row={row} />
@@ -103,7 +106,7 @@ function EmployeePhoneRow({ row }: { row: EmployeeListRow }) {
   const detail = [row.position?.name, row.department?.name].filter(Boolean).join(' · ');
   return (
     <>
-      <PersonAvatar initials={row.initials} />
+      <PersonAvatar initials={row.initials} photoUrl={row.photoUrl} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="truncate text-subheadline font-semibold">{row.name}</span>
@@ -130,6 +133,8 @@ export function EmployeesManager({
   departmentId,
   status,
   showSeparated,
+  tools,
+  expirySettings,
 }: {
   rows: EmployeeListRow[];
   stats: { status: EmploymentStatus; count: number }[];
@@ -138,6 +143,10 @@ export function EmployeesManager({
   departmentId: string | null;
   status: EmploymentStatus | null;
   showSeparated: boolean;
+  /** The inspector's product picker and upload limits. */
+  tools: InspectorTools;
+  /** The expiry alert lead days; the Settings button shows when `canChange` (Talent Owner). */
+  expirySettings: ExpiryAlertSettingsView;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -150,6 +159,10 @@ export function EmployeesManager({
   const statusFilterId = useId();
   const separatedId = useId();
   const statsId = useId();
+  const settingsFocus = useReturnFocus();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSession, setSettingsSession] = useState(0);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
   useEffect(() => () => window.clearTimeout(searchTimer.current), []);
 
@@ -196,7 +209,49 @@ export function EmployeesManager({
       <PageHeader
         title="Employees"
         description="Everyone’s employee record: personal and employment details, and for HR and Accounting, pay, government IDs and bank details."
+        actions={
+          expirySettings.canChange ? (
+            <Button
+              variant="secondary"
+              onClick={(event) => {
+                settingsFocus.remember(event.currentTarget);
+                setSettingsNotice(null);
+                setSettingsSession((count) => count + 1);
+                setSettingsOpen(true);
+              }}
+            >
+              <Settings aria-hidden="true" className="size-4.5" />
+              Settings
+            </Button>
+          ) : undefined
+        }
       />
+      {expirySettings.canChange ? (
+        <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <SheetContent
+            aria-describedby={undefined}
+            onCloseAutoFocus={settingsFocus.onCloseAutoFocus}
+          >
+            <ExpiryAlertsSheet
+              key={settingsSession}
+              settings={expirySettings}
+              onSaved={(message) => {
+                setSettingsOpen(false);
+                setSettingsNotice(message);
+                router.refresh();
+              }}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
+      <div role="status" className="empty:hidden">
+        {settingsNotice ? (
+          <p className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium text-success-text shadow-card">
+            <CircleCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
+            <span>{settingsNotice}</span>
+          </p>
+        ) : null}
+      </div>
 
       <section aria-labelledby={statsId} className="flex flex-col gap-2">
         <h2 id={statsId} className="sr-only">
@@ -366,6 +421,7 @@ export function EmployeesManager({
               : null
           }
           separated={showSeparated}
+          tools={tools}
         />
       </InspectorLayout>
     </>

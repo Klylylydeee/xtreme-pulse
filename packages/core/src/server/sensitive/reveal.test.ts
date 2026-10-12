@@ -136,7 +136,17 @@ describe('canRevealSensitive (role × subject matrix)', () => {
   }[] = [
     { name: 'System Administrator', who: actor([], { admin: true }), expected: () => true },
     { name: 'HR', who: actor(['hr']), expected: () => true },
-    { name: 'Accounting', who: actor(['accounting']), expected: () => true },
+    // Every category but medical certificates (build step 2.2, decision 179).
+    {
+      name: 'Accounting',
+      who: actor(['accounting']),
+      expected: (category) => category !== 'medical',
+    },
+    {
+      name: 'Accounting, on their own record',
+      who: actor(['accounting'], { employeeId: ownId }),
+      expected: (category, subject) => category !== 'medical' || subject?.employeeId === ownId,
+    },
     {
       name: 'Board',
       who: actor(['board']),
@@ -168,6 +178,29 @@ describe('canRevealSensitive (role × subject matrix)', () => {
       }
     });
   }
+});
+
+describe('the medical rule', () => {
+  const subject: SensitiveSubject = {
+    employeeId: new Types.ObjectId().toHexString(),
+    departmentCode: 'SALES',
+  };
+
+  it('refuses Accounting a medical certificate and keeps every other category', () => {
+    const accounting = actor(['accounting']);
+    expect(canRevealSensitive(accounting, 'medical', subject)).toBe(false);
+    for (const category of SENSITIVE_CATEGORIES.filter((c) => c !== 'medical')) {
+      expect(canRevealSensitive(accounting, category, subject), category).toBe(true);
+    }
+  });
+
+  it('lets HR, the System Administrator and the employee see a medical certificate', () => {
+    expect(canRevealSensitive(actor(['hr']), 'medical', subject)).toBe(true);
+    expect(canRevealSensitive(actor([], { admin: true }), 'medical', subject)).toBe(true);
+    expect(
+      canRevealSensitive(actor([], { employeeId: subject.employeeId }), 'medical', subject),
+    ).toBe(true);
+  });
 });
 
 describe('revealSensitiveField', () => {

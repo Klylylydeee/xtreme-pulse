@@ -56,12 +56,12 @@ import { moduleDisplay } from '@/lib/module-labels';
 
 const SAVE = ['mod', 's'] as const;
 
-/** Initials until Pulse Talent adds profile photos (decision 78); the system account gets a shield. */
+/** The profile photo, or the initials without one (decision 78); the system account gets a shield. */
 export function UserAvatar({
   row,
   size = 'md',
 }: {
-  row: Pick<UserAccessRow, 'firstName' | 'lastName' | 'email' | 'isSystemAccount'>;
+  row: Pick<UserAccessRow, 'firstName' | 'lastName' | 'email' | 'isSystemAccount' | 'photoUrl'>;
   size?: 'md' | 'lg';
 }) {
   // The shared Avatar (decision 151). The system account has no name: a shield. A user with no
@@ -72,6 +72,7 @@ export function UserAvatar({
     <Avatar
       firstName={row.firstName}
       lastName={row.lastName}
+      photoUrl={row.photoUrl}
       size={size}
       fallback={row.email.charAt(0).toUpperCase()}
     />

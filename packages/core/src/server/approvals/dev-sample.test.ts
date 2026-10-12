@@ -18,6 +18,7 @@ import {
 } from './registry';
 import { activeSystemAdministrators } from './routing';
 import { countApprovalsWaiting, decideApproval, getApproval } from './service';
+import { registerApprovalSigner } from './signer';
 
 // The development sample type and `pnpm dev:approval` (docs/modules/core.md#approvals, decision
 // 109 in docs/BUILD_PLAN.md, docs/TESTING.md#approvals-tests). Made-up data only.
@@ -76,6 +77,9 @@ async function person(
 const emailsOf = (recipients: { email: string }[]) => recipients.map((r) => r.email).sort();
 
 beforeAll(async () => {
+  // A fake e-signature signer (build step 2.2): approves are refused without one. It finds no
+  // signature on file, so approves are stored unsigned.
+  registerApprovalSigner(async () => null);
   await connectDb();
   await Promise.all([
     ApprovalRequestModel.init(),

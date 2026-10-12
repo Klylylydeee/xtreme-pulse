@@ -30,6 +30,7 @@ import {
 } from '@pulse/core';
 import type { ApprovalDetail, ApprovalStepView } from '@pulse/core/server';
 import { cn } from '@pulse/ui';
+import { Avatar } from '@pulse/ui/components/avatar';
 import { Button } from '@pulse/ui/components/button';
 import { ErrorState } from '@pulse/ui/components/error-state';
 import { FormField, FormSection, Textarea } from '@pulse/ui/components/form';
@@ -48,7 +49,9 @@ import { decideApprovalAction, getApprovalAction } from '@/lib/actions/approvals
 // the user (Approve ⌘↵ / Ctrl+Enter; Return and, when the type allows it, Reject, each with
 // required remarks shown inline), and every step with its approvers and their decisions. The
 // service decides what the user may do (`allowedDecisions`); a decision it refuses (someone else
-// settled the step, or the request changed since it loaded) shows the message and reloads.
+// settled the step, or the request changed since it loaded) shows the message and reloads. From
+// step 2.2 the requester shows with their photo, and each approve decision says whether it was
+// signed with an e-signature (its version, as text; the image is never shown here).
 
 const APPROVE = ['mod', 'enter'] as const;
 const LOAD_FAILED = 'The request couldn’t load. Check your connection and try again.';
@@ -200,6 +203,19 @@ function DetailRow({ term, children }: { term: string; children: ReactNode }) {
       <dt className="text-footnote text-text-secondary">{term}</dt>
       <dd className="text-subheadline break-words">{children}</dd>
     </div>
+  );
+}
+
+/** The requester's photo, or the initials of the first and last word of their name. */
+function RequesterAvatar({ requester }: { requester: ApprovalDetail['requester'] }) {
+  const words = requester.name.trim().split(/\s+/);
+  return (
+    <Avatar
+      size="sm"
+      firstName={words[0]}
+      lastName={words.length > 1 ? words[words.length - 1] : null}
+      photoUrl={requester.photoUrl}
+    />
   );
 }
 
@@ -362,7 +378,12 @@ function RequestSummary({
       ) : null}
       <dl className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
         <DetailRow term="Record">{detail.record.label}</DetailRow>
-        <DetailRow term="Requested by">{detail.requester.name}</DetailRow>
+        <DetailRow term="Requested by">
+          <span className="flex items-center gap-2">
+            <RequesterAvatar requester={detail.requester} />
+            <span className="min-w-0 break-words">{detail.requester.name}</span>
+          </span>
+        </DetailRow>
         <DetailRow term="Submitted">
           <time dateTime={new Date(detail.submittedAt).toISOString()} className="numeric">
             {formatDateTime(new Date(detail.submittedAt))}
@@ -699,6 +720,18 @@ function StepCard({ step, total }: { step: ApprovalStepView; total: number }) {
                   settledStep={settledStep}
                 />
               </div>
+              {approver.decision?.decision === 'approve' ? (
+                <p className="text-footnote text-text-secondary">
+                  {approver.decision.signatureVersion !== null ? (
+                    <>
+                      Signed with e-signature, version{' '}
+                      <span className="numeric">{approver.decision.signatureVersion}</span>
+                    </>
+                  ) : (
+                    'Approved without an e-signature'
+                  )}
+                </p>
+              ) : null}
               {approver.decision?.remarks ? (
                 <p className="rounded-lg bg-bg-grouped px-3 py-2 text-footnote whitespace-pre-wrap break-words">
                   {approver.decision.remarks}

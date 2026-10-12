@@ -13,8 +13,16 @@ import { Skeleton } from '@pulse/ui/components/skeleton';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge } from '@/components/org-structure';
 import { getEmployeeRecordAction } from '@/lib/actions/talent';
+import type { UploadHints } from '@/lib/upload-hints';
+import type { DocumentHandlers } from './employee-documents-sections';
+import {
+  type BrandOption,
+  type DocumentSheet,
+  DocumentRecordSheet,
+} from './employee-documents-sheets';
 import { EmployeeRecordSections, type RecordSectionKey } from './employee-record-sections';
 import { RecordSectionSheet } from './employee-record-sheets';
+import { PhotoControls } from './photo-controls';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
 // record in the inspector on `/talent` (a full-height sheet on a phone). `?employee=<employeeId>`
@@ -23,6 +31,9 @@ import { RecordSectionSheet } from './employee-record-sheets';
 // what can't be seen never reaches the browser. Each section's Edit sheet is rendered beside the
 // panel, not inside it, so its Escape closes only the sheet. After a save the record reloads (a
 // new `version`) and the list behind it refreshes. Nothing here is logged or cached.
+//
+// From step 2.2 the record also has the photo (Change and Remove), the e-signature status, the 201
+// file and Skills & certifications, with their sheets (`employee-documents-sheets.tsx`).
 
 const LOAD_FAILED = 'This record couldn’t load. Check your connection and try again.';
 
@@ -119,6 +130,16 @@ function useEmployeeRecord(id: string | null, session: number, separated: boolea
   return { state, reload };
 }
 
+/** What the inspector's sheets need from the page: the product picker and the upload limits. */
+export interface InspectorTools {
+  brands: BrandOption[];
+  uploads: UploadHints;
+}
+
+type OpenSheet =
+  | { type: 'section'; section: RecordSectionKey; session: number }
+  | { type: 'document'; sheet: DocumentSheet; session: number };
+
 /** What the list already knows, for the title while the record loads. */
 export interface EmployeePreview {
   name: string;
@@ -133,6 +154,7 @@ export function EmployeeInspector({
   returnFocus,
   preview,
   separated,
+  tools,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -142,6 +164,7 @@ export function EmployeeInspector({
   preview: EmployeePreview | null;
   /** "Show separated" is on: a separated employee's record opens too. */
   separated: boolean;
+  tools: InspectorTools;
 }) {
   const router = useRouter();
   const { state, reload } = useEmployeeRecord(employeeId, session, separated);
@@ -153,15 +176,47 @@ export function EmployeeInspector({
 
   const sheetFocus = useReturnFocus();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheet, setSheet] = useState<{ section: RecordSectionKey; session: number } | null>(null);
+  const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const [notice, setNotice] = useState<{ for: string; message: string } | null>(null);
 
-  function openSheet(section: RecordSectionKey) {
+  function remember() {
     sheetFocus.remember(document.activeElement as HTMLElement | null);
     setNotice(null);
-    setSheet((previous) => ({ section, session: (previous?.session ?? 0) + 1 }));
+  }
+
+  function openSheet(section: RecordSectionKey) {
+    remember();
+    setSheet((previous) => ({ type: 'section', section, session: (previous?.session ?? 0) + 1 }));
     setSheetOpen(true);
   }
+
+  function openDocumentSheet(next: DocumentSheet) {
+    remember();
+    setSheet((previous) => ({
+      type: 'document',
+      sheet: next,
+      session: (previous?.session ?? 0) + 1,
+    }));
+    setSheetOpen(true);
+  }
+
+  /** After a change: show `message`, reload the record and refresh the list behind it. */
+  function changed(message: string) {
+    setNotice({ for: `${employeeId}:${session}`, message });
+    reload();
+    router.refresh();
+  }
+
+  const documentHandlers: DocumentHandlers = {
+    onAddDocument: () => openDocumentSheet({ kind: 'addDocument' }),
+    onEditDocument: (doc) => openDocumentSheet({ kind: 'editDocument', document: doc }),
+    onArchiveDocument: (doc) => openDocumentSheet({ kind: 'archiveDocument', document: doc }),
+    onEditSkills: () => openDocumentSheet({ kind: 'skills' }),
+    onAddCertification: () => openDocumentSheet({ kind: 'addCertification' }),
+    onEditCertification: (certification) =>
+      openDocumentSheet({ kind: 'editCertification', certification }),
+    onChanged: changed,
+  };
 
   return (
     <>
@@ -179,6 +234,9 @@ export function EmployeeInspector({
             state={state}
             onReload={reload}
             onEdit={openSheet}
+            documentHandlers={documentHandlers}
+            imageUpload={tools.uploads.image}
+            onPhotoChanged={changed}
             notice={notice && notice.for === `${employeeId}:${session}` ? notice.message : null}
           />
         ) : null}
@@ -186,22 +244,39 @@ export function EmployeeInspector({
       {view && sheet ? (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent aria-describedby={undefined} onCloseAutoFocus={sheetFocus.onCloseAutoFocus}>
-            <RecordSectionSheet
-              key={sheet.session}
-              section={sheet.section}
-              view={view}
-              onSaved={(message) => {
-                setSheetOpen(false);
-                setNotice({ for: `${employeeId}:${session}`, message });
-                reload();
-                router.refresh();
-              }}
-              onReload={() => {
-                setSheetOpen(false);
-                reload();
-                router.refresh();
-              }}
-            />
+            {sheet.type === 'section' ? (
+              <RecordSectionSheet
+                key={sheet.session}
+                section={sheet.section}
+                view={view}
+                onSaved={(message) => {
+                  setSheetOpen(false);
+                  changed(message);
+                }}
+                onReload={() => {
+                  setSheetOpen(false);
+                  reload();
+                  router.refresh();
+                }}
+              />
+            ) : (
+              <DocumentRecordSheet
+                key={sheet.session}
+                sheet={sheet.sheet}
+                view={view}
+                brands={tools.brands}
+                documentUpload={tools.uploads.document}
+                onSaved={(message) => {
+                  setSheetOpen(false);
+                  changed(message);
+                }}
+                onReload={() => {
+                  setSheetOpen(false);
+                  reload();
+                  router.refresh();
+                }}
+              />
+            )}
           </SheetContent>
         </Sheet>
       ) : null}
@@ -213,11 +288,17 @@ function RecordBody({
   state,
   onReload,
   onEdit,
+  documentHandlers,
+  imageUpload,
+  onPhotoChanged,
   notice,
 }: {
   state: RecordState;
   onReload: () => void;
   onEdit: (section: RecordSectionKey) => void;
+  documentHandlers: DocumentHandlers;
+  imageUpload: UploadHints['image'];
+  onPhotoChanged: (message: string) => void;
   notice: string | null;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
@@ -282,7 +363,12 @@ function RecordBody({
         ) : null}
       </div>
       <div className="flex items-center gap-3">
-        <Avatar firstName={identity.firstName} lastName={identity.lastName} size="lg" />
+        <Avatar
+          firstName={identity.firstName}
+          lastName={identity.lastName}
+          photoUrl={view.photoUrl}
+          size="lg"
+        />
         <div className="flex min-w-0 flex-col gap-1">
           <span className="numeric text-footnote text-text-secondary">
             {identity.employeeNumber}
@@ -295,7 +381,23 @@ function RecordBody({
           </span>
         </div>
       </div>
-      <EmployeeRecordSections view={view} onEdit={onEdit} />
+      <EmployeeRecordSections
+        view={view}
+        onEdit={onEdit}
+        documentHandlers={documentHandlers}
+        photoSlot={
+          <PhotoControls
+            target={{ kind: 'employee', employeeId: view.employeeId }}
+            photoUrl={view.photoUrl}
+            firstName={identity.firstName}
+            lastName={identity.lastName}
+            canChange={view.can.changePhoto}
+            accept={imageUpload.accept}
+            hint={imageUpload.hint}
+            onChanged={onPhotoChanged}
+          />
+        }
+      />
     </div>
   );
 }

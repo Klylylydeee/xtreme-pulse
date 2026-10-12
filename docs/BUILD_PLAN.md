@@ -572,3 +572,109 @@ The former open questions, and the follow-ups they raised, are now answered in t
      ([Spec](../SECURITY.md#exceptions-to-module-access))
 171. **Step 2.1:** No key rotation tooling is built. Re-wrapping the data keys for a new master key is listed in DEPLOYMENT's "Still to decide". The production `FIELD_ENCRYPTION_LOCAL_KEY` is generated on the real server, with an offline copy, before any real employee data is entered. ([Spec](DEPLOYMENT.md#still-to-decide), [Secrets](../SECURITY.md#secrets))
 172. **Step 2.1:** `pnpm test` adds the employee record tests: the Core identity service, storage, compensation, section visibility (the "Done when"), who may change what, audit, the Talent reveals, the formats and the My record navigation. ([Spec](TESTING.md#employee-record-tests), [ADR 0010](adr/0010-manual-verification-before-automated-tests.md))
+173. **Step 2.2:** The profile photo is Core data, `employees.photoFileId` (null until set), because Core's directory, org chart, access page, approvals and command bar show it:
+     - **Who sets it.** Core's `setEmployeePhoto` and `removeEmployeePhoto` allow the employee themself, HR and the System Administrator, never on the system account. Each change is an `update` entry on `core.employee`.
+     - **Where.** Talent provides the controls on `/talent/me` and in the inspector.
+     - **Who opens it.** The file (owner type `core.employee`) opens for any signed-in active user, and only the current photo.
+
+     ([Spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22), [People data ownership](modules/core.md#people-data-ownership))
+174. **Step 2.2:** Profile photos and e-signatures are re-encoded on the server with `sharp`, through a `transform` option of `saveUpload`:
+     - **Every image** is auto-rotated and its metadata (EXIF, GPS) is stripped.
+     - **A photo** becomes WebP of at most 1024 px.
+     - **A signature** becomes PNG of at most 1200 px, keeping transparency.
+
+     201 documents and certification attachments are stored byte for byte. ([Spec](ARCHITECTURE.md#file-storage))
+175. **Step 2.2:** The e-signature is versioned and owner-only. `eSignatures` is insert-only:
+     - **Upload.** Each upload adds version n + 1 for the uploader's own employee (the service takes no employee id), audited as a `create` on `talent.eSignature`.
+     - **No remove.** A signature is replaced, never cleared.
+     - **Who sees the image.** Its owner (any version) and the System Administrator only. Everyone else sees "E-signature on file, version N" or "Not uploaded".
+     - **The system account** has no employee, so it has no signature.
+
+     ([Spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22))
+176. **Step 2.2:** One owner-only service applies a signature: `applyESignature({ actor, target, purpose, session })`. In the caller's transaction it:
+     - reads the actor's employee from the database
+     - inserts a `signatureApplications` row that pins the signature, its version and its file
+     - audits a `create` on `talent.signatureApplication`
+     - returns the stamp `{ applicationId, signatureId, version }`, or null when the actor has no employee or no signature
+
+     Applications, signatures and their files are never changed or deleted, so a signed record keeps the version it was signed with after a replacement. ([Spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22))
+177. **Step 2.2:** Core can't import Talent, so it reaches the signer through a registration, `registerApprovalSigner(signer)`. The web action registers it with `registerTalentApprovalSigner()`, beside `registerCoreApprovalTypes()`.
+     - **When it signs.** An **approve** decision calls the signer in the decision's transaction and stores the stamp on the decision (`steps[].decisions[].signature`). Return and reject sign nothing.
+     - **Fail closed.** With no signer registered, an approve is refused. A signer that throws rolls the decision back.
+     - **No signature on file.** Approving is allowed until step 2.6's gate and records `signature: null` ("Approved without an e-signature"). *Assumption, to be confirmed by the user.*
+     - **Display.** The hook context carries the stamp. The approvals inspector shows "Signed with e-signature, version N", as text only.
+
+     ([Spec](modules/core.md#approvals))
+178. **Step 2.2:** 201 documents live in `employeeDocuments`:
+     - **Fields.** Type (`DOCUMENT_201_TYPES`), title (required for `other`), file, issue date (required, not in the future), expiry date (optional, after the issue date), uploaded by, and an archive marker with a reason. *Assumption, to be confirmed by HR:* the type list and the required issue date.
+     - **Never deleted.** Archiving is an `update`. The file can't change; the details can be edited, with the `version` check.
+     - **Renewals.** A renewal is a new document. Its upload sheet can archive the document it replaces, in the same transaction.
+
+     ([Spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22), [Record retention](COMPLIANCE.md#record-retention))
+179. **Step 2.2:** Who sees 201 documents:
+     - **Category.** A medical certificate is `medical`; every other 201 document is `file201`.
+     - **Others' documents** need Talent Read and the reveal rule for that category. The employee always sees their own on `/talent/me`.
+     - **Accounting** doesn't see medical certificates. `canRevealSensitive` and the reveal table now say so, which resolves the conflict between the reveal table and the medical certificate rule. *Assumption, to be confirmed by HR or counsel.*
+     - **Anyone else** gets none of the documents, only the line "201 file documents are visible to HR, Accounting and the System Administrator." Accounting gets "Medical certificates are visible to HR and the System Administrator."
+
+     ([Spec](../SECURITY.md#sensitive-data))
+180. **Step 2.2:** Adding, editing and archiving 201 documents needs Talent Write **and** HR or the System Administrator, never on one's own record. HR may manage other HR staff's documents; only pay, IDs and bank details are closed to HR for HR staff. Employees upload their own documents from step 2.6 onboarding. ([Spec](../SECURITY.md#sensitive-data))
+181. **Step 2.2:** Opening a 201 document is audit-logged:
+     - **How.** `registerFileAccess` takes an optional `auditView`. The file route's `openAccessibleFile` writes and commits a `reveal` entry with `fields: ["file"]`, on record `talent.employeeDocument` (labelled `<employee number> · <type label>`), before any content is read.
+     - **Fail closed.** If the entry can't be written, nothing is sent.
+     - **Every open** is logged, one's own included.
+
+     No new audit action is added. ([Spec](ARCHITECTURE.md#file-storage), [Audit logging](../SECURITY.md#audit-logging))
+182. **Step 2.2:** Certifications (`certifications`):
+     - **Fields.** Name, issuer, an optional Core product (`brandId`, so Engage can count holders per brand), certificate or license number (plain, optional), issue date (required), expiry date (optional) and attachment (optional).
+     - **Who changes them.** Adding and editing need Talent Write, never on one's own record. Removing is a soft delete and needs Talent Owner. Employees add their own from step 2.6.
+     - **The attachment** opens for the employee, Talent Read and the System Administrator, unlogged.
+
+     ([Spec](modules/talent.md#skills--certifications))
+183. **Step 2.2:** Skills are free-text tags on the employee record (`employeeRecords.skills`):
+     - **Limits.** Up to 30 tags of up to 50 characters each. A duplicate, ignoring case, is refused.
+     - **Saving.** Saved like a section, with the `version` check. Needs Talent Write, never on one's own record.
+
+     *Assumption, to be confirmed by HR:* the spec names skills but gives no fields. ([Spec](modules/talent.md#skills--certifications))
+184. **Step 2.2:** Ops and Engage read certifications through `listCertifications(actor, { employeeIds, brandIds, includeExpired })` and `countCertifiedEmployeesByBrand(actor, brandIds, on)`:
+     - **Access.** Talent, Engage or Ops Read, or the System Administrator.
+     - **Separated employees** are left out.
+     - **What they return**, an allowlist: employee, name, issuer, product, issue and expiry dates, status (current, expiring, expired) and skills. Never the license number or the attachment.
+
+     ([Spec](ARCHITECTURE.md#cross-module-integration))
+185. **Step 2.2:** One daily job, `talent.expiryAlerts` at 8:00 AM Manila (cron `0 8 * * *`), alerts on 201 documents and certifications:
+     - **Two alerts per item.** An "expiring" alert once it is within the lead days, and an "expired" alert on or after its expiry date.
+     - **Once each per expiry date**, through `notify()`'s `dedupeKey` (for example `talent.documentExpiring:<id>:<YYYY-MM-DD>`). A rerun sends nothing twice, and a changed expiry date alerts again.
+     - **Skipped:** archived documents, removed certifications and separated employees.
+
+     ([Spec](ARCHITECTURE.md#background-jobs))
+186. **Step 2.2:** Alert recipients:
+     - **Documents:** the active HR users (linking `/talent?employee=<id>`) and the employee (`/talent/me`).
+     - **Certifications:** the same, plus the employee's active `reportingTo` supervisors, linking `/directory?person=<id>` because they may lack Talent Read.
+     - **No active HR user:** the HR alerts go to the active System Administrators.
+     - **Titles** name the type and the person, never the file name: "<Type> expiring: <name>", "Your <type> expires on <date>".
+     - **Events:** `talent.documentExpiring`, `talent.documentExpired`, `talent.certificationExpiring`, `talent.certificationExpired`.
+     - **Core helpers for jobs:** `employeeNotificationContacts(employeeIds)` and `activeHrUserIds()`, with no sensitive field.
+
+     *Assumption, to be confirmed by HR:* the defaults and the recipients. ([Spec](modules/talent.md#notifications))
+187. **Step 2.2:** The lead days are the versioned setting `talent.expiryAlerts`:
+     - **Values.** `documentLeadDays` and `certificationLeadDays`, each 1 to 180, defaulting to 30 until a version is added.
+     - **Who changes them.** A Talent Owner, from a Settings sheet on `/talent`, at most once per Manila day. Each change is a `create` entry on `core.configVersion`.
+
+     ([Spec](DATA_MODEL.md#versioned-configuration))
+188. **Step 2.2:** Screens:
+     - **The inspector's Documents section** shows the profile photo (Change and Remove for HR and the System Administrator), the e-signature status, and the 201 file list (expiry badges with text, Open, Edit, Archive, "Show archived").
+     - **A new Skills & certifications section** in the inspector.
+     - **`/talent/me`** adds the photo (Change, Remove), the e-signature (preview, Upload or Replace, and version history with how often each version was applied), and the 201 file, skills and certifications, read-only.
+     - **Avatars** show photos everywhere.
+
+     ([Spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22), [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md#shared-components))
+189. **Step 2.2:** `pnpm dev:expiry-alerts [--date YYYY-MM-DD]` runs the expiry job once. It runs in development only and refuses in production. It is how the "Done when" is checked by hand. ([Spec](TESTING.md#document-e-signature-and-certification-tests))
+190. **Step 2.2:** `pnpm test` adds the document, e-signature and certification tests:
+     - file view audit, photo access, the approval signer and the medical rule
+     - who may see and change documents
+     - signature pinning (the "Done when")
+     - the certification read services
+     - the expiry job (the "Done when")
+
+     ([Spec](TESTING.md#document-e-signature-and-certification-tests))

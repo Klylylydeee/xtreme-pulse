@@ -37,6 +37,12 @@ export interface CommandSearchContext {
   limit: number;
 }
 
+/** A result as a provider returns it: `photoUrl` may be left out (no picture). */
+export type CommandProviderResult = Omit<CommandResult, 'photoUrl'> & { photoUrl?: string | null };
+
+// A result's picture: a file route path only (a profile photo).
+const PHOTO_URL = /^\/files\/[0-9a-f]{24}(\?inline=1)?$/;
+
 export interface CommandProviderDefinition {
   /** `<module>.<name>`, for example `core.people`. Unique. */
   key: string;
@@ -53,7 +59,7 @@ export interface CommandProviderDefinition {
     query: string,
     user: CommandBarUser,
     context: CommandSearchContext,
-  ) => Promise<readonly CommandResult[]>;
+  ) => Promise<readonly CommandProviderResult[]>;
 }
 
 const KEY_PATTERN = /^[a-z][a-zA-Z0-9]*\.[a-z][a-zA-Z0-9]*$/;
@@ -107,13 +113,20 @@ export function normalizeCommandQuery(query: unknown): string | null {
 /** A result rebuilt with only its known fields, or null when it breaks a rule. */
 function cleanResult(result: unknown): CommandResult | null {
   if (typeof result !== 'object' || result === null) return null;
-  const { id, title, subtitle, href, icon } = result as Record<string, unknown>;
+  const { id, title, subtitle, href, icon, photoUrl } = result as Record<string, unknown>;
   if (typeof id !== 'string' || id.length === 0) return null;
   if (typeof title !== 'string' || title.trim().length === 0) return null;
   if (subtitle !== undefined && subtitle !== null && typeof subtitle !== 'string') return null;
   if (!isInternalHref(href)) return null;
   if (!isCommandIcon(icon)) return null;
-  return { id, title, subtitle: subtitle ?? null, href, icon };
+  return {
+    id,
+    title,
+    subtitle: subtitle ?? null,
+    href,
+    icon,
+    photoUrl: typeof photoUrl === 'string' && PHOTO_URL.test(photoUrl) ? photoUrl : null,
+  };
 }
 
 /** Logs a provider's failure by its key only: never the query, the user or the error's text. */

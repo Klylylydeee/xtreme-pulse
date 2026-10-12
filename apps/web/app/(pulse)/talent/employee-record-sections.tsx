@@ -2,7 +2,7 @@
 
 import { type ReactNode, useId } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Lock, PencilLine, Plus, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { ExternalLink, Lock, Plus, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { formatDate, formatPeso, TIMESHEET_TYPE_LABELS } from '@pulse/core';
 import {
   CIVIL_STATUS_LABELS,
@@ -28,6 +28,12 @@ import { Button, buttonVariants } from '@pulse/ui/components/button';
 import { MaskedField, type MaskedFieldRevealResult } from '@pulse/ui/components/masked-field';
 import { Badge } from '@/components/org-structure';
 import { revealSensitiveAction } from '@/lib/actions/sensitive';
+import {
+  type DocumentHandlers,
+  DocumentsSection,
+  SkillsCertificationsSection,
+} from './employee-documents-sections';
+import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record-ui';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21, SECURITY.md#sensitive-data and
 // docs/DESIGN_SYSTEM.md#layout--components ("Employee record") — the record's inset grouped
@@ -43,11 +49,12 @@ import { revealSensitiveAction } from '@/lib/actions/sensitive';
 // - Core's identity fields are read-only, marked "Managed in Users".
 // - Each section's Edit action shows only when the view's `can` flag allows it; the services check
 //   again. Nothing here is logged, and no value is kept anywhere but the masked field's own state.
+// - From step 2.2 the Documents section holds the photo, the e-signature status and the 201 file,
+//   and a Skills & certifications section follows it (`employee-documents-sections.tsx`).
 
 export type RecordSectionKey =
   'personal' | 'employment' | 'compensation' | 'governmentIds' | 'bankAccount';
 
-const NOT_SET = 'Not set';
 const LATER_STEP = 'Added in a later step';
 
 /** The reveal for a masked value: the reveal Server Action, its answer formatted for display. */
@@ -67,71 +74,6 @@ function revealOf(target: RevealTarget, format: (value: string) => string) {
 /** A revealed salary arrives as whole centavos. */
 function formatRevealedSalary(value: string): string {
   return /^\d+$/.test(value) ? formatPeso(Number(value)) : value;
-}
-
-// --- Building blocks ---------------------------------------------------------------------------
-
-/** One section: a header with its Edit action, then its cards. */
-function RecordSection({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-2">
-      <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 pl-4">
-        <h3 id={titleId} className="text-footnote font-semibold text-text-secondary">
-          {title}
-        </h3>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** An inset grouped card of rows (each its own term and value), with optional footer help. */
-function RecordCard({ footer, children }: { footer?: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
-        {children}
-      </div>
-      {footer ? <div className="px-4 text-footnote text-text-secondary">{footer}</div> : null}
-    </div>
-  );
-}
-
-/** A term and its value; an empty value reads "Not set" in `text-secondary`. */
-function Row({ term, children }: { term: string; children?: ReactNode }) {
-  const empty = children === null || children === undefined || children === '';
-  return (
-    <dl className="flex flex-col gap-0.5 px-4 py-2.5">
-      <dt className="text-footnote text-text-secondary">{term}</dt>
-      <dd className={cn('text-subheadline break-words', empty && 'text-text-secondary')}>
-        {empty ? NOT_SET : children}
-      </dd>
-    </dl>
-  );
-}
-
-function dateOrNull(value: string | null | undefined): string | null {
-  return value ? formatDate(value) : null;
-}
-
-/** The section's Edit action. */
-function EditButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <Button variant="plain" onClick={onClick} aria-label={label}>
-      <PencilLine aria-hidden="true" className="size-4.5" />
-      Edit
-    </Button>
-  );
 }
 
 /** A masked government ID or account number, or "Not set" when none is stored. */
@@ -169,9 +111,18 @@ const STATUS_TONES: Record<CompensationStatus, 'accent' | 'neutral'> = {
 export function EmployeeRecordSections({
   view,
   onEdit,
+  documentHandlers,
+  photoSlot,
+  showESignature = true,
 }: {
   view: EmployeeRecordView;
   onEdit?: (section: RecordSectionKey) => void;
+  /** The inspector's 201 file, skills and certification actions; read-only without them. */
+  documentHandlers?: DocumentHandlers;
+  /** The photo row at the top of Documents (the inspector's photo with Change and Remove). */
+  photoSlot?: ReactNode;
+  /** False on `/talent/me`, which shows the e-signature in its own section. */
+  showESignature?: boolean;
 }) {
   const { identity, personal, employment, can } = view;
   const name = `${identity.firstName} ${identity.lastName}`;
@@ -356,16 +307,14 @@ export function EmployeeRecordSections({
         </p>
       ) : null}
 
-      <RecordSection title="Documents">
-        <RecordCard>
-          <Row term="201 file">
-            <span className="text-text-secondary">{LATER_STEP}</span>
-          </Row>
-          <Row term="Profile photo and e-signature">
-            <span className="text-text-secondary">{LATER_STEP}</span>
-          </Row>
-        </RecordCard>
-      </RecordSection>
+      <DocumentsSection
+        view={view}
+        handlers={documentHandlers}
+        photoSlot={photoSlot}
+        showESignature={showESignature}
+      />
+
+      <SkillsCertificationsSection view={view} handlers={documentHandlers} />
 
       {view.manageAccessHref ? (
         <Link

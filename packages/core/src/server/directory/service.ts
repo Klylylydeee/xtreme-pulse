@@ -12,6 +12,7 @@ import { canEditReportingLines, canSeeSeparatedPeople, type RoleHolder } from '.
 import { DepartmentModel } from '../departments/model';
 import { employeeName, searchActiveEmployees } from '../employees/active-employees';
 import { EmployeeModel } from '../employees/model';
+import { employeePhotoUrl } from '../employees/photo';
 import { toObjectId } from '../paging';
 import {
   activeDirectReports,
@@ -83,6 +84,7 @@ function toPerson(
     id: hex,
     name: employeeName(person),
     initials: toLink(people, person).initials,
+    photoUrl: employeePhotoUrl(person.photoFileId),
     employeeNumber: person.employeeNumber,
     departmentId: person.departmentId.toHexString(),
     departmentName: department?.name ?? null,

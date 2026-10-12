@@ -5,13 +5,14 @@ import { resolveAccountStatus } from '../auth/account-status';
 import { DepartmentModel } from '../departments/model';
 import { employeeName } from '../employees/active-employees';
 import { type EmployeeRecord, EmployeeModel } from '../employees/model';
+import { employeePhotoUrl } from '../employees/photo';
 import { PositionModel } from '../positions/model';
 import { UserModel } from '../users/model';
 
 // Spec: SECURITY.md#sensitive-data ("Directory fields are an allowlist", decision 134 in
 // docs/BUILD_PLAN.md) — the directory, the org chart, the command bar's people results and the
 // Home team tile read people through here. Every query uses an explicit projection, and every
-// result is built field by field: the employment status is read only to resolve the account
+// result is built field by field (the photo only as its file route URL): the employment status is read only to resolve the account
 // status (SECURITY.md#account-status) and never leaves this file; the date hired, separation date,
 // module access and password hash are never read at all.
 
@@ -24,6 +25,7 @@ export const PERSON_FIELDS = {
   positionId: 1,
   reportingTo: 1,
   employmentStatus: 1,
+  photoFileId: 1,
 } as const;
 
 export type PersonRecord = Pick<
@@ -36,6 +38,7 @@ export type PersonRecord = Pick<
   | 'positionId'
   | 'reportingTo'
   | 'employmentStatus'
+  | 'photoFileId'
 >;
 
 /** People loaded with what the directory shows about them. */
@@ -131,6 +134,7 @@ export function toLink(
     id: person._id.toHexString(),
     name: employeeName(person),
     initials: initialsOf(person),
+    photoUrl: employeePhotoUrl(person.photoFileId),
     employeeNumber: person.employeeNumber,
     departmentName: people.departments.get(person.departmentId.toHexString())?.name ?? null,
     positionName: people.positions.get(person.positionId.toHexString()) ?? null,

@@ -32,7 +32,7 @@ Each module owns its collections, and no module writes to another module's colle
 | Module | Owns |
 |---|---|
 | Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients (`clients`) with sites (`clientSites`) and contacts (`clientContacts`), products (`brands`), catalog items (`catalogItems`), suppliers (`suppliers`), holidays (`holidays`), approval requests (`approvalRequests`), notifications (`notifications`), audit log (`auditLogs`) |
-| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents, e-signatures, certifications, work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
+| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents (`employeeDocuments`, build step 2.2), e-signatures (`eSignatures`) and their uses (`signatureApplications`, build step 2.2), certifications (`certifications`, build step 2.2), work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
 | Supply | Purchase requests, purchase orders (`purchaseOrders`), receiving records, stock movements, serial items (`serialItems`), stock locations, delivery receipts, RMAs |
@@ -80,6 +80,36 @@ The collection has the `$jsonSchema` validator for its sensitive paths ([Sensiti
 
 The formats are in [The employee record](modules/talent.md#the-employee-record-build-step-21).
 
+**Documents, photo, e-signature and certifications** (build step 2.2, [the spec](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)). Every date below is a Manila day at 00:00, stored as UTC.
+
+- **Core additions:**
+  - `employees.photoFileId`: the stored file of the current profile photo, or null.
+  - `approvalRequests.steps[].decisions[].signature`: a subdocument with no `_id`, `{ applicationId, signatureId, version }`, set on an approve decision when an e-signature was applied, else null.
+- **`employeeRecords.skills`:** an array of up to 30 strings of up to 50 characters, unique ignoring case, default empty.
+- **`employeeDocuments`**, the 201 file. Base fields, no soft delete, never deleted (deletes and replacements are refused):
+  - `employeeId` and `fileId`, both fixed once set
+  - `type` (`DOCUMENT_201_TYPES`: `employmentContract`, `regularizationEvaluation`, `governmentIdCopy`, `nbiClearance`, `medicalCertificate`, `diplomaTor`, `other`)
+  - `title` (up to 200 characters; required for `other`, else optional)
+  - `issueDate` (required, not in the future) and `expiryDate` (or null; after `issueDate`)
+  - `archivedAt`, `archivedBy` and `archiveReason` (up to 500 characters), all null until archived. An archived document is never changed again; a renewal archives the one it replaces with the reason "Replaced by a renewed document."
+  - `version`, raised by every save
+  - Indexes: `{ employeeId, createdAt: -1 }`, and `{ expiryDate }` limited to unarchived documents with an expiry date.
+- **`eSignatures`.** Insert-only, no soft delete:
+  - `employeeId`, `version` (1, 2, 3…), `fileId` and the base fields
+  - Unique index: `{ employeeId, version }`. The current signature is the highest version.
+- **`signatureApplications`.** Insert-only, no soft delete. One row per use of an e-signature:
+  - `employeeId`, `userId`, `signatureId`, `signatureVersion` and `fileId` (copied, so the use stays pinned)
+  - `target` (`type`, `id`, `label`; for example `core.approvalRequest`), `purpose` (`approval` in step 2.2) and `appliedAt`
+  - Indexes: `{ employeeId, appliedAt: -1 }` and `{ target.type, target.id }`.
+- **`certifications`.** Base fields with soft delete:
+  - `employeeId`
+  - `name` and `issuer` (each required, up to 200 characters)
+  - `brandId` (a Core product, or null)
+  - `licenseNumber` (up to 100 characters, plain, or null)
+  - `issueDate` (required; may be in the future), `expiryDate` (or null; after `issueDate`) and `attachmentFileId` (or null)
+  - `version`
+  - Indexes: `{ employeeId }`, `{ brandId }`, `{ expiryDate }`.
+
 ## Naming
 
 - Collections: plural camelCase (`purchaseOrders`, `serialItems`)
@@ -107,6 +137,7 @@ The spec calls for versioning for:
 | BIR ATC codes and EWT rates, tax forms, tax due dates | [Supplier bills (AP)](modules/fiscal.md#supplier-bills-ap), [BIR tax reports](modules/fiscal.md#bir-tax-reports) |
 | Salary and allowance history, work schedules | [Compensation](modules/talent.md#compensation), [Work schedule](modules/talent.md#work-schedule) |
 | Holiday auto-draft rules (`core.holidayRules`, build step 1.10) | [Holiday calendar](modules/core.md#holiday-calendar) |
+| Expiry alert lead days (`talent.expiryAlerts`: `documentLeadDays`, `certificationLeadDays`, 1 to 180, default 30; build step 2.2) | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
 
 Who checks these against official issuances, and when, is in [Keeping rates current](COMPLIANCE.md#keeping-rates-current).
 
@@ -138,6 +169,8 @@ Some records can't be edited once they reach a certain state. Corrections go thr
 - Audit log entries: never changed or deleted ([Audit log](modules/core.md#audit-log))
 - Notifications: never deleted; only `readAt` changes, when the recipient marks one read (`dedupeKey` is fixed once stored) ([Notifications](modules/core.md#notifications))
 - Employee records: never deleted. That covers Core's `employees` and, from build step 2.1, Talent's `employeeRecords` ([Record retention](COMPLIANCE.md#record-retention))
+- 201 documents (`employeeDocuments`, build step 2.2): never deleted. They are archived with a reason, and the file never changes; a renewal is a new document
+- E-signatures and their uses (`eSignatures`, `signatureApplications`, build step 2.2): insert-only. A replaced signature is a new version, so a signed record keeps the version it was signed with
 
 ## Retention
 

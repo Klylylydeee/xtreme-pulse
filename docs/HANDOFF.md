@@ -27,7 +27,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 
 ## Branches and commits
 
-`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`), step 1.10 (`5f283bb`) and step 1.11 (`2d2d3ca`) are committed but **not pushed** (`phase-1` is 4 commits ahead). Phase 2 continues on `phase-1`: step 2.1 is built and verified in the working tree, not committed (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
+`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`), step 1.10 (`5f283bb`) step 1.11 (`2d2d3ca`) and step 2.1 (`cd2a5a6`) are committed but **not pushed** (`phase-1` is 5 commits ahead). Phase 2 continues on `phase-1`: step 2.2 is built and verified in the working tree, spec and code, and not committed (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
 
 | Branch | Commit | What |
 |---|---|---|
@@ -48,6 +48,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 | | `42e64f1` | Step 1.9 approvals engine (2026-10-11). Not pushed |
 | | `5f283bb` | Step 1.10 holiday calendar (2026-10-12). Not pushed |
 | | `2d2d3ca` | Step 1.11 directory, org chart, command bar and Home tiles (2026-10-12). Not pushed |
+| | `cd2a5a6` | Step 2.1 employee record and sensitive fields (2026-10-12). Not pushed |
 
 ## Step 1.2 follow-up (committed as `8cddb26`)
 
@@ -440,7 +441,8 @@ Phase 2 (Pulse Talent) started on 2026-10-12. The user asked for it to be built 
 
 | Step | Status |
 |---|---|
-| 2.1 Employee record and sensitive fields | **Built and verified (2026-10-12), not committed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in), then ask before committing |
+| 2.1 Employee record and sensitive fields | **Done: committed as `cd2a5a6` (2026-10-12), not pushed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in) |
+| 2.2 201 file, profile photo, e-signature and certifications | **Built and verified (2026-10-12), not committed.** Spec written first (BUILD_PLAN decisions 173–190, [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)), then built by four agents (Core; Talent and worker; UI; Talent web) and reviewed with a focus on the file route, the document access matrix and the e-signature; four small fixes made (see [2.2 review](#22-review-2026-10-12)). Typecheck, lint, `pnpm test` (65 files, 1059 tests) and the production build pass. **Open:** the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 9–26 in [Assumptions to check](#assumptions-to-check) |
 
 ### 2.1 notes
 
@@ -489,6 +491,41 @@ Set up as in [Assumptions to check](#assumptions-to-check) item 5. Then:
 5. **`/talent/me`** as an ordinary user with no Talent access: "My record" sits after Org chart, the Talent item isn't highlighted, the record is read-only, and Reveal works on your own values. As the bootstrap system account: no "My record" entry, and the page shows the empty state.
 6. **Light and dark, and phone width (about 390 px):** the list becomes cards, the inspector becomes a full-height sheet, and the edit sheets and masked fields fit with no sideways scroll.
 
+### 2.2 review (2026-10-12)
+
+An independent review checked the step against decisions 173–190, SECURITY.md and the 2.2 parts of ARCHITECTURE, DATA_MODEL, TESTING and COMPLIANCE. Confirmed as built:
+
+- **The file route** opens every file through `openAccessibleFile`. Every owner type has a registered check, and `findAccessibleFile` refuses owner types with `auditView`. The `reveal` entry for a 201 document is committed before any content is read, and a failed entry sends nothing. Missing and refused files get the same 404. The path comes only from the stored key, never the request. The headers are `private, no-store`, a sandbox CSP and `nosniff`, with `inline` only for images (no SVG is accepted). Files stay under `storage/`.
+- **Old files.** A replaced or removed photo no longer opens. Every signature version opens for its owner and the System Administrator only. A certification attachment opens only while it is the current one on a live certification.
+- **The document access matrix.** Medical certificates are hidden from Accounting, both in the view and at the file route. Others' documents need Talent Read and the reveal rule. Your own always open. A viewer who may see no category gets no `documents` key at all.
+- **The e-signature.** Only the owner uploads: the action and the service take no employee id. `applyESignature` reads the employee from the database in the transaction. Signatures and applications are insert-only (`guardWrites`). An approve with no signer registered is refused, and a signer that throws rolls back. Only approve signs.
+- **Images.** `sharp` strips EXIF and GPS (tested), and 201 documents are stored byte for byte. The type is read from the content, and the size is checked before decoding, with a decompression-bomb limit.
+- **The expiry job.** The recipients, dedupe keys, skips and HR fallback match decision 186. Dates are Manila days, and no title or file name goes into a notification.
+- **The read services** return the allowlist only, with no license number and no attachment.
+- **Every write** re-checks access in its transaction, is audited and checks the version. `photoUrl` is only ever `/files/<id>?inline=1`, and the command bar registry drops anything else. The self-service actions can't target another employee. The 2.1 sensitive-key tests still pass.
+
+Fixed in the review:
+
+1. **A long approval couldn't be approved by someone with a signature** (`e-signatures/service.ts`, `applyESignature`). The application's audit label `<employee number> · Approval: <label>` could pass the 200-character audit limit, so the audit write failed and rolled back the approve. Labels are now shortened with "…" (`auditLabelOf` in `shared.ts`). Test added.
+2. **The same for a certification with a 200-character name** (`certifications/service.ts`, `certificationLabel`). Adding, editing or removing it failed at the audit write. Same fix, test added.
+3. **The approvals inspector's requester initials split on the letter "s"** (`approval-inspector.tsx`, `split(/s+/)` instead of `split(/\s+/)`). Fixed.
+4. **The "stale form" check matched any error containing "reload"** (`employee-documents-sheets.tsx`). It is now a shared list, `STALE_FORM_MESSAGES` in `@pulse/talent`, with the refusals for a changed or missing record. "This document is archived, so it can't be changed." now also says "Reload the page." and gets the Reload button.
+
+Also aligned: the certification sheet's issue date no longer stops at today, since the service allows a future issue date. talent.md, TESTING.md, SECURITY.md and DATA_MODEL.md now match the code, including the agents' choices (items 19–26 in [Assumptions to check](#assumptions-to-check)).
+
+Not checked: the screens in a browser (no browser tools here), and `pnpm dev:expiry-alerts` against a development database.
+
+### 2.2 hands-on checks (by the user, signed in)
+
+Set up as in [Assumptions to check](#assumptions-to-check) item 18. Then:
+
+1. **The "Done when", signatures.** As an approver, upload an e-signature on `/talent/me`. Run `pnpm dev:approval --requester <email> --step all:<approver email>`, open the request in `/approvals` and approve it: the inspector says "Signed with e-signature, version 1". Replace the signature on `/talent/me` (version 2, "Applied once" on version 1). Submit and approve a second request: it says version 2, and the first still says version 1. An approver with no signature gets "Approved without an e-signature".
+2. **The "Done when", expiry alerts.** As HR, add a 201 document and a certification that expire within 30 days, for an employee who has a supervisor. Run `pnpm dev:expiry-alerts` (or `--date YYYY-MM-DD`): HR and the employee get the document alert, and the supervisor also gets the certification alert. Run it again: nothing new. Run it with `--date` on the expiry date: the "expired" alerts arrive once. No notification names a file or a document title.
+3. **The 201 open audit.** Open a document as HR, as Accounting, and as the employee on `/talent/me`. Each open adds one `reveal` entry with the field `file` in `/admin/audit`. Accounting doesn't see a medical certificate, and gets "Medical certificates are visible to HR and the System Administrator." A Talent Write user outside HR gets only "201 file documents are visible to HR, Accounting and the System Administrator." Copying a document's `/files/<id>` link into their browser gives "File not found."
+4. **Uploads end to end.** Upload a PDF and a JPEG document, a certification attachment, a photo (Change, then Remove) and a signature. A HEIC or a file over the limit is refused next to the field. A phone photo shows upright. Archive a document, then find it under "Show archived". Renew one with "Replaces". Change the expiry alert lead days in Settings on `/talent` as a Talent Owner: a second change the same day is refused.
+5. **Photos everywhere.** After adding a photo, it shows in the directory, the org chart, the access page, the approvals list and inspector, the Talent list and inspector, and the command bar's people results (⌘K or Ctrl+K, type a name).
+6. **Light and dark, and phone width (about 390 px):** the Documents and Skills & certifications sections, every sheet, the signature tile (dark ink stays readable in dark appearance) and `/talent/me` fit with no sideways scroll, and every badge carries text.
+
 ## Assumptions to check
 
 Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
@@ -503,6 +540,24 @@ Things the build assumed that a person still has to confirm or do. Later Phase 2
 | 6 | **A save that changes nothing** still raises the record's `version` and writes an `update` audit entry, as the 1.4 and 1.8 services do. Confirm that, or say whether it should write nothing, as the access setter and reporting lines do | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
 | 7 | **"Not filled in" and salary entries.** An employee with only a salary entry shows "Not filled in" to anyone who may not see Compensation (Talent Write or Read alone, or the Board outside HR), so the badge never says a salary is stored. Confirm that is acceptable | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
 | 8 | **"Manage access" and "Edit in Users" on your own record.** HR and the System Administrator see both on their own record. The access and users pages open that row read-only | 2.1 | The user | [The employee record](modules/talent.md#the-employee-record-build-step-21) |
+| 9 | **Medical certificates are hidden from Accounting.** SECURITY's reveal table gave Accounting every category, but the medical certificate rule leaves Accounting out. The app now follows the medical rule. *Assumption, to be confirmed by HR or counsel* (RA 10173) | 2.2 | HR or counsel | [Sensitive data](../SECURITY.md#sensitive-data) |
+| 10 | **The 201 document types** (employment contract, regularization evaluation, government ID copy, NBI clearance, medical certificate, diploma or TOR, other), and that every document needs an issue date. *Assumption, to be confirmed by HR* | 2.2 | HR | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 11 | **Uploaded e-signature images are legally enough** for approvals now, and for HR documents, contracts and the other signed documents later (RA 8792, the E-Commerce Act; the Rules on Electronic Evidence). *Assumption, to be confirmed by counsel* | 2.2 | Counsel | [COMPLIANCE › Open questions](COMPLIANCE.md#open-questions) |
+| 12 | **201 documents are kept forever**, archived but never erased, separated employees' included. *Assumption, to be confirmed by counsel* (Data Privacy Act proportionality) | 2.2 | Counsel | [Record retention](COMPLIANCE.md#record-retention) |
+| 13 | **Profile photos are shown to every employee**, with no consent beyond the company's privacy notice. *Assumption, to be confirmed by HR or counsel* | 2.2 | HR or counsel | [Data Privacy Act](COMPLIANCE.md#data-privacy-act-of-2012-ra-10173) |
+| 14 | **Stored files aren't encrypted by the app.** Production must keep `storage/` (201 files, medical certificates) on an encrypted disk or volume, and back it up with the database and the key. *Assumption, to be confirmed by the project owner* | Before real data | The project owner | [DEPLOYMENT › Still to decide](DEPLOYMENT.md#still-to-decide) |
+| 15 | **Expiry alert defaults.** 30 days ahead plus one "expired" alert. Documents go to HR and the employee; certifications also to the employee's supervisors; the System Administrators when no HR user is active. *Assumption, to be confirmed by HR* | 2.2 | HR | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 16 | **Skills are free-text tags** (up to 30, 50 characters each), since the spec names skills but gives no fields. *Assumption, to be confirmed by HR* | 2.2 | HR | [Skills & certifications](modules/talent.md#skills--certifications) |
+| 17 | **Approvals before a signature is uploaded stay unsigned.** An approver with no e-signature still approves until step 2.6's gate, and the bootstrap system account never signs. *Assumption, to be confirmed by the user* | 2.2 | The user | [Approvals](modules/core.md#approvals) |
+| 18 | **Browser-check setup for 2.2.** On `/admin/access`, give the HR test user Talent Write, give an Accounting user Talent Read, make one user Talent Owner, and give an employee a supervisor. Then check the "Done when" with `pnpm dev:approval` (approve, replace the signature on `/talent/me`, approve another) and `pnpm dev:expiry-alerts` | 2.2 | The user | [TESTING.md](TESTING.md#document-e-signature-and-certification-tests) |
+| 19 | **Removing a certification is refused on your own record**, even for a Talent Owner, like every other change to your own record | 2.2 | The user | [Skills & certifications](modules/talent.md#skills--certifications) |
+| 20 | **An archived 201 document can't be edited** (or archived again). To correct one, add a new document | 2.2 | HR | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 21 | **A certification's issue date may be in the future**, unlike a 201 document's | 2.2 | HR | [Skills & certifications](modules/talent.md#skills--certifications) |
+| 22 | **A renewal archives the document it replaces with the fixed reason** "Replaced by a renewed document." | 2.2 | HR | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 23 | **Expiry alert wording, and one alert per person.** "NBI clearance expiring: <name>", "Your NBI clearance expires on <date>" with "Send HR the renewed copy so they can update your record." Someone with two roles gets one alert: the employee's own link first, then HR's record link, then the supervisor's directory link | 2.2 | HR | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 24 | **The certification read services use the directory's idea of active**: an employee whose account doesn't resolve to active (separated, or with no user) is left out | 2.2 | The user | [Skills & certifications](modules/talent.md#skills--certifications) |
+| 25 | **The inspector's photo actions need Talent Read**, like the inspector. HR without Talent Read changes no one's photo there | 2.2 | The user | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| 26 | **Approvals decided before step 2.2** show "Approved without an e-signature", since they have no signature field | 2.2 | The user | [Approvals](modules/core.md#approvals) |
 
 ## Open items for later steps
 
@@ -559,7 +614,12 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
 14. ~~**Step 1.11**, "Directory, org chart, command bar and Home tiles"~~. Built and verified (2026-10-12) per decisions 133–153, and committed as `2d2d3ca`, not pushed. See [1.11 build](#111-build-2026-10-12).
 15. **The user's hands-on checks of step 1.11** in the browser ([1.11 manual checks](#111-manual-checks-by-the-user-signed-in)).
 16. **The Phase 1 check** ([BUILD_PLAN.md](BUILD_PLAN.md#phase-1-pulse-core), the "Phase check" after step 1.11), which the user runs by hand on a fresh database. With it done, Phase 1 is complete; every build step of Phase 1 is now built.
-17. **Step 2.1**, "Employee record and sensitive fields". Built and verified (2026-10-12) per decisions 154–172, **not committed** ([2.1 review](#21-review-2026-10-12)). Next: **the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in)**, then ask before committing. Check [Assumptions to check](#assumptions-to-check) before real data is entered.
+17. ~~**Step 2.1**, "Employee record and sensitive fields"~~. Done (2026-10-12): built and verified per decisions 154–172 and committed as `cd2a5a6`, not pushed ([2.1 review](#21-review-2026-10-12)). Still open: **the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in)**. Check [Assumptions to check](#assumptions-to-check) before real data is entered.
+18. **Step 2.2**, "201 file, profile photo, e-signature and certifications". **Built and verified** (2026-10-12) per decisions 173–190, with four review fixes ([2.2 review](#22-review-2026-10-12)), not committed. Next:
+    - **the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in)**: the "Done when" with `pnpm dev:approval` and `pnpm dev:expiry-alerts`, uploads, the open audit, photos and the command bar, light and dark, phone width
+    - **the commit**, with the user's go-ahead
+
+    Assumptions 9–26 are in [Assumptions to check](#assumptions-to-check).
 
 ## 1.11 build (2026-10-12)
 

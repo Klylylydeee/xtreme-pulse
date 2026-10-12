@@ -11,6 +11,7 @@ import {
   toBusinessDate,
 } from '@pulse/core';
 import {
+  canChangeEmployeePhoto,
   type EmployeeIdentity,
   encryptSensitive,
   getEmployeeIdentity,
@@ -44,8 +45,13 @@ import {
   personalSectionSchema,
   RECORD_CHANGED_ELSEWHERE,
   RESTRICTED_SECTIONS_NOTICE,
+  type SkillsSectionInput,
+  skillsSectionSchema,
 } from '../../validation';
+import { buildCertificationsSection } from '../certifications/service';
 import { buildCompensationSection, hasCompensationEntries } from '../compensation/service';
+import { buildDocumentsSection } from '../documents/service';
+import { getESignatureStatus } from '../e-signatures/service';
 import {
   assertCanChangeBirthAndCivilStatus,
   assertCanChangeSensitiveDetails,
@@ -53,8 +59,12 @@ import {
   assertCanReadEmployeeRecords,
   canChangeBirthAndCivilStatus,
   canChangeSensitiveDetails,
+  canEditCertifications,
   canEditEmployeeRecord,
+  canEditSkills,
+  canManageDocuments,
   canManageEmployeeAccount,
+  canRemoveCertifications,
   canSeeBirthAndCivilStatus,
   canSeeSensitiveSection,
   type RecordTarget,
@@ -155,6 +165,7 @@ export async function listEmployeeRecords(
     userId: identity.userId,
     name: `${identity.firstName} ${identity.lastName}`,
     initials: initialsOf(identity),
+    photoUrl: identity.photoUrl,
     employeeNumber: identity.employeeNumber,
     firstName: identity.firstName,
     middleName: identity.middleName,
@@ -234,6 +245,13 @@ async function buildView(
   }
 
   const contractEndDate = dayOrNull(record?.contractEndDate);
+  const today = businessToday();
+  const [documentsSection, eSignature, certifications] = await Promise.all([
+    buildDocumentsSection(viewer, target, today),
+    getESignatureStatus(viewer, identity.employeeId),
+    buildCertificationsSection(viewer, identity.employeeId, today),
+  ]);
+  const own = viewer.employee !== null && viewer.employee.id === identity.employeeId;
   const view: EmployeeRecordView = {
     employeeId: identity.employeeId,
     identity,
@@ -249,6 +267,10 @@ async function buildView(
       probationEndDate: probationEndDate(identity.employmentStatus, identity.dateHired),
       contractEndDateMissing: isContractEndDateMissing(identity.employmentStatus, contractEndDate),
     },
+    photoUrl: identity.photoUrl,
+    eSignature,
+    skills: [...(record?.skills ?? [])],
+    certifications,
     can: {
       editPersonal: !readOnly && canEditEmployeeRecord(viewer, target),
       editBirthAndCivilStatus: !readOnly && canChangeBirthAndCivilStatus(viewer, target),
@@ -256,6 +278,16 @@ async function buildView(
       editGovernmentIds: !readOnly && canChangeSensitiveDetails(viewer, target),
       editBankAccount: !readOnly && canChangeSensitiveDetails(viewer, target),
       addCompensation: !readOnly && canChangeSensitiveDetails(viewer, target),
+      // The photo is changed on /talent/me by the employee, and in the inspector by HR and the
+      // System Administrator (Core's rule, checked again by Core's service).
+      changePhoto: canChangeEmployeePhoto(viewer, identity.employeeId),
+      manageDocuments: !readOnly && canManageDocuments(viewer, target),
+      addCertification: !readOnly && canEditCertifications(viewer, target),
+      editCertification: !readOnly && canEditCertifications(viewer, target),
+      removeCertification: !readOnly && canRemoveCertifications(viewer, target),
+      editSkills: !readOnly && canEditSkills(viewer, target),
+      // Only the owner uploads, on /talent/me (the read-only own view).
+      uploadESignature: readOnly && own,
     },
     editInUsersHref:
       !readOnly && canManageEmployeeAccount(viewer)
@@ -270,7 +302,7 @@ async function buildView(
   // A compensation entry counts as "filled in" only for a viewer who may see Compensation: for
   // anyone else the badge would say that a salary is stored (see filledInSet).
   if (showSalary) {
-    view.compensation = await buildCompensationSection(identity.employeeId, businessToday());
+    view.compensation = await buildCompensationSection(identity.employeeId, today);
     if (view.compensation.entries.length > 0) view.filledIn = true;
   }
   if (showIds) {
@@ -296,6 +328,9 @@ async function buildView(
     };
   }
   if (!showIds || !showBank || !showSalary) view.restrictedNotice = RESTRICTED_SECTIONS_NOTICE;
+  // The 201 file only for a viewer who may see a category of it; otherwise not even the key.
+  if (documentsSection.documents) view.documents = documentsSection.documents;
+  if (documentsSection.notice) view.documentsNotice = documentsSection.notice;
   return view;
 }
 
@@ -567,5 +602,27 @@ export async function setBankAccount(
         throw new ActionError('Enter the account number.', { field: 'accountNumber' });
       }
     },
+  });
+}
+
+/**
+ * Saves the skills tags (build step 2.2, decision 183): Talent Write, never one's own record, with
+ * the record's `version`, like a section. Up to 30 tags of up to 50 characters, no duplicates
+ * ignoring case. One `update` entry on `talent.employeeRecord` (`create` on the first save).
+ */
+export async function setSkills(
+  actor: TalentActor,
+  input: SkillsSectionInput,
+): Promise<{ version: number }> {
+  const parsed = skillsSectionSchema.safeParse(input);
+  if (!parsed.success) throw inputError(parsed.error.issues);
+  const values = parsed.data;
+  const check: SectionCheck = (who, target) => assertCanEditEmployeeRecord(who, target);
+  await preCheck(actor, values.employeeId, check);
+  return saveSection(actor, {
+    employeeId: values.employeeId,
+    version: values.version,
+    changes: { skills: values.skills },
+    check,
   });
 }

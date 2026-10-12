@@ -22,6 +22,8 @@ export interface CommandSearchResult {
   subtitle: string | null;
   href: string;
   icon: 'person' | 'action';
+  /** A person's profile photo (the file route, `?inline=1`), or null for the icon (step 2.2). */
+  photoUrl: string | null;
 }
 
 /** One provider's results, under its heading (such as "People"), in registration order. */
@@ -53,6 +55,7 @@ export const commandSearchAction = defineAction({
         subtitle: result.subtitle,
         href: result.href,
         icon: result.icon,
+        photoUrl: result.photoUrl,
       })),
     }));
   },

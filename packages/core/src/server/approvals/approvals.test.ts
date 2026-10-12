@@ -20,6 +20,13 @@ import {
   unregisterApprovalType,
 } from './registry';
 import {
+  type ApprovalSignatureStamp,
+  type ApprovalSigner,
+  ApprovalSignerNotRegisteredError,
+  registerApprovalSigner,
+  unregisterApprovalSigner,
+} from './signer';
+import {
   assertApproverCanView,
   countApprovalsWaiting,
   decideApproval,
@@ -69,7 +76,8 @@ async function person(
 ): Promise<Person> {
   counter += 1;
   const employee = await EmployeeModel.create({
-    employeeNumber: `2024-${String(counter).padStart(2, '0')}`,
+    // 99 numbers a year: move to the next year after that.
+    employeeNumber: `${2024 + Math.floor((counter - 1) / 99)}-${String(((counter - 1) % 99) + 1).padStart(2, '0')}`,
     firstName,
     lastName: `Test${counter}`,
     departmentId: await departmentId(department),
@@ -122,6 +130,12 @@ function register(
 }
 
 const SUPERVISOR: ApprovalStepSpec = { kind: 'reportingTo', label: 'Supervisor' };
+
+// The e-signature signer (build step 2.2). A fake stands in for Pulse Talent's: by default it
+// finds no signature on file and returns null, so approves are stored unsigned.
+const signer = vi.fn<ApprovalSigner>();
+const fakeSigner: ApprovalSigner = (context) => signer(context);
+const unsigned = async () => null;
 
 /** Submits in a transaction of its own, the way a module's change would. */
 function submit(requester: Person, input: Partial<SubmitApprovalInput> = {}) {
@@ -198,6 +212,8 @@ beforeAll(async () => {
     NotificationModel.init(),
   ]);
   admin = await person('Ivo', { admin: true });
+  signer.mockImplementation(unsigned);
+  registerApprovalSigner(fakeSigner);
   register('talent.anyOne', { steps: [SUPERVISOR] });
   register('talent.approveReturn', {
     allowedDecisions: ['approve', 'return'],
@@ -208,6 +224,10 @@ beforeAll(async () => {
 afterEach(() => {
   hooks.onSettled.mockReset();
   hooks.onStepApproved.mockReset();
+  signer.mockReset();
+  signer.mockImplementation(unsigned);
+  vi.unstubAllEnvs();
+  registerApprovalSigner(fakeSigner);
 });
 
 describe('any-one steps', () => {
@@ -626,6 +646,156 @@ describe('transactions', () => {
     expect(await ApprovalRequestModel.countDocuments({ 'record.id': recordId })).toBe(0);
     expect(await AuditLogModel.countDocuments({ actorId: ana.userId })).toBe(0);
     expect(await NotificationModel.countDocuments({ recipientUserId: bea.userId })).toBe(0);
+  });
+});
+
+describe('e-signatures on decisions', () => {
+  const stamp = (version: number): ApprovalSignatureStamp => ({
+    applicationId: new Types.ObjectId().toHexString(),
+    signatureId: new Types.ObjectId().toHexString(),
+    version,
+  });
+
+  it('signs an approve only, as the approver, in the decision’s transaction', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const approved = await submit(ana);
+    await decide(bea, approved.id, 'approve', 0);
+    expect(signer).toHaveBeenCalledTimes(1);
+    const context = signer.mock.calls[0]?.[0];
+    expect(context).toMatchObject({
+      actor: { id: bea.id, email: bea.email },
+      target: { type: 'core.approvalRequest', id: approved.id, label: 'Test request · LV-0001' },
+      purpose: 'Approval: Test request · LV-0001',
+      request: { id: approved.id, status: 'pending' },
+      stepIndex: 0,
+      stepLabel: 'Supervisor',
+    });
+    expect(context?.session).toBeDefined();
+
+    signer.mockClear();
+    const returned = await submit(ana);
+    await decide(bea, returned.id, 'return', 0, 'Fix the dates.');
+    const rejected = await submit(ana);
+    await decide(bea, rejected.id, 'reject', 0, 'No.');
+    expect(signer).not.toHaveBeenCalled();
+    for (const id of [returned.id, rejected.id]) {
+      expect((await stored(id)).steps[0]?.decisions[0]?.signature).toBeNull();
+    }
+  });
+
+  it('stores the stamp on the decision, passes it to the hooks and shows its version', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const signed = stamp(3);
+    signer.mockResolvedValue(signed);
+    const { id } = await submit(ana);
+    await decide(bea, id, 'approve', 0);
+
+    const decision = (await stored(id)).steps[0]?.decisions[0];
+    expect(decision?.signature?.applicationId.toHexString()).toBe(signed.applicationId);
+    expect(decision?.signature?.signatureId.toHexString()).toBe(signed.signatureId);
+    expect(decision?.signature?.version).toBe(3);
+    expect(hooks.onStepApproved.mock.calls[0]?.[0].decision.signature).toEqual(signed);
+    expect(hooks.onSettled.mock.calls[0]?.[0].decision.signature).toEqual(signed);
+
+    const detail = await getApproval(viewer(ana), id);
+    expect(detail?.steps[0]?.approvers[0]?.decision?.signatureVersion).toBe(3);
+  });
+
+  it('stores signature null when the approver has no signature on file', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const { id } = await submit(ana);
+    const result = await decide(bea, id, 'approve', 0);
+    expect(result.status).toBe('approved');
+    expect((await stored(id)).steps[0]?.decisions[0]?.signature).toBeNull();
+    expect(hooks.onSettled.mock.calls[0]?.[0].decision.signature).toBeNull();
+    const detail = await getApproval(viewer(ana), id);
+    expect(detail?.steps[0]?.approvers[0]?.decision?.signatureVersion).toBeNull();
+  });
+
+  it('refuses an approve when no signer is registered, and still allows a return', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const { id } = await submit(ana);
+    unregisterApprovalSigner();
+    await expect(decide(bea, id, 'approve', 0)).rejects.toThrow(ApprovalSignerNotRegisteredError);
+    expect(await stored(id)).toMatchObject({ status: 'pending', version: 0 });
+    expect(hooks.onSettled).not.toHaveBeenCalled();
+
+    await decide(bea, id, 'return', 0, 'Fix the dates.');
+    expect((await stored(id)).status).toBe('returned');
+  });
+
+  it('rolls back the decision, its audit entry and its notifications when the signer throws', async () => {
+    const bea = await person('Bea');
+    const marker = await person('Mark');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const { id } = await submit(ana);
+    signer.mockImplementation(async ({ session }) => {
+      // The signer's own write, in the decision's transaction, then a failure.
+      await notify(
+        {
+          recipients: [marker.userId],
+          module: 'talent',
+          event: 'talent.signerRan',
+          title: 'Signer ran',
+          href: '/talent',
+        },
+        { session },
+      );
+      throw new Error('The signature could not be applied.');
+    });
+    const notificationsBefore = await NotificationModel.countDocuments({});
+
+    await expect(decide(bea, id, 'approve', 0)).rejects.toThrow(
+      'The signature could not be applied.',
+    );
+    const request = await stored(id);
+    expect(request).toMatchObject({ status: 'pending', version: 0, settledBy: null });
+    expect(request.steps[0]?.decisions).toEqual([]);
+    expect(
+      await AuditLogModel.countDocuments({ 'record.id': new Types.ObjectId(id), action: 'update' }),
+    ).toBe(0);
+    expect(await NotificationModel.countDocuments({})).toBe(notificationsBefore);
+    expect(hooks.onSettled).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invalid stamp', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const { id } = await submit(ana);
+    signer.mockResolvedValue({ ...stamp(1), version: 0 });
+    await expect(decide(bea, id, 'approve', 0)).rejects.toThrow(/invalid stamp/);
+    signer.mockResolvedValue({ ...stamp(1), signatureId: 'nope' });
+    await expect(decide(bea, id, 'approve', 0)).rejects.toThrow(/invalid stamp/);
+    expect((await stored(id)).status).toBe('pending');
+  });
+
+  it('has one slot: replaced outside production, a different signer throws in production', () => {
+    const other: ApprovalSigner = async () => null;
+    registerApprovalSigner(other);
+    registerApprovalSigner(fakeSigner);
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(() => registerApprovalSigner(fakeSigner)).not.toThrow();
+    expect(() => registerApprovalSigner(other)).toThrow(/already registered/);
+  });
+});
+
+describe('the requester’s photo', () => {
+  it('shows the requester’s current profile photo on the row', async () => {
+    const bea = await person('Bea');
+    const ana = await person('Ana', { reportingTo: [bea] });
+    const { id } = await submit(ana);
+    expect((await getApproval(viewer(bea), id))?.requester.photoUrl).toBeNull();
+    const photoFileId = new Types.ObjectId();
+    await EmployeeModel.updateOne({ _id: ana.employeeId }, { $set: { photoFileId } });
+    expect((await getApproval(viewer(bea), id))?.requester.photoUrl).toBe(
+      `/files/${photoFileId.toHexString()}?inline=1`,
+    );
+    const [row] = (await listApprovalsWaiting(viewer(bea))).rows;
+    expect(row?.requester.photoUrl).toBe(`/files/${photoFileId.toHexString()}?inline=1`);
   });
 });
 

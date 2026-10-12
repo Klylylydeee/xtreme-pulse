@@ -12,6 +12,7 @@
     "@next/env": "16.3.6",
     "@pulse/core": "workspace:*",
     "@pulse/db": "workspace:*",
+    "@pulse/talent": "workspace:*",
     "tsx": "4.23.15"
   },
   "devDependencies": {

@@ -43,7 +43,7 @@ const COLUMNS: DataTableColumn<DirectoryPerson>[] = column.columns([
       const person = info.row.original;
       return (
         <span className="flex min-w-44 items-center gap-3 py-1">
-          <PersonAvatar initials={person.initials} size="sm" />
+          <PersonAvatar initials={person.initials} photoUrl={person.photoUrl} size="sm" />
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium">{person.name}</span>
             {person.inactive ? <Badge>Inactive</Badge> : null}
@@ -86,7 +86,7 @@ function PersonPhoneRow({ person }: { person: DirectoryPerson }) {
   const detail = [person.positionName, person.departmentName].filter(Boolean).join(' · ');
   return (
     <>
-      <PersonAvatar initials={person.initials} />
+      <PersonAvatar initials={person.initials} photoUrl={person.photoUrl} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="truncate text-subheadline font-semibold">{person.name}</span>

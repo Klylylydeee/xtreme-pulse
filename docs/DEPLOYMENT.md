@@ -42,7 +42,7 @@ Xtreme Pulse is hosted internally and reachable only on the office network or vi
 - [ ] The internal URL, and a TLS certificate for it
 - [ ] How releases are built and deployed (manual or CI), and how to roll one back
 - [ ] Backups of the database and the `storage/` folder: how often, where they're stored, how long they're kept, and a tested restore (see [Runbook](RUNBOOK.md#restore-from-backup))
-- [ ] Disk encryption on the server, since `storage/` holds medical certificates and 201 files
+- [ ] Disk encryption on the server, since `storage/` holds medical certificates and 201 files. From build step 2.2 the app relies on it: it doesn't encrypt stored files itself. *Assumption, to be confirmed by the project owner*
 - [ ] Where the encryption master key is kept, with an offline copy (see [Secrets](../SECURITY.md#secrets)). `FIELD_ENCRYPTION_LOCAL_KEY` must be generated on the real server before any real employee data is entered (from build step 2.1, Pulse Talent stores real IDs, bank accounts and salaries)
 - [ ] Key rotation tooling: there is no tool yet to re-wrap the data keys in `encryptionKeys` with a new master key, which a rotation needs ([ADR 0005](adr/0005-field-level-encryption.md), [Runbook](RUNBOOK.md#encryption-key-lost-or-changed)). Decide whether to build one (for example a `pnpm rewrap:keys` script) before go-live, and how often to rotate. Not built in step 2.1
 - [ ] Monitoring: how you learn that the app, the worker, or a scheduled job has stopped

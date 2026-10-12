@@ -422,7 +422,11 @@ describe('section visibility (the step’s "Done when")', () => {
     expect(view?.compensation?.current).not.toBeNull();
     expect(view?.personal.dateOfBirth).toBe('1990-05-17');
     expect(view?.personal.civilStatus).toBe('married');
-    expect(Object.values(view?.can ?? {}).every((allowed) => allowed === false)).toBe(true);
+    // Read-only: only the employee's own photo and e-signature controls (step 2.2) are offered.
+    const { changePhoto, uploadESignature, ...rest } = view?.can ?? ({} as never);
+    expect(changePhoto).toBe(true);
+    expect(uploadESignature).toBe(true);
+    expect(Object.values(rest).every((allowed) => allowed === false)).toBe(true);
     expect(view?.manageAccessHref).toBeNull();
     expect(view?.editInUsersHref).toBeNull();
   });
@@ -472,6 +476,7 @@ describe('section visibility (the step’s "Done when")', () => {
         'lastName',
         'middleName',
         'name',
+        'photoUrl',
         'position',
         'separated',
         'userId',

@@ -107,6 +107,7 @@ function toResultGroups(groups: readonly CommandSearchGroup[]): CommandResultGro
       ...(result.subtitle ? { subtitle: result.subtitle } : {}),
       href: result.href,
       icon: result.icon,
+      ...(result.photoUrl ? { photoUrl: result.photoUrl } : {}),
     })),
   }));
 }

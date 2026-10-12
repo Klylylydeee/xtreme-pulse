@@ -47,6 +47,7 @@ export async function getOrgChart({ departmentId }: OrgChartOptions = {}): Promi
       id: link.id,
       name: link.name,
       initials: link.initials,
+      photoUrl: link.photoUrl,
       departmentId: person.departmentId.toHexString(),
       departmentName: link.departmentName,
       positionName: link.positionName,

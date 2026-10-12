@@ -30,6 +30,7 @@ import {
 import { DepartmentModel } from '../departments/model';
 import { employeeName, inputError, type OrgStructureActor } from '../departments/service';
 import { EmployeeModel } from '../employees/model';
+import { employeePhotoUrl } from '../employees/photo';
 import { toObjectId } from '../paging';
 import { PositionModel } from '../positions/model';
 import { type UserRecord, UserModel } from '../users/model';
@@ -94,6 +95,8 @@ export interface UserAccessRow {
   employeeNumber: string | null;
   /** `First Last`; null for the system account, which shows its email instead. */
   name: string | null;
+  /** The current profile photo (`/files/<id>?inline=1`); null for none and for the system account. */
+  photoUrl: string | null;
   firstName: string | null;
   lastName: string | null;
   email: string;
@@ -176,6 +179,7 @@ async function load(
       departmentId: 1,
       positionId: 1,
       employmentStatus: 1,
+      photoFileId: 1,
     },
   )
     .session(session)
@@ -216,6 +220,7 @@ async function load(
         id: target.id,
         employeeNumber: employee?.employeeNumber ?? null,
         name: employee ? employeeName(employee) : null,
+        photoUrl: employee ? employeePhotoUrl(employee.photoFileId) : null,
         firstName: employee?.firstName ?? null,
         lastName: employee?.lastName ?? null,
         email: user.email,

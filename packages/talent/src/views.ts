@@ -1,7 +1,17 @@
 import type { BusinessDate, EmploymentStatus } from '@pulse/core';
 import type { EmployeeIdentity } from '@pulse/core/server';
 import type { CompensationStatus } from './compensation';
-import type { CivilStatus, PayrollBank, RateType, Sex, WorkRegion } from './fixed-sets';
+import type { ExpiryState } from './derived';
+import type {
+  CertificationStatus,
+  CivilStatus,
+  Document201Category,
+  Document201Type,
+  PayrollBank,
+  RateType,
+  Sex,
+  WorkRegion,
+} from './fixed-sets';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 and SECURITY.md#sensitive-data —
 // what the employee record's services send to the pages. Types and names only, safe in the
@@ -118,6 +128,20 @@ export interface EmployeeRecordPermissions {
   editGovernmentIds: boolean;
   editBankAccount: boolean;
   addCompensation: boolean;
+  /** Change and Remove on the profile photo (Core's rule: the employee, HR, the System Administrator). */
+  changePhoto: boolean;
+  /** Upload, Edit and Archive on the 201 file (Talent Write and HR or the System Administrator). */
+  manageDocuments: boolean;
+  /** Add certification (Talent Write, never one's own record). */
+  addCertification: boolean;
+  /** Edit on a certification (as above). */
+  editCertification: boolean;
+  /** Remove on a certification (Talent Owner, never one's own record). */
+  removeCertification: boolean;
+  /** The Skills Edit sheet (Talent Write, never one's own record). */
+  editSkills: boolean;
+  /** Upload or Replace the e-signature: the owner only, on /talent/me. */
+  uploadESignature: boolean;
 }
 
 export interface EmployeeRecordView {
@@ -139,6 +163,25 @@ export interface EmployeeRecordView {
   bankAccount?: BankAccountSectionView;
   /** `RESTRICTED_SECTIONS_NOTICE`, present only when a section above was left out. */
   restrictedNotice?: string;
+  /**
+   * The 201 file, present only for a viewer who may see at least one of its categories (decision
+   * 179): every document of the categories they may see, archived ones included ("Show
+   * archived"), newest first. Absent for anyone else: no list, count or "has documents" flag.
+   */
+  documents?: EmployeeDocumentView[];
+  /**
+   * `DOCUMENTS_NOTICE` when `documents` is left out, or `MEDICAL_DOCUMENTS_NOTICE` when medical
+   * certificates are left out of it (Accounting). Absent when nothing is left out.
+   */
+  documentsNotice?: string;
+  /** The current profile photo (`/files/<id>?inline=1`), or null. */
+  photoUrl: string | null;
+  /** The e-signature status (everyone); its image only for the owner and the System Administrator. */
+  eSignature: ESignatureStatusView;
+  /** The skills tags, in the saved order. */
+  skills: string[];
+  /** The certifications (removed ones left out), latest issue date first. */
+  certifications: CertificationView[];
   can: EmployeeRecordPermissions;
   /** `/admin/users?q=<employee number>` for HR and the System Administrator, else null. */
   editInUsersHref: string | null;
@@ -152,6 +195,8 @@ export interface EmployeeListRow {
   userId: string | null;
   name: string;
   initials: string;
+  /** The current profile photo (`/files/<id>?inline=1`), or null for the initials (step 2.2). */
+  photoUrl: string | null;
   employeeNumber: string;
   firstName: string;
   middleName: string | null;
@@ -170,4 +215,116 @@ export interface EmployeeList {
   rows: EmployeeListRow[];
   /** The stat tiles: active (not separated) employees by employment status, whatever the filters. */
   stats: { status: EmploymentStatus; count: number }[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.2: the 201 file, the e-signature, certifications and their read services
+// (docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22).
+
+/** A 201 document's audit record type and file owner type. */
+export const EMPLOYEE_DOCUMENT_TYPE = 'talent.employeeDocument';
+/** An e-signature version's audit record type and file owner type. */
+export const E_SIGNATURE_TYPE = 'talent.eSignature';
+/** A use of an e-signature's audit record type. */
+export const SIGNATURE_APPLICATION_TYPE = 'talent.signatureApplication';
+/** A certification's audit record type and its attachment's file owner type. */
+export const CERTIFICATION_TYPE = 'talent.certification';
+
+/** One 201 document, for a viewer who may see its category. */
+export interface EmployeeDocumentView {
+  id: string;
+  type: Document201Type;
+  typeLabel: string;
+  category: Document201Category;
+  title: string | null;
+  issueDate: BusinessDate;
+  expiryDate: BusinessDate | null;
+  /** The expiry badge, against the `talent.expiryAlerts` document lead days. */
+  expiry: ExpiryState;
+  /** The file route URL (`/files/<id>`). Every open is audit-logged. */
+  fileUrl: string;
+  uploadedAt: Date;
+  /** The uploader's name when the viewer may read it, else null. */
+  uploadedByName: string | null;
+  archived: boolean;
+  archivedAt: Date | null;
+  archiveReason: string | null;
+  /** Send back with Edit and Archive. */
+  version: number;
+}
+
+/** The e-signature status on a record. */
+export interface ESignatureStatusView {
+  /** The current version ("E-signature on file, version N"), or null ("Not uploaded"). */
+  version: number | null;
+  /**
+   * The current image (`/files/<id>?inline=1`), present only for the owner and the System
+   * Administrator; null while there is none.
+   */
+  imageUrl?: string | null;
+}
+
+/** One version of the signed-in user's own e-signature (/talent/me's version history). */
+export interface OwnESignatureVersionView {
+  id: string;
+  version: number;
+  imageUrl: string;
+  uploadedAt: Date;
+  /** How many times this version was applied. */
+  applicationCount: number;
+  current: boolean;
+}
+
+/** One certification on the employee record. */
+export interface CertificationView {
+  id: string;
+  name: string;
+  issuer: string;
+  /** The Core product; `name` is null when the product was retired. */
+  product: { id: string; name: string | null } | null;
+  licenseNumber: string | null;
+  issueDate: BusinessDate;
+  expiryDate: BusinessDate | null;
+  /** The expiry badge, against the `talent.expiryAlerts` certification lead days. */
+  expiry: ExpiryState;
+  /** The attachment (`/files/<id>`), or null. */
+  attachmentUrl: string | null;
+  /** Send back with Edit and Remove. */
+  version: number;
+}
+
+/**
+ * One row of `listCertifications`, the read service for Pulse Ops and Pulse Engage (decision
+ * 184): an allowlist, never the license number or the attachment.
+ */
+export interface CertificationReadRow {
+  certificationId: string;
+  employee: { employeeId: string; employeeNumber: string; name: string };
+  name: string;
+  issuer: string;
+  product: { id: string; name: string | null } | null;
+  issueDate: BusinessDate;
+  expiryDate: BusinessDate | null;
+  status: CertificationStatus;
+  /** The employee's skills tags. */
+  skills: string[];
+}
+
+/** One row of `countCertifiedEmployeesByBrand`. */
+export interface CertifiedEmployeeCount {
+  brandId: string;
+  /** Employees (not separated) holding a certification for the product that is current on the date. */
+  count: number;
+}
+
+/** The `talent.expiryAlerts` setting for the Settings sheet on /talent. */
+export interface ExpiryAlertSettingsView {
+  documentLeadDays: number;
+  certificationLeadDays: number;
+  /** The Manila day the values in effect started, or null while the defaults apply. */
+  effectiveFrom: BusinessDate | null;
+  /** True when a change already takes effect today: another one is refused until tomorrow. */
+  changedToday: boolean;
+  /** True for a Talent Owner (the Settings button). */
+  canChange: boolean;
 }

@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { EMPLOYMENT_STATUSES, type EmploymentStatus } from '@pulse/core';
-import { type CurrentUser, listDirectoryDepartments } from '@pulse/core/server';
-import { listEmployeeRecords } from '@pulse/talent/server';
+import { type CurrentUser, listBrandOptions, listDirectoryDepartments } from '@pulse/core/server';
+import { getExpiryAlertSettings, listEmployeeRecords } from '@pulse/talent/server';
 import { requireModulePage } from '@/lib/auth';
+import { getUploadHints } from '@/lib/upload-hints';
 import { firstParam, type SearchParams } from '@/lib/keyset-paging';
 import { EmployeesLoading } from './employees-loading';
 import { EmployeesManager } from './employees-manager';
@@ -26,6 +27,9 @@ function statusParam(value: string | undefined): EmploymentStatus | null {
 // opens that record in the inspector (read on the client). The inspector loads each record
 // through a Server Action that checks Talent Read again, and the service builds each section only
 // for a viewer who may see it (SECURITY.md#sensitive-data). Nothing here is logged or cached.
+// From step 2.2 the page also loads what the inspector's sheets need (Core's products for a
+// certification, the upload limits) and the expiry alert lead days, whose Settings sheet a Talent
+// Owner opens from the header.
 export default async function TalentPage({
   searchParams,
 }: {
@@ -52,9 +56,12 @@ async function Employees({
   const status = statusParam(firstParam(params, 'status'));
   const showSeparated = firstParam(params, 'separated') === '1';
 
-  const [list, departments] = await Promise.all([
+  const [list, departments, brands, uploads, expirySettings] = await Promise.all([
     listEmployeeRecords(user, { q: search, departmentId, status, separated: showSeparated }),
     listDirectoryDepartments(),
+    listBrandOptions(),
+    getUploadHints(),
+    getExpiryAlertSettings(user),
   ]);
 
   return (
@@ -66,6 +73,8 @@ async function Employees({
       departmentId={departmentId}
       status={status}
       showSeparated={showSeparated}
+      tools={{ brands, uploads }}
+      expirySettings={expirySettings}
     />
   );
 }

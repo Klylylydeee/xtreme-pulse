@@ -10,8 +10,10 @@ import type { SensitiveCategory, SensitiveSubject } from './registry';
 
 // Spec: SECURITY.md#sensitive-data — who may reveal a sensitive value.
 //
-// - The System Administrator, HR and Accounting: any category, any record.
-// - The employee: anything on their own record.
+// - The System Administrator and HR: any category, any record.
+// - Accounting: any category, any record, except `medical` (medical certificates), from build step
+//   2.2 (decision 179 in docs/BUILD_PLAN.md). *Assumption, to be confirmed by HR or counsel.*
+// - The employee: anything on their own record (medical certificates included).
 // - The Board of Directors: salary, allowances, government IDs and bank accounts of employees in
 //   the HR department only (HR can't change these for their own department).
 // - Everyone else: nothing. Module access never grants a reveal.
@@ -42,7 +44,8 @@ export function canRevealSensitive(
   category: SensitiveCategory,
   subject: SensitiveSubject | null,
 ): boolean {
-  if (isSystemAdministrator(actor) || isHR(actor) || isAccounting(actor)) return true;
+  if (isSystemAdministrator(actor) || isHR(actor)) return true;
+  if (isAccounting(actor) && category !== 'medical') return true;
   if (!subject) return false;
   if (actor.employee && actor.employee.id === subject.employeeId) return true;
   if (

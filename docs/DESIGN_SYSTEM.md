@@ -73,6 +73,13 @@ The app uses the **Cobalt** palette: a saturated cobalt accent with a violet cas
   - **Masked values.** Sensitive values use the Masked field: the last 4 digits for IDs and account numbers, and `••••` with no digits for amounts. A section the viewer can't see is replaced by one `text-secondary` line on the card, never an empty or locked field.
   - **Sensitive inputs.** In a sheet they start empty, with the hint "Ends in 1234" in `text-secondary`.
   - **Compensation history.** A list, newest first, with "Scheduled" and "Superseded" badges that carry text, so color is never the only signal ([The employee record](modules/talent.md#the-employee-record-build-step-21)).
+  - **Documents and certifications** (build step 2.2). The 201 file and the certifications are lists, newest first, each row with its expiry badge carrying text:
+    - "Expired": `destructive-text`
+    - "Expires in N days": `warning-text`
+    - "Valid": neutral
+
+    Archived documents hide behind a "Show archived" switch. Uploads use a sheet with a file field that names the accepted types and the size limit.
+  - **Photo and e-signature** (build step 2.2). The photo shows as a large Avatar with Change and Remove. The signature preview sits on a `logo-tile` square with a hairline `separator` border, like the company logo, so a dark-ink signature reads in both appearances. Its version history is a list of versions with their dates ([Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)).
 
 ## Advanced look (approved direction)
 
@@ -129,7 +136,7 @@ Build these once in `packages/ui` (build steps 0.3, 0.4 and 0.8) and reuse them 
 | Page header | Large title that shrinks into the toolbar, primary action at the top right |
 | Sheet | Create and edit flows |
 | Inspector panel | Details of the selected item; a full-height sheet on phones |
-| Avatar | A person's profile photo; from build step 1.11 the initials (first letter of the first and the last name) in an `accent-subtle` circle with `accent` text, hidden from assistive technology because the name always shows beside it. Photos fill it from Phase 2. The User access page uses it too |
+| Avatar | A person's profile photo; from build step 1.11 the initials (first letter of the first and the last name) in an `accent-subtle` circle with `accent` text, hidden from assistive technology because the name always shows beside it. From build step 2.2 a photo fills the circle when the person has one (`photoUrl`, a lazily loaded image with an empty `alt`, cropped to cover), falling back to the initials if it fails to load. The User access page uses it too |
 | Segmented control | Switching views, and the None / Read / Write / Owner access picker |
 | Inset grouped form section | Forms, with inline validation |
 | Data table | Lists, on TanStack Table |

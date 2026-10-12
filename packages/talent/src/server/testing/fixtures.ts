@@ -1,7 +1,8 @@
+import { crc32, deflateSync } from 'node:zlib';
 import mongoose, { type Model, mongo, Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { EMPLOYMENT_STATUS, type EmploymentStatus, type ModuleAccess } from '@pulse/core';
-import { departmentRolesFor, resolveModuleAccess } from '@pulse/core/server';
+import { type CurrentUser, departmentRolesFor, resolveModuleAccess } from '@pulse/core/server';
 import type { TalentActor } from '../policy';
 
 // Test data for the employee record tests (docs/TESTING.md#employee-record-tests). Made-up data
@@ -13,7 +14,9 @@ import type { TalentActor } from '../policy';
 
 const PASSWORD_HASH = 'made-up-hash-that-must-never-leave';
 
-function coreModel(name: 'Department' | 'Position' | 'Employee' | 'User'): Model<unknown> {
+function coreModel(
+  name: 'Department' | 'Position' | 'Employee' | 'User' | 'Brand',
+): Model<unknown> {
   return mongoose.model(name) as Model<unknown>;
 }
 
@@ -159,4 +162,144 @@ export async function auditEntries(recordType: string) {
 
 export async function countAudit(): Promise<number> {
   return database().collection('auditLogs').countDocuments();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.2 helpers (docs/TESTING.md#document-e-signature-and-certification-tests).
+
+/** The signed-in user as the file route sees them (a `CurrentUser`). */
+export function currentUser(p: Person): CurrentUser {
+  return {
+    id: p.actor.id,
+    email: p.actor.email,
+    mustChangePassword: false,
+    isSystemAdministrator: p.actor.isSystemAdministrator,
+    isSystemAccount: false,
+    employee: {
+      id: p.employeeId,
+      name: `${p.firstName} ${p.lastName}`,
+      firstName: p.firstName,
+      departmentCode: null,
+    },
+    roles: [...p.actor.roles],
+    moduleAccess: p.actor.moduleAccess,
+  };
+}
+
+/** The bootstrap system account (no employee), as the signed-in user. */
+export async function systemAccount(): Promise<TalentActor & { isSystemAccount: true }> {
+  // There is only one (a unique index): reuse it within a test file.
+  const existing = (await coreModel('User').findOne({ isSystemAccount: true }).lean()) as {
+    _id: Types.ObjectId;
+    email: string;
+  } | null;
+  const userId = existing?._id ?? new Types.ObjectId();
+  counter += 1;
+  const email = existing?.email ?? `system${counter}@xtreme-works.com`;
+  if (!existing)
+    await coreModel('User').create({
+      _id: userId,
+      email,
+      passwordHash: PASSWORD_HASH,
+      employeeId: null,
+      isSystemAdministrator: true,
+      isSystemAccount: true,
+      mustChangePassword: false,
+    });
+  return {
+    id: userId.toHexString(),
+    email,
+    isSystemAdministrator: true,
+    isSystemAccount: true,
+    roles: [],
+    employee: null,
+    moduleAccess: resolveModuleAccess({ isSystemAdministrator: true, moduleAccess: {} }),
+  };
+}
+
+/** Sets an employee's supervisors, as Core's reporting line service would. */
+export async function setReportingTo(employee: Person, supervisors: Person[]): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    { $set: { reportingTo: supervisors.map((s) => new Types.ObjectId(s.employeeId)) } },
+  );
+}
+
+/** Separates an employee (Resigned), as Core's user service would. */
+export async function separate(employee: Person): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    {
+      $set: {
+        employmentStatus: 'Resigned',
+        separationDate: new Date('2024-06-01T00:00:00+08:00'),
+      },
+    },
+  );
+}
+
+/** A Core product (`brands`), as Core's brand service would create it. */
+export async function brand(name: string): Promise<string> {
+  const created = (await coreModel('Brand').create({ name })) as { _id: Types.ObjectId };
+  return created._id.toHexString();
+}
+
+/** A tiny made-up PDF upload. */
+export function pdfFile(name = 'document.pdf'): File {
+  return new File([`%PDF-1.4\n% made-up test file ${name}\n%%EOF\n`], name, {
+    type: 'application/pdf',
+  });
+}
+
+/** A real 4 × 4 RGBA PNG, built here (with valid checksums) so sharp can read it. Made up. */
+function pngBytes(): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(4, 0);
+  header.writeUInt32BE(4, 4);
+  header[8] = 8; // bit depth
+  header[9] = 6; // RGBA
+  const rows = Buffer.concat(
+    Array.from({ length: 4 }, () =>
+      Buffer.from([0, ...Array.from({ length: 4 }, () => [20, 40, 160, 200]).flat()]),
+    ),
+  );
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(rows)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/** A tiny made-up PNG image upload (a signature). */
+export function pngFile(name = 'signature.png'): File {
+  return new File([new Uint8Array(pngBytes())], name, { type: 'image/png' });
+}
+
+/** A stored notification, as the tests read it. */
+export interface NotificationRow {
+  recipientUserId: Types.ObjectId;
+  module: string;
+  event: string;
+  title: string;
+  body: string | null;
+  href: string;
+  dedupeKey: string | null;
+}
+
+/** Every notification, raw. */
+export async function notifications(filter: Record<string, unknown> = {}) {
+  return database()
+    .collection<NotificationRow>('notifications')
+    .find(filter)
+    .sort({ _id: 1 })
+    .toArray();
 }

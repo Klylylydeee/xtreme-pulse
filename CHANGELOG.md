@@ -6,6 +6,34 @@ Notable changes to Xtreme Pulse, newest first. The format follows [Keep a Change
 
 ### Spec changes
 
+- 2026-10-12: Step 2.2 spec (before the build): 201 file, profile photo, e-signature and certifications ([Documents, photo, e-signature and certifications](docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)).
+  - **New Talent collections.**
+    - `employeeDocuments` (the 201 file): never deleted, archived with a reason.
+    - `eSignatures` (insert-only versions) and `signatureApplications` (insert-only, each use pinned to its version).
+    - `certifications` (soft delete, optional Core product link).
+    - `employeeRecords.skills` (free-text tags).
+  - **Core additions.**
+    - `employees.photoFileId` with `setEmployeePhoto` and `removeEmployeePhoto`.
+    - `photoUrl` in the identity and directory projections.
+    - `approvalRequests` decisions gain `signature`.
+    - `employeeNotificationContacts` and `activeHrUserIds` for jobs.
+  - **E-signature.**
+    - Owner-only upload and apply; the image opens for the owner and the System Administrator only.
+    - An approve decision applies the approver's signature through Talent's signer (`registerApprovalSigner`, fail closed), and a replaced signature leaves signed records on their version.
+    - Approving without a signature is allowed until step 2.6.
+  - **Sensitive data.**
+    - A medical certificate is category `medical`, which Accounting no longer sees (the reveal table now matches the medical certificate rule).
+    - 201 documents go only to Talent Read viewers who may reveal them, or to the employee.
+    - Every open of a 201 document writes a `reveal` entry before the file is sent (`auditView`, `openAccessibleFile`).
+  - **Files.** Photos and signatures are re-encoded with `sharp`, stripping metadata. New owner types `core.employee`, `talent.employeeDocument`, `talent.eSignature`, `talent.certification`.
+  - **Jobs.**
+    - `talent.expiryAlerts` runs daily at 8:00 AM, with "expiring" and "expired" alerts once per expiry date.
+    - Lead days come from the `talent.expiryAlerts` setting (default 30), changed by a Talent Owner.
+    - Recipients: HR and the employee; for certifications also the supervisors.
+    - `pnpm dev:expiry-alerts` runs it once in development.
+  - **Read services** for Ops and Engage: `listCertifications` and `countCertifiedEmployeesByBrand`, an allowlist without license numbers or attachments.
+  - **Assumptions.** Assumptions to confirm are listed in [HANDOFF › Assumptions to check](docs/HANDOFF.md#assumptions-to-check) (items 9–18). BUILD_PLAN decisions 173–190.
+
 - 2026-10-12: Step 2.1 spec (before the build), the first step of Phase 2 (Pulse Talent).
   - **New Talent collections.** `employeeRecords` holds one record per employee, unique `employeeId`, created on the first Talent save and never deleted. It covers personal details, work region, contract end, regularization date, separation remarks, government IDs and the payroll bank account. `compensationEntries` is the insert-only, effective-dated salary history; a correction is a new entry with the same date ([The employee record](docs/modules/talent.md#the-employee-record-build-step-21), [DATA_MODEL.md](docs/DATA_MODEL.md#collection-ownership)).
   - **Encryption.** The TIN, SSS, PhilHealth, Pag-IBIG, bank account number and basic salary are encrypted.

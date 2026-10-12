@@ -1,4 +1,5 @@
 import { registerCompanySettingsFileAccess } from '../company-settings/file-access';
+import { registerEmployeePhotoFileAccess } from '../employees/photo';
 import { registerDevSampleFileAccess } from './dev-sample-access';
 
 // Core's file access registrations (docs/ARCHITECTURE.md#file-storage). They're registered by an
@@ -11,13 +12,15 @@ import { registerDevSampleFileAccess } from './dev-sample-access';
 let registered = false;
 
 /**
- * Registers Core's file access checks: the company logo (`core.companySettings`) and the
- * development sample (`dev.sample`). Safe to call on every request: it registers once per process
- * (per bundle in Next), and later calls do nothing.
+ * Registers Core's file access checks: the company logo (`core.companySettings`), the current
+ * profile photos (`core.employee`, build step 2.2) and the development sample (`dev.sample`). Safe
+ * to call on every request: it registers once per process (per bundle in Next), and later calls do
+ * nothing.
  */
 export function registerCoreFileAccess(): void {
   if (registered) return;
   registerCompanySettingsFileAccess();
+  registerEmployeePhotoFileAccess();
   registerDevSampleFileAccess();
   registered = true;
 }

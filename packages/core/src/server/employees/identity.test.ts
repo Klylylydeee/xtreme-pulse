@@ -33,6 +33,7 @@ const IDENTITY_KEYS = [
   'firstName',
   'lastName',
   'middleName',
+  'photoUrl',
   'position',
   'reportingTo',
   'separated',
@@ -164,7 +165,18 @@ describe('listEmployeeIdentities', () => {
       separationDate: null,
       separated: false,
       active: true,
+      photoUrl: null,
     });
+  });
+
+  it('carries the current profile photo as its file route URL', async () => {
+    const photoFileId = new Types.ObjectId();
+    await EmployeeModel.updateOne({ _id: boss.employeeId }, { $set: { photoFileId } });
+    const rows = await listEmployeeIdentities(withTalent('read'));
+    expect(rows.find((row) => row.employeeId === boss.id)?.photoUrl).toBe(
+      `/files/${photoFileId.toHexString()}?inline=1`,
+    );
+    await EmployeeModel.updateOne({ _id: boss.employeeId }, { $set: { photoFileId: null } });
   });
 
   it('shows separated employees only when asked, and only with Talent Read', async () => {

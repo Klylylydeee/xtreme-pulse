@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { businessDateField, isBusinessDate, OBJECT_ID_PATTERN, pesoField } from '@pulse/core';
-import { CIVIL_STATUSES, PAYROLL_BANKS, RATE_TYPES, SEXES, WORK_REGIONS } from './fixed-sets';
+import {
+  CIVIL_STATUSES,
+  DOCUMENT_201_TYPES,
+  PAYROLL_BANKS,
+  RATE_TYPES,
+  SEXES,
+  WORK_REGIONS,
+} from './fixed-sets';
 import {
   isBankAccountNumber,
   isMobileNumber,
@@ -29,6 +36,30 @@ import {
 
 /** The stale-form refusal (decision 164). */
 export const RECORD_CHANGED_ELSEWHERE = 'Someone else changed this record. Reload to see it.';
+/** The refusal when the employee is gone. */
+export const EMPLOYEE_GONE = 'This employee no longer exists. Reload the page.';
+/** Step 2.2 refusals for a 201 document or certification that changed or went away. */
+export const DOCUMENT_GONE = 'This document no longer exists. Reload the page.';
+export const DOCUMENT_ARCHIVED =
+  'This document is archived, so it can’t be changed. Reload the page.';
+export const REPLACED_DOCUMENT_GONE =
+  'The document this one replaces no longer exists. Reload the page.';
+export const REPLACED_DOCUMENT_ARCHIVED =
+  'The document this one replaces is already archived. Reload the page.';
+export const CERTIFICATION_GONE = 'This certification no longer exists. Reload the page.';
+/**
+ * The form errors that mean the sheet's data is out of date: the sheets offer Reload for these
+ * (and only these) instead of the plain error.
+ */
+export const STALE_FORM_MESSAGES: readonly string[] = [
+  RECORD_CHANGED_ELSEWHERE,
+  EMPLOYEE_GONE,
+  DOCUMENT_GONE,
+  DOCUMENT_ARCHIVED,
+  REPLACED_DOCUMENT_GONE,
+  REPLACED_DOCUMENT_ARCHIVED,
+  CERTIFICATION_GONE,
+];
 /** The line shown instead of the sections a viewer may not see (decision 158). */
 export const RESTRICTED_SECTIONS_NOTICE =
   'Pay, government IDs and bank details are visible to HR, Accounting and the System Administrator.';
@@ -256,3 +287,226 @@ export const compensationEntryFormSchema = z
     ...rest,
     basicSalaryCentavos: basicSalary,
   }));
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.2: 201 documents, certifications, skills and the expiry alert setting
+// (docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22,
+// docs/DATA_MODEL.md#collection-ownership, decisions 178–187 in docs/BUILD_PLAN.md).
+
+/** The line shown instead of the 201 file to anyone who may not see it (decision 179). */
+export const DOCUMENTS_NOTICE =
+  '201 file documents are visible to HR, Accounting and the System Administrator.';
+/** The line Accounting gets instead of medical certificates (decision 179). */
+export const MEDICAL_DOCUMENTS_NOTICE =
+  'Medical certificates are visible to HR and the System Administrator.';
+
+export const DOCUMENT_TITLE_MAX_LENGTH = 200;
+export const ARCHIVE_REASON_MAX_LENGTH = 500;
+export const CERTIFICATION_NAME_MAX_LENGTH = 200;
+export const CERTIFICATION_ISSUER_MAX_LENGTH = 200;
+export const LICENSE_NUMBER_MAX_LENGTH = 100;
+export const SKILLS_MAX_COUNT = 30;
+export const SKILL_MAX_LENGTH = 50;
+/** The expiry alert lead days (`talent.expiryAlerts`): 1 to 180, 30 until a version is added. */
+export const EXPIRY_LEAD_DAYS_MIN = 1;
+export const EXPIRY_LEAD_DAYS_MAX = 180;
+export const DEFAULT_EXPIRY_LEAD_DAYS = 30;
+
+const RELOAD = 'Reload the page and try again.';
+
+/** A record id the form sends back (a document, a certification). */
+function recordIdField(message = RELOAD) {
+  return z.string({ error: message }).regex(OBJECT_ID_PATTERN, message);
+}
+
+/** An optional record id: empty is null. */
+function nullableRecordId(message: string) {
+  return z.preprocess(blankToNull, z.string().regex(OBJECT_ID_PATTERN, message).nullable());
+}
+
+/** Required text: trimmed, 1 to `max` characters. */
+function requiredText(max: number, missing: string) {
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() : value),
+    z.string({ error: missing }).min(1, missing).max(max, `Use at most ${max} characters.`),
+  );
+}
+
+/** A stored record's `version` the form loaded: 1 or more. */
+const storedVersionField = z.coerce.number({ error: RELOAD }).int(RELOAD).min(1, RELOAD);
+
+/** The issue date and an optional expiry date after it. */
+const datesShape = {
+  issueDate: businessDateField('Enter the issue date.'),
+  expiryDate: nullableDate(),
+};
+
+function checkExpiryAfterIssue(
+  value: { issueDate: string; expiryDate: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.expiryDate !== null && value.expiryDate <= value.issueDate) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['expiryDate'],
+      message: 'The expiry date must be after the issue date.',
+    });
+  }
+}
+
+/** A 201 document's details: "Other" needs a title. */
+const documentDetailsShape = {
+  type: z.enum(DOCUMENT_201_TYPES, { error: 'Choose a document type from the list.' }),
+  title: nullableText(
+    DOCUMENT_TITLE_MAX_LENGTH,
+    `Use at most ${DOCUMENT_TITLE_MAX_LENGTH} characters.`,
+  ),
+  ...datesShape,
+};
+
+function checkDocumentDetails(
+  value: { type: string; title: string | null; issueDate: string; expiryDate: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.type === 'other' && !value.title) {
+    ctx.addIssue({ code: 'custom', path: ['title'], message: 'Enter a title for this document.' });
+  }
+  checkExpiryAfterIssue(value, ctx);
+}
+
+/**
+ * The 201 document upload sheet (the file comes separately, field `file`). `replacesDocumentId`
+ * and `replacesVersion` archive the document this renewal replaces, in the same save.
+ */
+export const employeeDocumentAddSchema = z
+  .object({
+    employeeId: employeeIdField,
+    ...documentDetailsShape,
+    replacesDocumentId: nullableRecordId('Choose the document this one replaces.').optional(),
+    replacesVersion: z.preprocess(
+      (value) => (value === '' || value === null ? undefined : value),
+      storedVersionField.optional(),
+    ),
+  })
+  .superRefine((value, ctx) => {
+    checkDocumentDetails(value, ctx);
+    if (value.replacesDocumentId && value.replacesVersion === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['replacesVersion'], message: RELOAD });
+    }
+  });
+export type EmployeeDocumentAddInput = z.output<typeof employeeDocumentAddSchema>;
+
+/** The 201 document Edit sheet: the details only, never the file. */
+export const employeeDocumentUpdateSchema = z
+  .object({
+    documentId: recordIdField(),
+    version: storedVersionField,
+    ...documentDetailsShape,
+  })
+  .superRefine(checkDocumentDetails);
+export type EmployeeDocumentUpdateInput = z.output<typeof employeeDocumentUpdateSchema>;
+
+/** Archiving a 201 document needs a reason. */
+export const employeeDocumentArchiveSchema = z.object({
+  documentId: recordIdField(),
+  version: storedVersionField,
+  reason: requiredText(ARCHIVE_REASON_MAX_LENGTH, 'Enter the reason for archiving.'),
+});
+export type EmployeeDocumentArchiveInput = z.output<typeof employeeDocumentArchiveSchema>;
+
+const certificationDetailsShape = {
+  name: requiredText(CERTIFICATION_NAME_MAX_LENGTH, 'Enter the certification name.'),
+  issuer: requiredText(CERTIFICATION_ISSUER_MAX_LENGTH, 'Enter who issued it.'),
+  brandId: nullableRecordId('Choose a product from the list.'),
+  licenseNumber: nullableText(
+    LICENSE_NUMBER_MAX_LENGTH,
+    `Use at most ${LICENSE_NUMBER_MAX_LENGTH} characters.`,
+  ),
+  ...datesShape,
+};
+
+/** The Add certification sheet (the optional attachment comes separately, field `attachment`). */
+export const certificationCreateSchema = z
+  .object({ employeeId: employeeIdField, ...certificationDetailsShape })
+  .superRefine(checkExpiryAfterIssue);
+export type CertificationCreateInput = z.output<typeof certificationCreateSchema>;
+
+/**
+ * The Edit certification sheet. A new attachment (field `attachment`) replaces the old one;
+ * `removeAttachment` clears it.
+ */
+export const certificationUpdateSchema = z
+  .object({
+    certificationId: recordIdField(),
+    version: storedVersionField,
+    ...certificationDetailsShape,
+    removeAttachment: checkbox,
+  })
+  .superRefine(checkExpiryAfterIssue);
+export type CertificationUpdateInput = z.output<typeof certificationUpdateSchema>;
+
+/** Removing a certification (a soft delete). */
+export const certificationRemoveSchema = z.object({
+  certificationId: recordIdField(),
+  version: storedVersionField,
+});
+export type CertificationRemoveInput = z.output<typeof certificationRemoveSchema>;
+
+/**
+ * Skills as typed: an array of tags, or one text with a tag per line or comma. Each is trimmed and
+ * empty ones are dropped.
+ */
+function splitSkills(value: unknown): unknown {
+  let parts: unknown = value;
+  if (typeof value === 'string') parts = value.split(/[\n,]/);
+  if (!Array.isArray(parts)) return parts;
+  return parts
+    .map((part: unknown) => (typeof part === 'string' ? part.trim() : part))
+    .filter((part: unknown) => part !== '');
+}
+
+/** The skills tags: up to 30, of up to 50 characters each, no duplicates ignoring case. */
+export const skillsField = z.preprocess(
+  splitSkills,
+  z
+    .array(
+      z
+        .string()
+        .max(SKILL_MAX_LENGTH, `Keep each skill to ${SKILL_MAX_LENGTH} characters or fewer.`),
+      { error: 'Enter the skills.' },
+    )
+    .max(SKILLS_MAX_COUNT, `Add at most ${SKILLS_MAX_COUNT} skills.`)
+    .superRefine((skills, ctx) => {
+      const seen = new Set<string>();
+      for (const skill of skills) {
+        const key = skill.toLocaleLowerCase('en');
+        if (seen.has(key)) {
+          ctx.addIssue({ code: 'custom', message: 'Each skill can be listed only once.' });
+          return;
+        }
+        seen.add(key);
+      }
+    }),
+);
+
+/** The Skills Edit sheet, saved like a section with the record's `version`. */
+export const skillsSectionSchema = z.object({
+  employeeId: employeeIdField,
+  version: recordVersionField,
+  skills: skillsField,
+});
+export type SkillsSectionInput = z.output<typeof skillsSectionSchema>;
+
+const leadDaysField = (missing: string) =>
+  z.coerce
+    .number({ error: missing })
+    .int('Enter a whole number of days.')
+    .min(EXPIRY_LEAD_DAYS_MIN, `Enter ${EXPIRY_LEAD_DAYS_MIN} to ${EXPIRY_LEAD_DAYS_MAX} days.`)
+    .max(EXPIRY_LEAD_DAYS_MAX, `Enter ${EXPIRY_LEAD_DAYS_MIN} to ${EXPIRY_LEAD_DAYS_MAX} days.`);
+
+/** The `talent.expiryAlerts` setting's value, and its Settings sheet. */
+export const expiryAlertSettingsSchema = z.object({
+  documentLeadDays: leadDaysField('Enter the days before a 201 document expires.'),
+  certificationLeadDays: leadDaysField('Enter the days before a certification expires.'),
+});
+export type ExpiryAlertSettingsInput = z.output<typeof expiryAlertSettingsSchema>;

@@ -142,3 +142,133 @@ export function assertCanChangeSensitiveDetails(actor: TalentActor, target: Reco
 export function canManageEmployeeAccount(actor: TalentActor): boolean {
   return isHR(actor) || isSystemAdministrator(actor);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.2: 201 documents, certifications, skills, the e-signature and the expiry alert setting
+// (SECURITY.md#sensitive-data, "201 documents, the photo and the e-signature"; decisions 175, 179,
+// 180, 182–184 and 187 in docs/BUILD_PLAN.md).
+//
+// - Seeing others' 201 documents: Talent Read and the reveal rule for the category (`file201`, or
+//   `medical`, which Accounting doesn't get). The employee always sees their own.
+// - Adding, editing and archiving: Talent Write and HR or the System Administrator, never on one's
+//   own record. HR may manage other HR staff's documents.
+// - Certifications: adding and editing need Talent Write, removing Talent Owner, never on one's
+//   own record. The attachment opens for the employee, Talent Read and the System Administrator.
+// - Skills: Talent Write, never on one's own record.
+// - The e-signature: only its owner uploads and applies it; its image opens for the owner and the
+//   System Administrator only.
+// - The certification read services: Talent, Engage or Ops Read, or the System Administrator.
+// - The expiry alert setting: Talent Owner.
+
+export const DOCUMENTS_MANAGE_DENIED =
+  'Only HR and the System Administrator, with Talent Write, change 201 file documents.';
+export const CERTIFICATION_REMOVE_DENIED =
+  'You need Talent Owner access to remove a certification. Ask HR or the System Administrator.';
+export const NO_EMPLOYEE_SIGNATURE =
+  'The system account has no employee record, so it has no e-signature.';
+export const CERTIFICATIONS_READ_DENIED =
+  'You need Talent, Engage or Ops access to see certifications. Ask HR or the System Administrator.';
+export const EXPIRY_SETTINGS_DENIED =
+  'You need Talent Owner access to change the expiry alert settings. Ask HR or the System Administrator.';
+
+/** True when `actor` may see `target`'s 201 documents of `category` (and their files). */
+export function canSeeDocumentCategory(
+  actor: TalentActor,
+  category: Extract<SensitiveCategory, 'file201' | 'medical'>,
+  target: RecordTarget,
+): boolean {
+  if (isOwn(actor, target)) return true;
+  return canReadEmployeeRecords(actor) && canRevealSensitive(actor, category, target);
+}
+
+/** Why `actor` may not add, edit or archive `target`'s 201 documents, or null. */
+function documentsRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  const refusal = editRefusal(actor, target);
+  if (refusal) return refusal;
+  return isSystemAdministrator(actor) || isHR(actor) ? null : DOCUMENTS_MANAGE_DENIED;
+}
+
+/** True when `actor` may add, edit and archive `target`'s 201 documents. */
+export function canManageDocuments(actor: TalentActor, target: RecordTarget): boolean {
+  return documentsRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may add, edit and archive the documents. */
+export function assertCanManageDocuments(actor: TalentActor, target: RecordTarget): void {
+  const refusal = documentsRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+/** True when `actor` may add and edit `target`'s certifications (Talent Write, not their own). */
+export function canEditCertifications(actor: TalentActor, target: RecordTarget): boolean {
+  return editRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may add and edit the certifications. */
+export function assertCanEditCertifications(actor: TalentActor, target: RecordTarget): void {
+  assertCanEditEmployeeRecord(actor, target);
+}
+
+/** Why `actor` may not remove `target`'s certifications, or null. */
+function certificationRemoveRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  const refusal = editRefusal(actor, target);
+  if (refusal) return refusal;
+  return hasModuleAccess(actor, 'talent', 'owner') ? null : CERTIFICATION_REMOVE_DENIED;
+}
+
+/** True when `actor` may remove `target`'s certifications (Talent Owner, not their own). */
+export function canRemoveCertifications(actor: TalentActor, target: RecordTarget): boolean {
+  return certificationRemoveRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may remove the certifications. */
+export function assertCanRemoveCertifications(actor: TalentActor, target: RecordTarget): void {
+  const refusal = certificationRemoveRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+/** True when `actor` may open the attachment of a certification of `employeeId`. */
+export function canOpenCertificationAttachment(actor: TalentActor, employeeId: string): boolean {
+  return (
+    (actor.employee !== null && actor.employee.id === employeeId) ||
+    canReadEmployeeRecords(actor) ||
+    isSystemAdministrator(actor)
+  );
+}
+
+/** True when `actor` may change `target`'s skills (Talent Write, not their own). */
+export function canEditSkills(actor: TalentActor, target: RecordTarget): boolean {
+  return editRefusal(actor, target) === null;
+}
+
+/** True when `actor` may see the e-signature images of `employeeId`: the owner and the System Administrator. */
+export function canSeeESignatureImage(actor: TalentActor, employeeId: string): boolean {
+  return (
+    (actor.employee !== null && actor.employee.id === employeeId) || isSystemAdministrator(actor)
+  );
+}
+
+/** True when `actor` may call the certification read services. */
+export function canReadCertifications(actor: TalentActor): boolean {
+  return (
+    isSystemAdministrator(actor) ||
+    hasModuleAccess(actor, 'talent', 'read') ||
+    hasModuleAccess(actor, 'engage', 'read') ||
+    hasModuleAccess(actor, 'ops', 'read')
+  );
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may call the certification read services. */
+export function assertCanReadCertifications(actor: TalentActor): void {
+  if (!canReadCertifications(actor)) throw new AccessDeniedError(CERTIFICATIONS_READ_DENIED);
+}
+
+/** True when `actor` may change the expiry alert lead days (Talent Owner). */
+export function canChangeExpiryAlertSettings(actor: TalentActor): boolean {
+  return hasModuleAccess(actor, 'talent', 'owner');
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may change the expiry alert lead days. */
+export function assertCanChangeExpiryAlertSettings(actor: TalentActor): void {
+  if (!canChangeExpiryAlertSettings(actor)) throw new AccessDeniedError(EXPIRY_SETTINGS_DENIED);
+}

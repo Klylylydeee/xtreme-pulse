@@ -53,11 +53,24 @@ export interface ApprovalApproverRecord {
   asSystemAdministrator: boolean;
 }
 
+/** The e-signature an approve decision was signed with (build step 2.2). */
+export interface ApprovalSignatureRecord {
+  applicationId: Types.ObjectId;
+  signatureId: Types.ObjectId;
+  version: number;
+}
+
 export interface ApprovalDecisionRecord {
   userId: Types.ObjectId;
   decision: ApprovalDecision;
   remarks: string | null;
   decidedAt: Date;
+  /**
+   * Set on an approve decision when an e-signature was applied; null otherwise (return, reject,
+   * an approver with no signature on file, and decisions made before build step 2.2, which have
+   * no field at all).
+   */
+  signature?: ApprovalSignatureRecord | null;
 }
 
 /** An approver's part in a step ended: they decided, or a decision took the item from them. */
@@ -119,12 +132,22 @@ const approverSchema = new Schema<ApprovalApproverRecord>(
   { _id: false },
 );
 
+const signatureSchema = new Schema<ApprovalSignatureRecord>(
+  {
+    applicationId: { type: Schema.Types.ObjectId, required: true },
+    signatureId: { type: Schema.Types.ObjectId, required: true },
+    version: { type: Number, required: true, min: 1 },
+  },
+  { _id: false },
+);
+
 const decisionSchema = new Schema<ApprovalDecisionRecord>(
   {
     userId: { type: Schema.Types.ObjectId, required: true },
     decision: { type: String, required: true, enum: APPROVAL_DECISIONS },
     remarks: { type: String, default: null, maxlength: APPROVAL_REMARKS_MAX_LENGTH },
     decidedAt: { type: Date, required: true },
+    signature: { type: signatureSchema, default: null },
   },
   { _id: false },
 );

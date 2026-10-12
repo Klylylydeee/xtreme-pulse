@@ -509,4 +509,19 @@ describe('listUserAccess', () => {
     expect((await getUserAccess(SYSTEM, member.id))?.isBoardMember).toBe(true);
     expect((await getUserAccess(SYSTEM, (await person(NET)).id))?.isBoardMember).toBe(false);
   });
+
+  it('shows the current profile photo, and none for the system account', async () => {
+    const pictured = await person(NET);
+    expect((await getUserAccess(SYSTEM, pictured.id))?.photoUrl).toBeNull();
+    const user = await UserModel.findById(pictured.id).lean().orFail();
+    const photoFileId = new Types.ObjectId();
+    await EmployeeModel.updateOne({ _id: user.employeeId }, { $set: { photoFileId } });
+    const url = `/files/${photoFileId.toHexString()}?inline=1`;
+    expect((await getUserAccess(SYSTEM, pictured.id))?.photoUrl).toBe(url);
+    const list = await listUserAccess(SYSTEM, { search: pictured.employeeNumber });
+    expect(
+      [...list.needsAccess, ...list.others].find((row) => row.id === pictured.id)?.photoUrl,
+    ).toBe(url);
+    expect((await getUserAccess(SYSTEM, SYSTEM.id))?.photoUrl).toBeNull();
+  });
 });

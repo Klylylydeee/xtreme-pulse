@@ -21,6 +21,8 @@ import {
   NATIONALITY_MAX_LENGTH,
   PERSONAL_EMAIL_MAX_LENGTH,
   SEPARATION_REMARKS_MAX_LENGTH,
+  SKILL_MAX_LENGTH,
+  SKILLS_MAX_COUNT,
 } from '../../validation';
 
 // Spec: docs/DATA_MODEL.md#collection-ownership ("The Talent employee record") and
@@ -69,6 +71,8 @@ export interface EmployeeRecordDocument {
     accountNumber?: Buffer;
     accountName: string | null;
   };
+  /** Skills tags (build step 2.2); absent on records saved before it. */
+  skills?: string[];
   /** Raised by every save, for the stale-form check. */
   version: number;
   createdAt: Date;
@@ -154,6 +158,18 @@ const employeeRecordSchema = new Schema<EmployeeRecordDocument>({
     bank: { type: String, enum: [...PAYROLL_BANKS, null], default: null },
     accountNumber: sensitiveField(),
     accountName: { type: String, default: null, trim: true, maxlength: ACCOUNT_NAME_MAX_LENGTH },
+  },
+  // Skills (build step 2.2, decision 183): free-text tags, up to 30 of up to 50 characters, unique
+  // ignoring case. The service parses them with `skillsField` first; this is the backstop.
+  skills: {
+    type: [{ type: String, trim: true, minlength: 1, maxlength: SKILL_MAX_LENGTH }],
+    default: [],
+    validate: {
+      validator: (skills: string[]) =>
+        skills.length <= SKILLS_MAX_COUNT &&
+        new Set(skills.map((skill) => skill.toLocaleLowerCase('en'))).size === skills.length,
+      message: `Add at most ${SKILLS_MAX_COUNT} skills, each once.`,
+    },
   },
   version: { type: Number, required: true, min: 1 },
 });

@@ -329,7 +329,7 @@ export default function DevUiPage() {
 
       <Section
         title="Avatar"
-        note="Initials in an accent-subtle circle, hidden from assistive technology because the name always shows beside it. Photos fill it from Phase 2."
+        note="The profile photo fills the circle, lazily loaded and cropped to cover; without one, or when it fails to load, the initials show in an accent-subtle circle. Hidden from assistive technology because the name always shows beside it."
       >
         <AvatarDemo />
       </Section>

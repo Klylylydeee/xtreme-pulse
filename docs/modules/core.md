@@ -10,6 +10,17 @@ Sign-in, passwords, account status, module access and the System Administrator r
 
 Every user is an employee of Xtreme Works (the only exception is the bootstrap system account). Pulse Core owns the user account and org structure (login, account status, module access, department, position, reporting lines, directory, org chart), and the employee identity fields account status depends on: employee number, name, date hired, employment status and separation date (`employees.separationDate`, see [Managing user accounts](#managing-user-accounts)). Pulse Talent owns employment, government, payroll, timesheet and document details, and shows Core's identity fields in its employee record. Both reference the same `employeeId`.
 
+**The profile photo** (build step 2.2) is Core data, `employees.photoFileId`, because Core's directory, org chart, access page, approvals and command bar show it.
+- **Who sets it.** Core's `setEmployeePhoto(actor, employeeId, file)` and `removeEmployeePhoto(actor, employeeId)` allow the employee themself, HR and the System Administrator, never on the bootstrap system account. Each change writes an `update` entry on `core.employee`.
+- **Where.** Pulse Talent provides the controls, on `/talent/me` and in the employee inspector ([Documents, photo, e-signature and certifications](talent.md#documents-photo-e-signature-and-certifications-build-step-22)).
+- **How it's served.** The image is re-encoded (metadata stripped) and opens through the file route for any signed-in active user, the current photo only.
+- **Who sees it.** The identity service and the directory projections carry it as `photoUrl`.
+
+**Alert recipients for jobs** (build step 2.2). `employeeNotificationContacts(employeeIds)` and `activeHrUserIds()` let a background job, which has no signed-in user, find who to notify about an employee:
+- **For each employee:** the employee number, name, whether they are separated, their active user, and their active `reportingTo` supervisors' users.
+- **Never returned:** a sensitive field.
+- **Callers:** server-only, for jobs. They never reach a page.
+
 **The identity service** (build step 2.1). Pulse Talent reads Core's identity through Core's service functions in `packages/core/src/server/employees/identity.ts`, never the models.
 
 - **`listEmployeeIdentities(actor, { q, departmentId, status, separated })` and `getEmployeeIdentity(actor, employeeId)`** return, field by field:
@@ -157,7 +168,7 @@ Built in step 1.5. Passwords, account status and the System Administrator's rule
 The page where HR and the System Administrator set each user's module access. Built in step 1.7 (the details follow the list below).
 
 - **Route:** `/admin/access`, in the Pulse Core administration area. It appears in the sidebar only for HR and the System Administrator, with a badge counting users who still need access.
-- **List:** every active user with profile photo (initials until Pulse Talent adds photos in Phase 2), name, employee number, department, position, and a compact access summary per module (e.g. `Talent R`, `Fiscal O`). Search by name or employee number; filter by department and position.
+- **List:** every active user with profile photo (initials until a photo is added; photos from build step 2.2), name, employee number, department, position, and a compact access summary per module (e.g. `Talent R`, `Fiscal O`). Search by name or employee number; filter by department and position.
 - **Needs access:** users with None on every module are pinned at the top under a "Needs access" heading, newest first.
 - **Editing:** selecting a user opens a sheet with one row per module (Engage, Ops, Supply, Desk, Fiscal, Talent, Insight). Each row has a segmented control **None | Read | Write | Owner** with a one-line description of the selected level; Insight offers None | Read only. Save applies all changes at once. The sheet shows who last changed the user's access and when.
 - **System Administrator role:** the sheet has a "System Administrator" switch above the module rows, visible and editable only to System Administrators. Turning it on makes the user resolve to Owner on every module (Read on Insight) and locks the rows; the stored levels are kept and apply again if the switch is turned off. A confirmation is required, and the last remaining System Administrator can't be switched off.
@@ -200,7 +211,7 @@ Built in step 1.7:
 Built in step 1.11:
 
 - **Route:** `/directory`, a Pulse Core page open to every signed-in user with no module access needed ([Rules](../../SECURITY.md#rules)). It sits in the Pulse Core sidebar group after Holidays; the breadcrumb reads "Pulse Core › Directory".
-- **Fields, an allowlist.** Each person shows exactly: name, profile photo (initials until Pulse Talent adds photos in Phase 2), employee number, department, position, login email and `reportingTo`, plus their direct reports (the people whose `reportingTo` names them). Services build each result field by field from explicit projections. The date hired, employment status, separation date, module access and every Pulse Talent field never leave the server ([Sensitive data](../../SECURITY.md#sensitive-data)).
+- **Fields, an allowlist.** Each person shows exactly: name, profile photo (initials until a photo is added; photos from build step 2.2), employee number, department, position, login email and `reportingTo`, plus their direct reports (the people whose `reportingTo` names them). Services build each result field by field from explicit projections. The date hired, employment status, separation date, module access and every Pulse Talent field never leave the server ([Sensitive data](../../SECURITY.md#sensitive-data)).
 - **Who is listed.** Employees whose account resolves to active ([Account status](../../SECURITY.md#account-status)). HR and the System Administrator get a "Show separated" switch (`?separated=1`); separated people then show with an "Inactive" badge, never their date or status. For anyone else, Board members included, the server ignores the switch, and a separated person's card answers like a missing one. The bootstrap system account never appears.
 - **List.** Sorted by last name, then first name, with no paging. Search by name, employee number or email (`?q=`) and filter by department (`?department=`). A table on desktop, a list on a phone.
 - **Directory card.** Selecting a person opens their card in the inspector (a full-height sheet on a phone); `?person=<employeeId>` opens it directly, and the command bar links there. The card shows the fields above, with "Reports to" and "Direct reports", each person opening their own card, and the email as a mail link. A line to an inactive or separated supervisor shows, with an "Inactive" badge, only to HR, Board members and the System Administrator, so they can remove it.
@@ -459,7 +470,14 @@ Built in step 1.9 (the engine and the [Approvals list](#approvals-list); each mo
   - `onStepApproved` also runs for the last step: first `onStepApproved`, then `onSettled`, both in the decision's transaction.
   - The `dev.sample` type has no `whenEmpty` rule, so `pnpm dev:approval --step supervisors` is refused for a requester with no active supervisors.
   - Every approval notification links to `/approvals?request=<id>`. Titles: "Approval needed: <title>", "Settled by <name>, no action needed", "Approved: <title>", "Returned: <title>", "Rejected: <title>"; the outcome's body names who decided and carries the remarks. A request's title and summary must never hold a sensitive field.
-- **Not in step 1.9:** each module's own requests (their steps), withdrawing a pending request, re-routing a stuck one, a "My requests" view, e-signatures on decisions (Phase 2), background jobs and seed data. The Home "approvals waiting" tile is built in step 1.11 ([Home](#home)).
+- **Not in step 1.9:** each module's own requests (their steps), withdrawing a pending request, re-routing a stuck one, a "My requests" view, e-signatures on decisions (build step 2.2, below), background jobs and seed data. The Home "approvals waiting" tile is built in step 1.11 ([Home](#home)).
+- **E-signatures on decisions** (build step 2.2):
+  - **The signer.** Core can't import Pulse Talent, so Talent registers the one signer with `registerApprovalSigner`, an explicit call made by the approvals Server Action (`registerTalentApprovalSigner()`).
+  - **What signs.** An **approve** decision calls the signer in the decision's transaction. The signer applies the approver's own current e-signature, through Talent's owner-only `applyESignature`, and returns a stamp `{ applicationId, signatureId, version }`. The engine stores the stamp on the decision (`steps[].decisions[].signature`) and passes it to the hooks (`decision.signature`). Return and reject sign nothing.
+  - **Fail closed.** With no signer registered, an approve is refused. A signer that throws rolls the decision back.
+  - **No signature on file.** An approver with no signature (and the bootstrap system account, which has none) still approves until step 2.6 adds the gate. The decision stores `signature: null`. *Assumption, to be confirmed by the user.*
+  - **The inspector** shows "Signed with e-signature, version N" or "Approved without an e-signature", as text; the image isn't shown.
+  - **Replacing a signature** leaves earlier decisions on the version they were signed with ([Documents, photo, e-signature and certifications](talent.md#documents-photo-e-signature-and-certifications-build-step-22)).
 
 ### Approvals list
 

@@ -85,3 +85,47 @@ export const RATE_TYPE_LABELS: Record<RateType, string> = {
   monthly: 'Monthly-rated',
   daily: 'Daily-rated',
 };
+
+// Step 2.2 (docs/DATA_MODEL.md#collection-ownership, "Documents, photo, e-signature and
+// certifications"; decision 178 in docs/BUILD_PLAN.md).
+
+/**
+ * `employeeDocuments.type`, the 201 file's document types. *Assumption, to be confirmed by HR*
+ * (docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22).
+ */
+export const DOCUMENT_201_TYPES = [
+  'employmentContract',
+  'regularizationEvaluation',
+  'governmentIdCopy',
+  'nbiClearance',
+  'medicalCertificate',
+  'diplomaTor',
+  'other',
+] as const;
+export type Document201Type = (typeof DOCUMENT_201_TYPES)[number];
+export const DOCUMENT_201_TYPE_LABELS: Record<Document201Type, string> = {
+  employmentContract: 'Employment contract',
+  regularizationEvaluation: 'Regularization evaluation',
+  governmentIdCopy: 'Government ID copy',
+  nbiClearance: 'NBI clearance',
+  medicalCertificate: 'Medical certificate',
+  diplomaTor: 'Diploma or TOR',
+  other: 'Other document',
+};
+
+/**
+ * The reveal category of a 201 document (decision 179): a medical certificate is `medical`, every
+ * other document `file201`.
+ */
+export type Document201Category = 'file201' | 'medical';
+export function documentCategoryOf(type: Document201Type): Document201Category {
+  return type === 'medicalCertificate' ? 'medical' : 'file201';
+}
+
+/** `signatureApplications.purpose`: what an e-signature was applied for (`approval` in step 2.2). */
+export const SIGNATURE_PURPOSES = ['approval'] as const;
+export type SignaturePurpose = (typeof SIGNATURE_PURPOSES)[number];
+
+/** A certification's status in the read services (decision 184). */
+export const CERTIFICATION_STATUSES = ['current', 'expiring', 'expired'] as const;
+export type CertificationStatus = (typeof CERTIFICATION_STATUSES)[number];

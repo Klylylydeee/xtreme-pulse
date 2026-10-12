@@ -43,7 +43,7 @@ Much of this module is sensitive personal information. The [Sensitive data](../.
 
 ### The employee record (build step 2.1)
 
-Built in step 2.1. The record holds the five groups above. Documents, the profile photo and the e-signature are added in step 2.2, allowances in step 2.3 and the work schedule in step 2.4; until then the record shows each one as "Added in a later step". Who may see, reveal and change each part is in [Sensitive data](../../SECURITY.md#sensitive-data).
+Built in step 2.1. The record holds the five groups above. Documents, the profile photo and the e-signature are added in step 2.2 ([Documents, photo, e-signature and certifications](#documents-photo-e-signature-and-certifications-build-step-22)), allowances in step 2.3 and the work schedule in step 2.4; until then the record shows each one as "Added in a later step". Who may see, reveal and change each part is in [Sensitive data](../../SECURITY.md#sensitive-data).
 
 **Where each field lives.** Talent never writes Core's `employees` or `users` ([Architecture rules](../ARCHITECTURE.md#architecture-rules)).
 
@@ -100,6 +100,98 @@ The fields, fixed sets and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#colle
 - An e-signature is only ever applied by its owner's own action; one user can never sign as another
 - Changing or applying an e-signature is audit-logged; signed documents keep the signature version used at signing time
 
+### Documents, photo, e-signature and certifications (build step 2.2)
+
+Built in step 2.2, with [Skills & certifications](#skills--certifications). Decisions 173–190 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The fields and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership), and who sees what in [Sensitive data](../../SECURITY.md#sensitive-data).
+
+**Where each part lives.**
+
+| Part | Owner | Stored in |
+|---|---|---|
+| Profile photo | Core, because Core's directory, org chart, access page, approvals and command bar show it | `employees.photoFileId` |
+| 201 documents | Talent | `employeeDocuments` |
+| E-signature versions | Talent | `eSignatures`, insert-only |
+| Each use of an e-signature | Talent | `signatureApplications`, insert-only |
+| Certifications | Talent | `certifications` |
+| Skills | Talent | `employeeRecords.skills` |
+
+**201 file.**
+
+- **Each document** has a type, an optional title, the file, an issue date (required, not in the future), an optional expiry date (after the issue date), and who uploaded it and when.
+  - The types (`DOCUMENT_201_TYPES`) are employment contract, regularization evaluation, government ID copy, NBI clearance, medical certificate, diploma or TOR, and other.
+  - "Other" needs a title.
+  - *Assumption, to be confirmed by HR:* the type list, and that the issue date is required.
+- **Never deleted.** HR archives a document with a reason, and it moves under "Show archived". The file can't be changed, but the details can be edited (with the record's `version`, like the employee record). An archived document can't be edited or archived again.
+- **Renewals.** A renewed document (a new NBI clearance, say) is uploaded as a new document. The upload sheet can archive the one it replaces in the same save, with the reason "Replaced by a renewed document."
+- **Who adds, edits and archives:** Talent Write **and** HR or the System Administrator, never on one's own record. HR may manage other HR staff's documents. Employees upload their own from step 2.6 onboarding.
+- **Who sees them.**
+  - A medical certificate is category `medical`; every other document is `file201`.
+  - Others' documents show for Talent Read plus the reveal rule for that category, so HR, the System Administrator and, except for medical certificates, Accounting.
+  - The employee always sees their own on `/talent/me`.
+  - Anyone else gets none of them, not even the list, only the line "201 file documents are visible to HR, Accounting and the System Administrator." Accounting gets "Medical certificates are visible to HR and the System Administrator."
+  - *Assumption, to be confirmed by HR or counsel:* medical certificates are hidden from Accounting.
+- **Opening a document is audit-logged.** Every open writes a `reveal` entry with the field `file`, the employee's own opens included, before the file is sent.
+- **Kept forever.** Archived documents are kept forever, separated employees' included ([Record retention](../COMPLIANCE.md#record-retention)). *Assumption, to be confirmed by counsel* (Data Privacy Act proportionality).
+
+**Profile photo.**
+
+- **Who sets it.** The employee on `/talent/me`, and HR and the System Administrator in the inspector, can change or remove it, through Core's `setEmployeePhoto` and `removeEmployeePhoto`. Never on the system account. The inspector's photo actions need Talent Read, like the inspector itself; Core's service then checks the person.
+- **Who sees it.** Every signed-in user, wherever a person's avatar appears. A replaced photo no longer opens.
+- **Re-encoded.** The image is auto-rotated, stripped of metadata such as GPS, and stored as WebP of at most 1024 px.
+- *Assumption, to be confirmed by HR or counsel:* showing photos to every employee needs no more than the company's privacy notice.
+
+**E-signature.**
+
+- **Upload.** Only the employee uploads their own signature, on `/talent/me`.
+  - Each upload is a new version (1, 2, 3…). Nothing removes one: a signature is replaced, never cleared.
+  - The image is re-encoded as PNG of at most 1200 px, metadata stripped.
+  - The bootstrap system account has no employee, so it has no signature.
+- **Who sees the image.** Only the owner (every version) and the System Administrator. Others see "E-signature on file, version N" or "Not uploaded".
+- **Applying.** One owner-only service, `applyESignature`, applies a signature for the signed-in user only: it takes no employee id. Each use records which version and file was applied, to what, and when (`signatureApplications`). Versions and their files are never changed or deleted, so a signed record keeps the version it was signed with, even after a replacement.
+- **Approvals** (from this step). An approve decision applies the approver's current signature, and the approvals inspector shows "Signed with e-signature, version N". Return and reject sign nothing.
+  - An approver with no signature on file can still approve until step 2.6 adds the gate; the decision shows "Approved without an e-signature". *Assumption, to be confirmed by the user.*
+  - Quotations, purchase orders and the other documents call the same service in their own steps.
+- *Assumption, to be confirmed by counsel:* an uploaded signature image is enough for approvals now, and for HR documents and contracts later (RA 8792, the E-Commerce Act, and the Rules on Electronic Evidence).
+
+**Skills and certifications.** See [Skills & certifications](#skills--certifications).
+
+**Expiry alerts.**
+
+- **The job.** Daily at 8:00 AM Manila, `talent.expiryAlerts`.
+- **When it alerts.** Each 201 document and certification with an expiry date gets an "expiring" alert once it is within the lead days (default 30), and an "expired" alert on or after its expiry date, each once per expiry date.
+- **Skipped:** archived documents, removed certifications and separated employees.
+- **Recipients.**
+  - Documents: HR (linking to the record) and the employee (linking to `/talent/me`).
+  - Certifications: also the employee's `reportingTo` supervisors, linking to the directory card.
+  - When no HR user is active, the HR alerts go to the System Administrators.
+  - Each person gets each alert once, even with two roles: the employee gets the `/talent/me` one, and an HR user who is also a supervisor gets the record link.
+- **Wording.** The text names the type and the person, never a file name, document title or certification name. Others get "NBI clearance expiring: <name>" or "Certification expired: <name>", with "It expires on <date>." The employee gets "Your NBI clearance expires on <date>", with "Send HR the renewed copy so they can update your record."
+- **The lead days** are a setting a Talent Owner changes from Settings on `/talent`.
+- *Assumption, to be confirmed by HR:* the 30-day default, the second "expired" alert and the recipients.
+
+**Audit.** All in module `talent`, except the photo:
+
+| Change | Entry |
+|---|---|
+| A 201 document added, edited or archived | `create` or `update` on `talent.employeeDocument`, labelled `<employee number> · <type label>` |
+| A new e-signature version | `create` on `talent.eSignature`, labelled `<employee number> · version <n>` |
+| An e-signature applied | `create` on `talent.signatureApplication`, labelled `<employee number> · <what was signed>` |
+| A certification added, edited or removed | `create`, `update` or `delete` on `talent.certification`, labelled `<employee number> · <name>` |
+| Skills changed | `update` on `talent.employeeRecord` |
+| The photo changed | `update` on `core.employee`, module `core` |
+| The expiry setting changed | `create` on `core.configVersion`, module `core` |
+
+**Screens.**
+
+- **The inspector.**
+  - The Documents section shows the profile photo, the e-signature status and the 201 file list, with expiry badges that carry text ("Expired", "Expires in N days", "Valid"), Open, Edit, Archive and "Show archived".
+  - A Skills & certifications section lists the skills and the certifications, each with its expiry badge.
+  - A Talent Owner gets a Settings button on `/talent` for the expiry alert lead days.
+- **`/talent/me`** adds:
+  - the photo (Change, Remove)
+  - the e-signature: a preview, Upload or Replace, and version history with how often each version was applied
+  - the 201 file, skills and certifications, read-only
+
 ## Onboarding (first sign-in)
 
 - On first sign-in, a new user is guided to an onboarding checklist. It is **required but not enforced**: the user can skip it and use most of the ERP, with a persistent reminder and progress indicator until it is complete.
@@ -126,6 +218,17 @@ The fields, fixed sets and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#colle
 - Owned by Pulse Talent as part of the employee record. Pulse Ops (technician assignment) and Pulse Engage (presales, bids, product partner requirements (e.g. how many certified engineers a brand requires)) read it through Talent's service functions.
 - Fields: certification name, issuing vendor/body (e.g. Cisco, Fortinet, TESDA, PRC), certificate/license number, issue date, expiry date, attachment.
 - Expiry alerts to the employee, their `reportingTo` and HR before a certification lapses.
+
+Built in step 2.2 ([Documents, photo, e-signature and certifications](#documents-photo-e-signature-and-certifications-build-step-22)):
+
+- **Each certification** has a name, an issuer, an optional product from Core's products (so Pulse Engage can count how many employees hold a current certification for a brand), an optional certificate or license number, an issue date (required), an optional expiry date and an optional attachment.
+  - The attachment opens for the employee, Talent Read and the System Administrator.
+- **Who changes them.** Adding and editing need Talent Write, never on one's own record. Removing one is a soft delete and needs Talent Owner, also never on one's own record. Employees add their own from step 2.6.
+- **Dates.** Unlike a 201 document, a certification's issue date may be in the future (a certificate dated ahead). The expiry date, when given, must be after it.
+- **Skills** are free-text tags on the employee record: up to 30, of up to 50 characters each, with duplicates refused (ignoring case). They are changed with Talent Write, never on one's own record. *Assumption, to be confirmed by HR:* the spec names skills but gives no fields.
+- **Read services for Pulse Ops and Pulse Engage:** `listCertifications` and `countCertifiedEmployeesByBrand`.
+  - They need Talent, Engage or Ops Read, or the System Administrator, and leave out separated employees. They use the directory's idea of active, so an employee whose account doesn't resolve to active (separated, or with no user) is left out too.
+  - They return the employee, the certification's name, issuer, product, dates and status (current, expiring, expired), and the skills. They never return the license number or the attachment.
 
 ## Timesheets & attendance
 
@@ -404,6 +507,6 @@ An employee can only be set to **Terminated** once the required process is compl
 ## Notifications
 
 - **Employees:** timesheet due soon, timesheet returned with remarks or approved, leave or offset time off approved or rejected, payslip ready, document or certification expiring, notice received (NTE, NOD, TN).
-- **Supervisors:** timesheets, leave and offset time off requests waiting for their approval.
+- **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)).
 - **HR:** new users needing module access, company details still missing, timesheets waiting for HR approval, leave and offset time off requests waiting for HR approval (requesters with an empty `reportingTo`), missing timesheets at the deadline, payroll run or final pay approved or returned, remittance due dates, probation, contract and document alerts, minimum wage flags, due-process deadlines.
 - **Board of Directors:** payroll runs and final pay waiting for approval.

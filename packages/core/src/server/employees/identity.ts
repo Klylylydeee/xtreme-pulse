@@ -14,6 +14,7 @@ import { UserModel } from '../users/model';
 import type { TimesheetType } from '../../timesheet-types';
 import { employeeName } from './active-employees';
 import { type EmployeeRecord, EmployeeModel } from './model';
+import { employeePhotoUrl } from './photo';
 
 // Spec: docs/modules/core.md#people-data-ownership (decision 156 in docs/BUILD_PLAN.md) — the
 // identity service other modules read Core's employee identity through, never the models. Pulse
@@ -56,6 +57,8 @@ export interface EmployeeIdentity {
   separated: boolean;
   /** Whether the account resolves to active (no account counts as inactive). */
   active: boolean;
+  /** The current profile photo (`/files/<id>?inline=1`), or null (build step 2.2). */
+  photoUrl: string | null;
 }
 
 export interface ListEmployeeIdentitiesOptions {
@@ -90,6 +93,7 @@ const IDENTITY_FIELDS = {
   employmentStatus: 1,
   dateHired: 1,
   separationDate: 1,
+  photoFileId: 1,
 } as const;
 
 type IdentityRecord = Pick<EmployeeRecord, '_id' | keyof typeof IDENTITY_FIELDS>;
@@ -198,6 +202,7 @@ async function toIdentities(
         separationDate: employee.separationDate ? toBusinessDate(employee.separationDate) : null,
         separated: isSeparatedStatus(employee.employmentStatus),
         active: user !== undefined && resolveAccountStatus(user, employee) === 'active',
+        photoUrl: employeePhotoUrl(employee.photoFileId),
       },
     ];
   });

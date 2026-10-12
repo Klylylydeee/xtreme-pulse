@@ -38,6 +38,7 @@ const PERSON_KEYS = [
   'inactive',
   'initials',
   'name',
+  'photoUrl',
   'positionName',
   'reportingTo',
 ];
@@ -49,6 +50,7 @@ const LINK_KEYS = [
   'inactive',
   'initials',
   'name',
+  'photoUrl',
   'positionName',
 ];
 const NODE_KEYS = [
@@ -58,6 +60,7 @@ const NODE_KEYS = [
   'id',
   'initials',
   'name',
+  'photoUrl',
   'positionName',
   'supervisorIds',
 ];
@@ -254,6 +257,7 @@ describe('the directory allowlist', () => {
       id: ana.id,
       name: 'ana shape',
       initials: 'AS',
+      photoUrl: null,
       employeeNumber: ana.employeeNumber,
       departmentId: NET.idHex,
       departmentName: 'Network',
@@ -265,6 +269,7 @@ describe('the directory allowlist', () => {
           id: boss.id,
           name: 'Bella Shape',
           initials: 'BS',
+          photoUrl: null,
           employeeNumber: boss.employeeNumber,
           departmentName: 'Network',
           positionName: 'Network Engineer',
@@ -274,6 +279,24 @@ describe('the directory allowlist', () => {
       directReports: [],
       inactive: false,
     });
+  });
+});
+
+describe('profile photos in the directory', () => {
+  it('carries the current photo as its file route URL in rows, links, cards, the team and the org chart', async () => {
+    const boss = await person('Pia', 'Pictured');
+    const ana = await person('Ana', 'Pictured', { reportingTo: [boss] });
+    const photoFileId = new Types.ObjectId();
+    const url = `/files/${photoFileId.toHexString()}?inline=1`;
+    await EmployeeModel.updateOne({ _id: boss.id }, { $set: { photoFileId } });
+
+    const rows = await listDirectory(EMPLOYEE, { search: 'Pictured' });
+    expect(rows.find((row) => row.id === boss.id)?.photoUrl).toBe(url);
+    expect(rows.find((row) => row.id === ana.id)?.photoUrl).toBeNull();
+    expect(rows.find((row) => row.id === ana.id)?.reportingTo[0]?.photoUrl).toBe(url);
+    expect((await getDirectoryPerson(EMPLOYEE, boss.id))?.photoUrl).toBe(url);
+    expect((await getOwnTeam(viewer([], { as: ana }))).supervisors[0]?.photoUrl).toBe(url);
+    expect((await getOrgChart()).find((node) => node.id === boss.id)?.photoUrl).toBe(url);
   });
 });
 

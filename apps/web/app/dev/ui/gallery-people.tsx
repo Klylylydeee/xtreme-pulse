@@ -15,6 +15,14 @@ const PEOPLE = [
   { id: 'e4', firstName: 'Paolo', lastName: 'Garcia', number: 'XW-0004', position: 'Driver' },
 ];
 
+// A sample "photo" for the demo: an inline picture (head and shoulders), so nothing is served from
+// public/. Its colours are the picture's content, not design tokens.
+const SAMPLE_PHOTO = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#8fa3b8"/><circle cx="48" cy="38" r="18" fill="#e8d5c4"/><path d="M14 96c4-22 18-32 34-32s30 10 34 32z" fill="#3d5a73"/></svg>',
+)}`;
+// A photo URL that fails to load: the initials show instead.
+const BROKEN_PHOTO = '/files/dev-ui-missing-photo';
+
 export function AvatarDemo() {
   return (
     <div className="flex flex-col gap-4 rounded-card bg-surface p-4 shadow-card">
@@ -26,10 +34,26 @@ export function AvatarDemo() {
           </div>
         ))}
       </div>
+      <div className="flex flex-wrap items-end gap-4">
+        {(['sm', 'md', 'lg'] as const).map((size) => (
+          <div key={size} className="flex flex-col items-center gap-2">
+            <Avatar firstName="Ana" lastName="Cruz" photoUrl={SAMPLE_PHOTO} size={size} />
+            <span className="text-footnote text-text-secondary">{size}, photo</span>
+          </div>
+        ))}
+        <div className="flex flex-col items-center gap-2">
+          <Avatar firstName="Paolo" lastName="Garcia" photoUrl={BROKEN_PHOTO} />
+          <span className="text-footnote text-text-secondary">Photo failed</span>
+        </div>
+      </div>
       <ul className="flex flex-col gap-3">
         {PEOPLE.slice(0, 3).map((person) => (
           <li key={person.id} className="flex items-center gap-3">
-            <Avatar firstName={person.firstName} lastName={person.lastName} />
+            <Avatar
+              firstName={person.firstName}
+              lastName={person.lastName}
+              photoUrl={person.id === 'e3' ? SAMPLE_PHOTO : null}
+            />
             <span className="flex min-w-0 flex-col">
               <span className="truncate text-subheadline font-semibold">
                 {person.firstName} {person.lastName}

@@ -24,6 +24,8 @@ import { isInternalHref } from '../../notifications';
 import { recordAudit } from '../audit/service';
 import { snapshotForAudit, snapshotsForAudit } from '../audit/snapshot';
 import { inputError } from '../departments/service';
+import { EmployeeModel } from '../employees/model';
+import { employeePhotoUrl } from '../employees/photo';
 import { auditLabel } from '../master-data-audit';
 import { notify } from '../notifications/service';
 import { decodeCursor, encodeCursor, type KeysetPosition, pageSize, toObjectId } from '../paging';
@@ -38,6 +40,7 @@ import {
   requireApprovalType,
 } from './registry';
 import { findActiveUser, loadRequester, routeApprovalSteps, userNames } from './routing';
+import { type ApprovalSignatureStamp, checkSignatureStamp, requireApprovalSigner } from './signer';
 
 // Spec: docs/modules/core.md#approvals, #approvals-list and #notifications, SECURITY.md#rules and
 // #exceptions-to-module-access, docs/ARCHITECTURE.md#cross-module-integration (decisions 99–108 in
@@ -53,6 +56,9 @@ import { findActiveUser, loadRequester, routeApprovalSteps, userNames } from './
 // - The services check the person, never module access: deciding needs a named approver of the
 //   pending step; reading needs one of the request's approvers, its requester or a System
 //   Administrator.
+// - E-signatures (build step 2.2, ./signer.ts): an approve calls the registered signer in the
+//   decision's transaction, before the request is written, and stores its stamp on the decision.
+//   With no signer registered an approve is refused; a signer that throws rolls everything back.
 // - Audit: `core.approvalRequest`, module `core`, labelled `<type label> · <record label>`. Submit
 //   is `create`, each decision `update` with its remarks as the reason.
 // - Notifications link to the request in the Approvals list and hold only the request's title,
@@ -362,6 +368,10 @@ const PAST_TENSE = { approve: 'approved', return: 'returned', reject: 'rejected'
  * one (like {@link getApproval}), so ids can't be probed; its requester or a System Administrator
  * who isn't its approver gets {@link AccessDeniedError}. Throws {@link ActionError} for a decision that can't be made now (already settled, stale form, a
  * decision the type doesn't allow, missing remarks).
+ *
+ * An approve calls the registered e-signature signer in the transaction and stores its stamp on
+ * the decision (null when the approver has no signature on file). With no signer registered an
+ * approve throws {@link ApprovalSignerNotRegisteredError}; return and reject sign nothing.
  */
 export async function decideApproval(
   actor: ApprovalActor,
@@ -410,6 +420,24 @@ export async function decideApproval(
       );
     }
 
+    // An approve applies the approver's own e-signature, in this transaction (fail closed).
+    let signature: ApprovalSignatureStamp | null = null;
+    if (decision === 'approve') {
+      const sign = requireApprovalSigner();
+      const label = labelFor(definition.label, before);
+      signature = checkSignatureStamp(
+        await sign({
+          actor: { id: actor.id, email: actor.email },
+          target: { type: RECORD_TYPE, id: before._id.toHexString(), label },
+          purpose: `Approval: ${label}`,
+          request: snapshotOf(before),
+          stepIndex: before.currentStep,
+          stepLabel: before.steps[before.currentStep]?.label ?? '',
+          session,
+        }),
+      );
+    }
+
     const decidedAt = now();
     const steps: ApprovalStepRecord[] = before.steps.map((step) => ({
       ...step,
@@ -419,7 +447,19 @@ export async function decideApproval(
     const stepIndex = before.currentStep;
     const step = steps[stepIndex];
     if (!step) throw new Error('The request’s current step is missing.');
-    step.decisions.push({ userId: actorId, decision, remarks, decidedAt });
+    step.decisions.push({
+      userId: actorId,
+      decision,
+      remarks,
+      decidedAt,
+      signature: signature
+        ? {
+            applicationId: toObjectId(signature.applicationId) as Types.ObjectId,
+            signatureId: toObjectId(signature.signatureId) as Types.ObjectId,
+            version: signature.version,
+          }
+        : null,
+    });
 
     let status: ApprovalStatus = 'pending';
     let currentStep = stepIndex;
@@ -514,7 +554,7 @@ export async function decideApproval(
     // The module's hooks, in this transaction.
     const context: ApprovalHookContext = {
       request: snapshotOf(after),
-      decision: { userId: actor.id, email: actor.email, decision, remarks },
+      decision: { userId: actor.id, email: actor.email, decision, remarks, signature },
       session,
     };
     if (stepApproved && definition.onStepApproved) {
@@ -595,7 +635,7 @@ export interface ApprovalRow {
   summary: string | null;
   /** The record's page. */
   href: string;
-  requester: { userId: string; name: string };
+  requester: { userId: string; name: string; photoUrl: string | null };
   status: ApprovalStatus;
   submittedAt: Date;
   settledAt: Date | null;
@@ -620,7 +660,16 @@ export interface ApprovalStepView {
     userId: string;
     name: string;
     asSystemAdministrator: boolean;
-    decision: { decision: ApprovalDecision; remarks: string | null; decidedAt: Date } | null;
+    decision: {
+      decision: ApprovalDecision;
+      remarks: string | null;
+      decidedAt: Date;
+      /**
+       * The e-signature version an approve was signed with ("Signed with e-signature, version N"),
+       * or null: "Approved without an e-signature" for an approve, nothing for return and reject.
+       */
+      signatureVersion: number | null;
+    } | null;
   }[];
 }
 
@@ -659,11 +708,18 @@ function progressOf(step: ApprovalStepRecord): ApprovalRow['progress'] {
   return { approved, required: members + filled };
 }
 
+/** The requesters' names (by user id) and profile photos (by employee id), for the rows. */
+interface RequesterPeople {
+  names: Map<string, string>;
+  photos: Map<string, string | null>;
+}
+
 function toRow(
   request: ApprovalRequestRecord,
   viewerId: Types.ObjectId | null,
-  names: Map<string, string>,
+  people: RequesterPeople,
 ): ApprovalRow {
+  const { names } = people;
   const step = request.steps[request.currentStep] ?? request.steps.at(-1);
   if (!step) throw new Error('An approval request has no steps.');
   const requesterId = request.requesterUserId.toHexString();
@@ -684,7 +740,11 @@ function toRow(
     title: request.title,
     summary: request.summary ?? null,
     href: request.href,
-    requester: { userId: requesterId, name: names.get(requesterId) ?? 'Unknown user' },
+    requester: {
+      userId: requesterId,
+      name: names.get(requesterId) ?? 'Unknown user',
+      photoUrl: people.photos.get(request.requesterEmployeeId?.toHexString() ?? '') ?? null,
+    },
     status: request.status,
     submittedAt: request.submittedAt,
     settledAt: request.settledAt ?? null,
@@ -698,9 +758,10 @@ function toRow(
 function toDetail(
   request: ApprovalRequestRecord,
   viewerId: Types.ObjectId | null,
-  names: Map<string, string>,
+  people: RequesterPeople,
 ): ApprovalDetail {
-  const row = toRow(request, viewerId, names);
+  const { names } = people;
+  const row = toRow(request, viewerId, people);
   const canDecide =
     viewerId !== null && request.status === 'pending' && has(request.pendingApproverIds, viewerId);
   const allowedDecisions = canDecide
@@ -732,7 +793,12 @@ function toDetail(
           name: approver.nameSnapshot,
           asSystemAdministrator: approver.asSystemAdministrator,
           decision: decided
-            ? { decision: decided.decision, remarks: decided.remarks, decidedAt: decided.decidedAt }
+            ? {
+                decision: decided.decision,
+                remarks: decided.remarks,
+                decidedAt: decided.decidedAt,
+                signatureVersion: decided.signature?.version ?? null,
+              }
             : null,
         };
       }),
@@ -742,9 +808,28 @@ function toDetail(
   };
 }
 
-async function requesterNames(requests: readonly ApprovalRequestRecord[]) {
+async function requesterPeople(
+  requests: readonly ApprovalRequestRecord[],
+): Promise<RequesterPeople> {
   const ids = new Map(requests.map((r) => [r.requesterUserId.toHexString(), r.requesterUserId]));
-  return userNames([...ids.values()]);
+  const employeeIds = requests.flatMap((r) =>
+    r.requesterEmployeeId ? [r.requesterEmployeeId] : [],
+  );
+  const [names, employees] = await Promise.all([
+    userNames([...ids.values()]),
+    employeeIds.length
+      ? EmployeeModel.find({ _id: { $in: employeeIds } }, { photoFileId: 1 }).lean()
+      : Promise.resolve([]),
+  ]);
+  return {
+    names,
+    photos: new Map(
+      employees.map((employee) => [
+        employee._id.toHexString(),
+        employeePhotoUrl(employee.photoFileId),
+      ]),
+    ),
+  };
 }
 
 /** The filter for rows after `position`, in `{ submittedAt: -1, _id: -1 }` order. */
@@ -771,10 +856,10 @@ async function listPage(
     .limit(size + 1)
     .lean<ApprovalRequestRecord[]>();
   const page = found.slice(0, size);
-  const names = await requesterNames(page);
+  const people = await requesterPeople(page);
   const last = page.at(-1);
   return {
-    rows: page.map((request) => toRow(request, viewerId, names)),
+    rows: page.map((request) => toRow(request, viewerId, people)),
     nextCursor:
       found.length > size && last
         ? encodeCursor({ createdAt: last.submittedAt, _id: last._id })
@@ -844,10 +929,10 @@ export async function listApprovalsDecided(
     { $limit: size + 1 },
   ]);
   const page = found.slice(0, size);
-  const names = await requesterNames(page);
+  const people = await requesterPeople(page);
   const last = page.at(-1);
   return {
-    rows: page.map((request) => toRow(request, viewerId, names)),
+    rows: page.map((request) => toRow(request, viewerId, people)),
     nextCursor:
       found.length > size && last
         ? encodeCursor({ createdAt: last.viewerDecidedAt, _id: last._id })
@@ -904,7 +989,7 @@ export async function getApproval(
   await connectDb();
   const request = await ApprovalRequestModel.findById(id).lean<ApprovalRequestRecord>();
   if (!request || !canRead(request, viewer, viewerId)) return null;
-  return toDetail(request, viewerId, await requesterNames([request]));
+  return toDetail(request, viewerId, await requesterPeople([request]));
 }
 
 /**
@@ -923,9 +1008,9 @@ export async function listApprovalsForRecord(
     .sort({ submittedAt: -1, _id: -1 })
     .limit(100)
     .lean<ApprovalRequestRecord[]>();
-  const names = await requesterNames(requests);
+  const people = await requesterPeople(requests);
   const viewerId = toObjectId(viewer.id);
-  return requests.map((request) => toDetail(request, viewerId, names));
+  return requests.map((request) => toDetail(request, viewerId, people));
 }
 
 /**

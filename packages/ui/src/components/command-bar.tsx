@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, UserRound, Zap, type LucideIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { Avatar } from './avatar';
 import { Button } from './button';
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from './command';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
@@ -39,6 +40,8 @@ export type CommandResultItem = {
   /** A path inside the app. */
   href: string;
   icon: CommandIconKey;
+  /** A person's profile photo: shown in an Avatar instead of the icon tile (build step 2.2). */
+  photoUrl?: string;
 };
 
 /** One search provider's results, under its own heading (such as "People"). */
@@ -268,9 +271,18 @@ export function CommandBar({
                           onSelect={() => choose(result.href)}
                           className="py-1.5"
                         >
-                          <IconTile className="size-7 rounded-md [&_svg]:size-4">
-                            <Icon strokeWidth={1.75} />
-                          </IconTile>
+                          {result.photoUrl ? (
+                            <Avatar
+                              photoUrl={result.photoUrl}
+                              fallback={<Icon strokeWidth={1.75} className="size-4" />}
+                              size="sm"
+                              className="size-7"
+                            />
+                          ) : (
+                            <IconTile className="size-7 rounded-md [&_svg]:size-4">
+                              <Icon strokeWidth={1.75} />
+                            </IconTile>
+                          )}
                           <span className="flex min-w-0 flex-1 flex-col">
                             <span className="truncate">{result.title}</span>
                             {result.subtitle ? (

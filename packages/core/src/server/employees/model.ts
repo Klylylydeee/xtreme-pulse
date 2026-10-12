@@ -29,6 +29,11 @@ export interface EmployeeRecord {
    * null for an active one (SECURITY.md#account-status).
    */
   separationDate: Date | null;
+  /**
+   * The stored file of the current profile photo (owner type `core.employee`), or null until one
+   * is set (build step 2.2). Changed only by `setEmployeePhoto` and `removeEmployeePhoto`.
+   */
+  photoFileId: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
@@ -53,6 +58,7 @@ const employeeSchema = new Schema<EmployeeRecord>({
   employmentStatus: { type: String, required: true, enum: EMPLOYMENT_STATUSES },
   dateHired: { type: Date, required: true },
   separationDate: { type: Date, default: null },
+  photoFileId: { type: Schema.Types.ObjectId, default: null },
 });
 
 employeeSchema.index({ employeeNumber: 1 }, { unique: true });

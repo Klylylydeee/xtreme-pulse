@@ -1,16 +1,18 @@
-import { type CommandResult, directoryPersonHref } from '../../directory';
+import { directoryPersonHref } from '../../directory';
 import { employeeName, searchActiveEmployees } from '../employees/active-employees';
 import { EmployeeModel } from '../employees/model';
+import { employeePhotoUrl } from '../employees/photo';
 import { PositionModel } from '../positions/model';
 import {
   type CommandProviderDefinition,
+  type CommandProviderResult,
   hasCommandProvider,
   registerCommandProvider,
 } from './registry';
 
 // Spec: docs/modules/core.md#command-bar (decision 144 in docs/BUILD_PLAN.md) — Core's people
 // provider finds active employees by name or employee number, for every signed-in user, and shows
-// the name, employee number and position, linking to their directory card. Separated people and
+// the name, employee number, position and profile photo, linking to their directory card. Separated people and
 // the bootstrap system account (which has no employee record) never appear, whoever searches.
 // Directory fields only (SECURITY.md#sensitive-data).
 
@@ -22,18 +24,24 @@ export const peopleProvider: CommandProviderDefinition = {
   kind: 'records',
   // The directory is open to every signed-in user (SECURITY.md#rules).
   isVisibleTo: () => true,
-  async search(query, _user, { limit }): Promise<CommandResult[]> {
+  async search(query, _user, { limit }): Promise<CommandProviderResult[]> {
     // Active accounts only (searchActiveEmployees resolves each one).
     const found = (await searchActiveEmployees(query)).slice(0, limit);
     if (found.length === 0) return [];
     const assignments = await EmployeeModel.find(
       { _id: { $in: found.map((employee) => employee._id) } },
-      { positionId: 1 },
+      { positionId: 1, photoFileId: 1 },
     ).lean();
     const positionIdOf = new Map(
       assignments.map((employee) => [
         employee._id.toHexString(),
         employee.positionId.toHexString(),
+      ]),
+    );
+    const photoUrlOf = new Map(
+      assignments.map((employee) => [
+        employee._id.toHexString(),
+        employeePhotoUrl(employee.photoFileId),
       ]),
     );
     // A retired position still shows its name.
@@ -53,6 +61,7 @@ export const peopleProvider: CommandProviderDefinition = {
         subtitle: position ? `${employee.employeeNumber} · ${position}` : employee.employeeNumber,
         href: directoryPersonHref(id),
         icon: 'person',
+        photoUrl: photoUrlOf.get(id) ?? null,
       };
     });
   },

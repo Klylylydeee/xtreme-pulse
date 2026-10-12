@@ -1,17 +1,40 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Types } from 'mongoose';
+import mongoose, { type mongo, Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { AccessDeniedError } from '../../actions';
+import { AuditLogModel } from '../audit/model';
 import { resolveModuleAccess } from '../auth/module-access';
 import type { CurrentUser } from '../auth/session-user';
 import { getCompanyLogoFile, removeCompanyLogo, setCompanyLogo } from '../company-settings/service';
 import { coreSeedLoaders } from '../seed/loaders';
-import { authorizeFileAccess, findAccessibleFile, registerFileAccess } from './access';
+import {
+  authorizeFileAccess,
+  findAccessibleFile,
+  openAccessibleFile,
+  registerFileAccess,
+} from './access';
+import { storageRoot } from './root';
 import { registerCoreFileAccess } from './registrations';
-import { saveUpload, type StoredFile } from './stored-files';
+import { openStoredFile, saveUpload, type StoredFile } from './stored-files';
+
+// Every content read goes through this spy, so a test can see what was already written when the
+// file was opened (the audit entry comes first) and whether it was opened at all.
+const opening = vi.hoisted(() => ({
+  onOpen: null as null | ((file: { id: string }) => Promise<void>),
+}));
+vi.mock('./stored-files', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./stored-files')>();
+  return {
+    ...actual,
+    openStoredFile: vi.fn(async (file: Parameters<typeof actual.openStoredFile>[0]) => {
+      await opening.onOpen?.(file);
+      return actual.openStoredFile(file);
+    }),
+  };
+});
 
 // The file access registry (docs/ARCHITECTURE.md#file-storage,
 // docs/TESTING.md#module-access-tests). Made-up data only.
@@ -63,15 +86,45 @@ beforeAll(async () => {
   process.env.FILE_STORAGE_DIR = storageDir;
   await connectDb();
   for (const loader of coreSeedLoaders) await loader.run();
+  await AuditLogModel.init();
+  await AuditLogModel.createCollection().catch(() => undefined);
   registerCoreFileAccess();
   logo = await setLogo();
   devSample = await upload('dev.sample');
   unregistered = await upload('test.unregistered');
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
+  vi.mocked(openStoredFile).mockClear();
+  opening.onOpen = null;
+  await database().command({ collMod: 'auditLogs', validator: {} });
 });
+
+function database(): mongo.Db {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('Not connected.');
+  return db;
+}
+
+/** Makes every audit log insert fail until afterEach clears it. */
+async function breakAuditLog(): Promise<void> {
+  await database().command({
+    collMod: 'auditLogs',
+    validator: { $jsonSchema: { required: ['aFieldNoEntryHas'] } },
+    validationLevel: 'strict',
+    validationAction: 'error',
+  });
+}
+
+/** The reveal entries naming `recordId`. */
+function revealsOf(recordId: Types.ObjectId) {
+  return AuditLogModel.find({ action: 'reveal', 'record.id': recordId }).lean();
+}
+
+async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 afterAll(async () => {
   await rm(storageDir, { recursive: true, force: true });
@@ -165,5 +218,116 @@ describe('findAccessibleFile', () => {
       findAccessibleFile(user, 'not-an-id'),
     ]);
     expect(answers).toEqual([null, null, null, null]);
+  });
+
+  it('refuses an owner type that audit-logs views, whose content opens only with the entry', async () => {
+    registerFileAccess('test.auditedMeta', () => true, {
+      auditView: { module: 'talent', record: () => ({ type: 'test.auditedMeta', id: null }) },
+    });
+    const file = await upload('test.auditedMeta');
+    expect(await findAccessibleFile(user, file.id)).toBeNull();
+  });
+});
+
+// Sensitive file views (build step 2.2, decision 181, docs/TESTING.md#document-e-signature-and-certification-tests).
+describe('openAccessibleFile', () => {
+  const recordId = new Types.ObjectId();
+  let audited: StoredFile;
+  let plain: StoredFile;
+
+  beforeAll(async () => {
+    registerFileAccess('test.audited', () => true, {
+      auditView: {
+        module: 'talent',
+        record: (file) => ({
+          type: 'test.audited',
+          id: recordId,
+          label: `2027-01 · ${file.ownerType}`,
+        }),
+      },
+    });
+    registerFileAccess('test.plain', () => true);
+    audited = await upload('test.audited');
+    plain = await upload('test.plain');
+    registerFileAccess('test.auditedRefused', () => false, {
+      auditView: { module: 'talent', record: () => ({ type: 'test.audited', id: recordId }) },
+    });
+  });
+
+  it('writes one committed reveal entry with fields ["file"] before any content is read', async () => {
+    const before = (await revealsOf(recordId)).length;
+    let entriesWhenOpened = -1;
+    opening.onOpen = async () => {
+      // Read outside any transaction: the entry is already committed.
+      entriesWhenOpened = (await revealsOf(recordId)).length;
+    };
+
+    const opened = await openAccessibleFile(user, audited.id);
+    if (!opened) throw new Error('The file did not open.');
+    expect(opened.file.id).toBe(audited.id);
+    expect(entriesWhenOpened).toBe(before + 1);
+    expect(await readAll(opened.stream)).toEqual(PNG);
+
+    const entries = await revealsOf(recordId);
+    expect(entries).toHaveLength(before + 1);
+    expect(entries.at(-1)).toMatchObject({
+      module: 'talent',
+      action: 'reveal',
+      actorEmail: user.email,
+      record: { type: 'test.audited', label: '2027-01 · test.audited' },
+      fields: ['file'],
+      before: null,
+      after: null,
+    });
+    expect(entries.at(-1)?.actorId?.toHexString()).toBe(user.id);
+  });
+
+  it('logs every open, the owner’s own included', async () => {
+    const before = (await revealsOf(recordId)).length;
+    await openAccessibleFile(user, audited.id);
+    await openAccessibleFile(admin, audited.id);
+    expect(await revealsOf(recordId)).toHaveLength(before + 2);
+  });
+
+  it('opens nothing when the entry can’t be written', async () => {
+    const before = (await revealsOf(recordId)).length;
+    await breakAuditLog();
+    await expect(openAccessibleFile(user, audited.id)).rejects.toThrow();
+    expect(openStoredFile).not.toHaveBeenCalled();
+    await database().command({ collMod: 'auditLogs', validator: {} });
+    expect(await revealsOf(recordId)).toHaveLength(before);
+  });
+
+  it('writes the entry even when the content turns out to be missing, then answers null', async () => {
+    const lost = await upload('test.audited');
+    await unlink(path.join(storageRoot(), ...lost.storageKey.split('/')));
+    const before = (await revealsOf(recordId)).length;
+    expect(await openAccessibleFile(user, lost.id)).toBeNull();
+    expect(await revealsOf(recordId)).toHaveLength(before + 1);
+  });
+
+  it('writes nothing for a registration without auditView', async () => {
+    const entries = await AuditLogModel.countDocuments({ action: 'reveal' });
+    const opened = await openAccessibleFile(user, plain.id);
+    if (!opened) throw new Error('The file did not open.');
+    expect(await readAll(opened.stream)).toEqual(PNG);
+    expect(await AuditLogModel.countDocuments({ action: 'reveal' })).toBe(entries);
+  });
+
+  it('answers a refused file the same as a missing one, and writes nothing for either', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const refused = await upload('test.auditedRefused');
+    const entries = await AuditLogModel.countDocuments({ action: 'reveal' });
+    const answers = await Promise.all([
+      openAccessibleFile(user, refused.id),
+      openAccessibleFile(user, unregistered.id),
+      openAccessibleFile(user, devSample.id),
+      openAccessibleFile(user, new Types.ObjectId().toHexString()),
+      openAccessibleFile(user, 'not-an-id'),
+      openAccessibleFile(signedIn({ mustChangePassword: true }), audited.id),
+    ]);
+    expect(answers).toEqual([null, null, null, null, null, null]);
+    expect(await AuditLogModel.countDocuments({ action: 'reveal' })).toBe(entries);
+    expect(openStoredFile).not.toHaveBeenCalled();
   });
 });

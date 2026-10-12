@@ -10,6 +10,7 @@ import {
   listApprovalsWaiting,
   registerCoreApprovalTypes,
 } from '@pulse/core/server';
+import { registerTalentApprovalSigner } from '@pulse/talent/server';
 import { requireSignedIn, signedInUser } from '@/lib/auth';
 
 // Spec: docs/modules/core.md#approvals and #approvals-list — the Approvals list at `/approvals`, a
@@ -21,7 +22,9 @@ import { requireSignedIn, signedInUser } from '@/lib/auth';
 //
 // Every action registers Core's approval types first (`registerCoreApprovalTypes`, safe to call on
 // every request), so the engine knows the types it reads and decides. Modules add their own
-// registration beside it in their own steps.
+// registration beside it in their own steps. From step 2.2 deciding also registers Talent's
+// e-signature signer (`registerTalentApprovalSigner`): an approve applies the approver's own current
+// signature in the decision's transaction, and with no signer registered every approve is refused.
 
 /** The Approvals list's segments: Waiting for you, and Decided. */
 const viewSchema = z.enum(['waiting', 'decided'], { error: 'Reload the page and try again.' });
@@ -66,6 +69,7 @@ export const decideApprovalAction = defineAction({
   schema: decideApprovalSchema,
   handler: async ({ requestId, decision, remarks, version }) => {
     registerCoreApprovalTypes();
+    registerTalentApprovalSigner();
     const user = await signedInUser();
     const result = await decideApproval(
       { id: user.id, email: user.email, isSystemAdministrator: user.isSystemAdministrator },

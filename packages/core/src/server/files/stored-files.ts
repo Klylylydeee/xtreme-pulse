@@ -14,6 +14,12 @@ import {
   UPLOAD_TYPES,
   type UploadType,
 } from './file-types';
+import {
+  TRANSFORMABLE_TYPES,
+  transformImage,
+  UPLOAD_TRANSFORMS,
+  type UploadTransform,
+} from './image-transform';
 import { storageRoot } from './root';
 import { currentFileUploadSettings } from './settings';
 
@@ -24,6 +30,8 @@ import { currentFileUploadSettings } from './settings';
 //   from the user. The original name, type, size and owning record are kept in `storedFiles`.
 // - An upload's type is read from its content and checked, with its size, against the
 //   `core.fileUploads` setting.
+// - Profile photos and e-signatures pass `transform` and are re-encoded with sharp
+//   (./image-transform.ts); every other upload is stored byte for byte.
 // - Files open only through the file route (`/files/<id>`), which runs `authorizeFileAccess`.
 //
 // Saving a file is a side effect: call these outside `withTransaction` (the callback can run more
@@ -161,6 +169,13 @@ export function sanitizeFileName(name: string, fallback = 'file'): string {
   return clean.slice(0, MAX_NAME_LENGTH - extension.length) + extension;
 }
 
+/** `name` with its extension replaced by (or given) `extension`, for a re-encoded upload. */
+function withExtension(name: string, extension: string): string {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  return sanitizeFileName(`${base}.${extension}`, `file.${extension}`);
+}
+
 /** The absolute path for a storage key, refusing anything that isn't a generated key. */
 function pathForKey(storageKey: string): string {
   if (!STORAGE_KEY.test(storageKey)) throw new Error('Not a storage key.');
@@ -223,6 +238,12 @@ export interface SaveUploadInput {
   accept?: readonly UploadType[];
   /** The form field, so a refusal shows next to it. Default `file`. */
   field?: string;
+  /**
+   * Re-encode the image before storing it (build step 2.2): `photo` (WebP, at most 1024 px) or
+   * `signature` (PNG, at most 1200 px, transparency kept). Auto-rotated and stripped of metadata
+   * such as EXIF and GPS. Images only. Without it the file is stored byte for byte.
+   */
+  transform?: UploadTransform;
 }
 
 /**
@@ -238,13 +259,18 @@ export async function saveUpload({
   actorId,
   accept,
   field = 'file',
+  transform,
 }: SaveUploadInput): Promise<StoredFile> {
   assertOwner(owner);
+  if (transform !== undefined && !Object.hasOwn(UPLOAD_TRANSFORMS, transform)) {
+    throw new Error(`Unknown upload transform ${String(transform)}.`);
+  }
   await connectDb();
   const settings = await currentFileUploadSettings();
-  const allowed = accept
-    ? settings.allowedTypes.filter((type) => accept.includes(type))
-    : settings.allowedTypes;
+  const allowed = settings.allowedTypes.filter(
+    (type) =>
+      (!accept || accept.includes(type)) && (!transform || TRANSFORMABLE_TYPES.includes(type)),
+  );
 
   if (file.size === 0) throw new ActionError('Choose a file to upload.', { field });
   if (file.size > settings.maxSizeBytes) {
@@ -269,14 +295,20 @@ export async function saveUpload({
     );
   }
 
-  const originalName = sanitizeFileName(file.name, `file.${UPLOAD_TYPES[type].extension}`);
-  const storageKey = await writeContent(bytes);
+  let content = bytes;
+  let contentType = type;
+  let originalName = sanitizeFileName(file.name, `file.${UPLOAD_TYPES[type].extension}`);
+  if (transform) {
+    ({ bytes: content, contentType } = await transformImage(bytes, transform, field));
+    originalName = withExtension(originalName, UPLOAD_TYPES[contentType].extension);
+  }
+  const storageKey = await writeContent(content);
   try {
     const record = await StoredFileModel.create({
       storageKey,
       originalName,
-      contentType: type,
-      sizeBytes: bytes.byteLength,
+      contentType,
+      sizeBytes: content.byteLength,
       source: 'upload',
       ownerType: owner.type,
       ownerId: owner.id,

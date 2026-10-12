@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and the [employee record tests](#employee-record-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests) and the [document, e-signature and certification tests](#document-e-signature-and-certification-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests), [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and [Employee record tests](#employee-record-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests), [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), [Employee record tests](#employee-record-tests) and [Document, e-signature and certification tests](#document-e-signature-and-certification-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,7 +16,7 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation); and from build step 2.1, the employee record suites (the Core identity service, the employee record and compensation models and services, section visibility, who may change what, the Talent reveals, the formats and the My record navigation).
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation); and from build step 2.1, the employee record suites (the Core identity service, the employee record and compensation models and services, section visibility, who may change what, the Talent reveals, the formats and the My record navigation); and from build step 2.2, the document, e-signature and certification suites (file view audit, the profile photo, the approval signer, the medical rule, 201 documents, e-signature pinning, certifications and their read services, skills, and the expiry alert job and its worker wiring).
 
 ## Sensitive-data guard tests
 
@@ -227,6 +227,64 @@ Added in build step 2.1. A record's sensitive data looks the same on screen whet
     - My record shows in the Pulse Core group for a user with an employee record, never for the system account, with the breadcrumb "Pulse Core › My record".
     - The Talent item isn't current on `/talent/me`.
 
+## Document, e-signature and certification tests
+
+Added in build step 2.2 ([Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22), decisions 173–190). As in step 2.1, the tests check what the server sends and stores, not only what a screen shows.
+
+- **Where.** Next to the code they test, as `*.test.ts`:
+  - In `packages/core/src/server/`:
+    - `files/access.test.ts`: new cases for `auditView` and `openAccessibleFile`
+    - `employees/photo.test.ts`: the profile photo
+    - `files/image-transform.test.ts`: the `sharp` re-encoding of photos and signatures
+    - `employees/notification-contacts.test.ts`: the job-only recipient helpers
+    - `approvals/approvals.test.ts`: new cases for the signer
+    - `sensitive/reveal.test.ts`: the medical rule
+    - the directory and identity tests: `photoUrl` in the allowlist
+  - In `packages/talent/src/server/`: `documents/documents.test.ts`, `e-signatures/e-signatures.test.ts`, `certifications/certifications.test.ts` (certifications, skills and the expiry setting) and `expiry-alerts/expiry-alerts.test.ts`.
+  - `apps/worker/src/talent-jobs.test.ts`
+- **What they cover.**
+  - **File views.**
+    - A registration with `auditView` writes one `reveal` entry with `fields: ["file"]` before any content is read.
+    - When the entry can't be written, the file isn't opened.
+    - A registration without it writes nothing.
+    - A refused file and a missing one still get the same answer.
+  - **Profile photo.**
+    - The employee, HR and the System Administrator set and remove it. Anyone else is refused, and so is the system account.
+    - Each change is one `update` entry on `core.employee`.
+    - Only the current photo opens, for any signed-in active user.
+    - The stored image has no EXIF or GPS metadata.
+    - The directory and identity results carry `photoUrl` and still have exactly the listed keys.
+  - **The approval signer.**
+    - Only an approve calls the signer; return and reject don't.
+    - The stamp is stored on the decision and passed to the hooks.
+    - With no signer registered, an approve is refused.
+    - A signer that throws rolls back the decision, its audit entry and its notifications.
+    - With no signature on file, the decision stores `signature: null`.
+  - **The medical rule.** Accounting is refused `medical` and keeps every other category. HR, the System Administrator and the employee pass.
+  - **201 documents.**
+    - **Who sees what.** HR and the System Administrator with Talent Read see every document. Accounting sees all but medical certificates. The employee sees their own. A Talent Write user with no role, and a Board member, get no document and no document data anywhere in the serialized view. The same answers hold at the file route.
+    - **Who changes them.** Adding, editing and archiving need Talent Write and HR or the System Administrator, never on one's own record. HR may manage another HR employee's documents.
+    - **Never deleted.** Deletes and replacements are refused. Archiving keeps the document and needs a reason. A stale `version` is refused. Archiving the replaced document happens in the same save.
+    - **Audit.** Each change writes its audit entry in the same transaction, and nothing is written when the entry fails.
+  - **E-signature (the step's "Done when").**
+    - Only the owner uploads, and versions go 1, 2, 3.
+    - Approving with version 1, replacing it with version 2, then approving another request: the first decision and its `signatureApplications` row still name version 1 and its file, and the second names version 2.
+    - Signatures and applications refuse every update and delete.
+    - The image opens only for the owner and the System Administrator.
+    - Each upload and each use writes its audit entry. A request whose label is as long as allowed still signs: the audit label is shortened to the limit.
+  - **Certifications and skills.**
+    - Talent Write adds and edits, never on one's own record; removing needs Talent Owner. A name as long as allowed still saves, with its audit label shortened.
+    - `listCertifications` and `countCertifiedEmployeesByBrand` need Talent, Engage or Ops Read. Their results have exactly the listed keys, never the license number or the attachment, and leave out separated employees.
+    - Skills refuse more than 30 tags, tags over 50 characters, and duplicates ignoring case.
+  - **The expiry job (the step's "Done when").**
+    - An expiring 201 document alerts HR and the employee. An expiring certification also alerts the employee's supervisors.
+    - The lead days come from `talent.expiryAlerts`, 30 by default.
+    - The expired alert is sent once on or after the expiry date.
+    - A rerun sends nothing twice, and a changed expiry date alerts again.
+    - Archived documents, removed certifications and separated employees are skipped.
+    - With no active HR user, the System Administrators get the HR alerts.
+    - The worker registers the schedule `0 8 * * *` and wires the handler.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -238,7 +296,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests) and the [employee record tests](#employee-record-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests) and the [document, e-signature and certification tests](#document-e-signature-and-certification-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts. The approvals engine's tests already run (see [Approvals tests](#approvals-tests)).

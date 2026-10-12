@@ -8,9 +8,9 @@ import { MAX_SUPERVISORS } from './user-accounts';
 //
 // Spec: docs/modules/core.md#company-directory, #org-chart, #command-bar and #home, and
 // SECURITY.md#sensitive-data (the directory allowlist, decision 134 in docs/BUILD_PLAN.md). Every
-// result here holds directory fields only: name, initials (the photo until Phase 2), employee
-// number, department, position, login email, reporting lines and direct reports, plus the
-// "Inactive" flag. The date hired, employment status, separation date, module access and every
+// result here holds directory fields only: name, initials, the profile photo's URL (build step
+// 2.2), employee number, department, position, login email, reporting lines and direct reports,
+// plus the "Inactive" flag. The date hired, employment status, separation date, module access and every
 // Pulse Talent field never appear in them.
 
 // --- The directory ---------------------------------------------------------------------------
@@ -23,6 +23,8 @@ export interface DirectoryPersonLink {
   name: string;
   /** The first letter of the first name and of the last name. */
   initials: string;
+  /** The current profile photo (`/files/<id>?inline=1`), or null: show the initials. */
+  photoUrl: string | null;
   employeeNumber: string;
   departmentName: string | null;
   positionName: string | null;
@@ -41,6 +43,8 @@ export interface DirectoryPerson {
   /** `First Last`. */
   name: string;
   initials: string;
+  /** The current profile photo, or null. */
+  photoUrl: string | null;
   employeeNumber: string;
   departmentId: string;
   departmentName: string | null;
@@ -101,6 +105,8 @@ export interface OrgChartNode {
   id: string;
   name: string;
   initials: string;
+  /** The current profile photo, or null. */
+  photoUrl: string | null;
   departmentId: string;
   departmentName: string | null;
   positionName: string | null;
@@ -180,6 +186,11 @@ export interface CommandResult {
   /** A path inside the app (the notification link rule). */
   href: string;
   icon: CommandIcon;
+  /**
+   * A picture for the result (a person's profile photo, `/files/<id>?inline=1`), or null for the
+   * icon alone. Only a `/files/` path is kept.
+   */
+  photoUrl: string | null;
 }
 
 /** One provider's results, in the order the providers were registered (People first). */

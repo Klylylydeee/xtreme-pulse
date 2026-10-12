@@ -553,7 +553,7 @@ function OrgChartCard({
       )}
     >
       <span className="flex min-w-0 items-center gap-2.5">
-        <PersonAvatar initials={node.initials} size="sm" />
+        <PersonAvatar initials={node.initials} photoUrl={node.photoUrl} size="sm" />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-subheadline font-semibold">{node.name}</span>

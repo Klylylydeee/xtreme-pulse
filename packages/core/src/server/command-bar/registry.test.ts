@@ -59,6 +59,7 @@ function result(id: string, overrides: Partial<CommandResult> = {}): CommandResu
     subtitle: null,
     href: `/test/${id}`,
     icon: 'action',
+    photoUrl: null,
     ...overrides,
   };
 }
@@ -138,6 +139,25 @@ describe('the registry', () => {
     const [group] = await testGroups('query');
     expect(group?.results.map((r) => r.id)).toEqual(['ok', 'extra']);
     expect(group?.results[1]).toEqual(result('extra'));
+  });
+
+  it('keeps a picture only when it is a file route path, and fills in null when left out', async () => {
+    const photo = `/files/${new Types.ObjectId().toHexString()}?inline=1`;
+    const withoutPhoto: Partial<CommandResult> = result('none');
+    delete withoutPhoto.photoUrl;
+    provider('test.photos', () => [
+      result('photo', { photoUrl: photo }),
+      result('outside', { photoUrl: 'https://example.com/me.png' }),
+      result('path', { photoUrl: '/files/../storage/x' }),
+      withoutPhoto as CommandResult,
+    ]);
+    const [group] = await testGroups('query');
+    expect(group?.results.map((r) => [r.id, r.photoUrl])).toEqual([
+      ['photo', photo],
+      ['outside', null],
+      ['path', null],
+      ['none', null],
+    ]);
   });
 
   it('leaves out a provider that throws, and logs its key only, never the query', async () => {
@@ -269,10 +289,20 @@ describe('the people provider', () => {
       subtitle: '2027-01 · Network Engineer',
       href: `/directory?person=${ana.id}`,
       icon: 'person',
+      photoUrl: null,
     };
     expect((await people('ana cruz'))?.results).toEqual([expected]);
     expect((await people('2027-01'))?.results).toEqual([expected]);
     expect((await people('Cru'))?.group).toBe('People');
+  });
+
+  it('carries the current profile photo', async () => {
+    const bea = await person('Bea', 'Photo');
+    const photoFileId = new Types.ObjectId();
+    await EmployeeModel.updateOne({ _id: bea.id }, { $set: { photoFileId } });
+    expect((await people('Bea Photo'))?.results[0]?.photoUrl).toBe(
+      `/files/${photoFileId.toHexString()}?inline=1`,
+    );
   });
 
   it('never returns separated people or the system account', async () => {

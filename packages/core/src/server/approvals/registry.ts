@@ -8,6 +8,7 @@ import {
 } from '../../approvals';
 import { AUDIT_MODULES, type AuditModule } from '../../audit';
 import { APPROVAL_TYPE_PATTERN } from './model';
+import type { ApprovalSignatureStamp } from './signer';
 
 // Spec: docs/modules/core.md#approvals and docs/ARCHITECTURE.md#cross-module-integration
 // (decision 100 in docs/BUILD_PLAN.md) — a module registers each kind of request it sends for
@@ -62,6 +63,11 @@ export interface ApprovalHookContext {
     email: string;
     decision: ApprovalDecision;
     remarks: string | null;
+    /**
+     * The e-signature an approve was signed with (build step 2.2), or null: return and reject, and
+     * an approver with no signature on file.
+     */
+    signature: ApprovalSignatureStamp | null;
   };
   session: ClientSession;
 }

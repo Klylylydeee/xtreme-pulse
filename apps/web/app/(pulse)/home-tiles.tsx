@@ -274,7 +274,7 @@ function TeamList({ label, people }: { label: string; people: readonly Directory
               href={directoryPersonHref(person.id)}
               className="flex min-h-11 items-center gap-3 rounded-control px-2 py-1.5 transition-colors duration-fast hover:bg-accent-subtle/50"
             >
-              <Avatar size="sm" fallback={person.initials} />
+              <Avatar size="sm" photoUrl={person.photoUrl} fallback={person.initials} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-subheadline font-semibold">{person.name}</span>
                 {person.positionName ? (
