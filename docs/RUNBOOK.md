@@ -59,6 +59,18 @@ Adding or changing a confirmed holiday recomputes the DTR for periods not yet fi
 
 Employee numbers allow at most 99 per year (see [Employee number](modules/core.md#employee-number-company-id)). Changing that is a spec change, not a fix.
 
+### A wrong payroll settings version was added
+
+Payroll settings versions (contribution tables, the tax table, minimum wages, allowance types and the rest) are never edited or withdrawn, and a new version must take effect later than every existing one (see [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23)).
+
+1. **Find it.** On `/talent/payroll-settings`, open the setting's history to see the wrong version, its effective date and who added it; the `create` entry on `core.configVersion` in `/admin/audit` has the full value.
+2. **Already in effect.** Add a corrected version (Talent Owner with HR or the System Administrator) taking effect the day after the wrong one (a past date is allowed), with the source and a note that it corrects the previous version. The wrong version stays in the history for the days it applied.
+3. **Scheduled for a future date.** The wrong version still takes effect on its date. Add the corrected version for the next day after it, and keep any payroll run off that one day if you can; otherwise correct that run with a manual adjustment.
+4. **A draft payroll run already used it.** Recompute the draft after the correction. A finalized run is locked: correct it with a manual adjustment in the next draft run (see [A finalized payroll run has an error](#a-finalized-payroll-run-has-an-error)).
+5. **A seeded version is wrong.** Seeds never replace a version, so running `pnpm seed:admin` again changes nothing. Add a corrected version as in step 2.
+
+Removing a version from the database by hand breaks the audit trail and the record of which version a past run used. Don't, except on a development database.
+
 ## Money and stock
 
 ### A posted journal entry is wrong

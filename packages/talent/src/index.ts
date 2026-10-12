@@ -8,3 +8,4 @@ export * from './validation';
 export * from './compensation';
 export * from './views';
 export * from './derived';
+export * from './payroll';

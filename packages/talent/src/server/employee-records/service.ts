@@ -48,6 +48,7 @@ import {
   type SkillsSectionInput,
   skillsSectionSchema,
 } from '../../validation';
+import { buildAllowancesSection } from '../allowances/service';
 import { buildCertificationsSection } from '../certifications/service';
 import { buildCompensationSection, hasCompensationEntries } from '../compensation/service';
 import { buildDocumentsSection } from '../documents/service';
@@ -65,6 +66,7 @@ import {
   canManageDocuments,
   canManageEmployeeAccount,
   canRemoveCertifications,
+  canSeeAllowances,
   canSeeBirthAndCivilStatus,
   canSeeSensitiveSection,
   type RecordTarget,
@@ -216,6 +218,7 @@ async function buildView(
   const showIds = canSeeSensitiveSection(viewer, 'governmentId', target);
   const showBank = canSeeSensitiveSection(viewer, 'bankAccount', target);
   const showSalary = canSeeSensitiveSection(viewer, 'salary', target);
+  const showAllowances = canSeeAllowances(viewer, target);
   const showBirth = canSeeBirthAndCivilStatus(viewer, target);
 
   const query = EmployeeRecordModel.findOne({ employeeId: identity.employeeId });
@@ -278,6 +281,7 @@ async function buildView(
       editGovernmentIds: !readOnly && canChangeSensitiveDetails(viewer, target),
       editBankAccount: !readOnly && canChangeSensitiveDetails(viewer, target),
       addCompensation: !readOnly && canChangeSensitiveDetails(viewer, target),
+      assignAllowance: !readOnly && canChangeSensitiveDetails(viewer, target),
       // The photo is changed on /talent/me by the employee, and in the inspector by HR and the
       // System Administrator (Core's rule, checked again by Core's service).
       changePhoto: canChangeEmployeePhoto(viewer, identity.employeeId),
@@ -302,9 +306,15 @@ async function buildView(
   // A compensation entry counts as "filled in" only for a viewer who may see Compensation: for
   // anyone else the badge would say that a salary is stored (see filledInSet).
   if (showSalary) {
-    view.compensation = await buildCompensationSection(identity.employeeId, today);
+    view.compensation = await buildCompensationSection(
+      identity.employeeId,
+      today,
+      record?.workRegion ?? DEFAULT_WORK_REGION,
+    );
     if (view.compensation.entries.length > 0) view.filledIn = true;
   }
+  // The allowances only for a viewer who may reveal `allowances` (decision 204).
+  if (showAllowances) view.allowances = await buildAllowancesSection(identity, today);
   if (showIds) {
     const ids = record?.governmentIds;
     const masked = async (field: GovernmentIdField) =>

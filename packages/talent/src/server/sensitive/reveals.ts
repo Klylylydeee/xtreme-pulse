@@ -4,6 +4,7 @@ import { toBusinessDate } from '@pulse/core';
 import {
   employeeAuditLabel,
   getSensitiveSubject,
+  listConfigVersions,
   registerSensitiveReveal,
   type SensitiveCategory,
 } from '@pulse/core/server';
@@ -13,6 +14,9 @@ import {
   COMPENSATION_ENTRY_TYPE,
   EMPLOYEE_RECORD_TYPE,
 } from '../../views';
+import { ALLOWANCE_AMOUNT_FIELD, ALLOWANCE_ASSIGNMENT_TYPE } from '../../payroll/views';
+import { AllowanceAssignmentModel } from '../allowances/model';
+import { ALLOWANCE_TYPES_SETTING } from '../payroll-settings/settings';
 import { CompensationEntryModel } from '../compensation/model';
 import { EmployeeRecordModel } from '../employee-records/model';
 
@@ -63,10 +67,30 @@ async function entryEmployee(
   return CompensationEntryModel.findById(id, { employeeId: 1, effectiveDate: 1 }).lean();
 }
 
+/** A type's name in the newest `talent.allowanceTypes` version (keys are never removed), or the key. */
+async function allowanceTypeName(typeKey: string): Promise<string> {
+  const [latest] = await listConfigVersions(ALLOWANCE_TYPES_SETTING);
+  return latest?.value.types.find((type) => type.key === typeKey)?.name ?? typeKey;
+}
+
+async function assignmentEmployee(
+  ownerId: string,
+): Promise<{ employeeId: Types.ObjectId; effectiveDate: Date; typeKey: string } | null> {
+  const id = objectIdOf(ownerId);
+  if (!id) return null;
+  await connectDb();
+  return AllowanceAssignmentModel.findById(id, {
+    employeeId: 1,
+    effectiveDate: 1,
+    typeKey: 1,
+  }).lean();
+}
+
 /**
  * Registers Talent's reveals: `talent.employeeRecord` (`tin`, `sss`, `philhealth`, `pagibig` as
  * `governmentId`, `bankAccountNumber` as `bankAccount`) and `talent.compensationEntry`
- * (`basicSalary` as `salary`). Safe to call on every request.
+ * (`basicSalary` as `salary`), and from step 2.3 `talent.allowanceAssignment` (`amount` as
+ * `allowances`). Safe to call on every request.
  */
 export function registerTalentSensitiveReveals(): void {
   registerSensitiveReveal(EMPLOYEE_RECORD_TYPE, {
@@ -113,6 +137,30 @@ export function registerTalentSensitiveReveals(): void {
       const employee = await employeeAuditLabel(entry.employeeId);
       return employee
         ? `${employee.employeeNumber} · ${toBusinessDate(entry.effectiveDate)}`
+        : null;
+    },
+  });
+
+  registerSensitiveReveal(ALLOWANCE_ASSIGNMENT_TYPE, {
+    module: 'talent',
+    fields: { [ALLOWANCE_AMOUNT_FIELD]: 'allowances' },
+    async loadValue(ownerId, field) {
+      const id = objectIdOf(ownerId);
+      if (field !== ALLOWANCE_AMOUNT_FIELD || !id) return null;
+      await connectDb();
+      const entry = await AllowanceAssignmentModel.findById(id).select('+amountCentavos').lean();
+      return entry?.amountCentavos ?? null;
+    },
+    async subject(ownerId) {
+      const entry = await assignmentEmployee(ownerId);
+      return entry ? getSensitiveSubject(entry.employeeId) : null;
+    },
+    async label(ownerId) {
+      const entry = await assignmentEmployee(ownerId);
+      if (!entry) return null;
+      const employee = await employeeAuditLabel(entry.employeeId);
+      return employee
+        ? `${employee.employeeNumber} · ${await allowanceTypeName(entry.typeKey)} · ${toBusinessDate(entry.effectiveDate)}`
         : null;
     },
   });

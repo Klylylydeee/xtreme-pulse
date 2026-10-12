@@ -2,7 +2,7 @@
 
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CircleCheck, RotateCw } from 'lucide-react';
+import { CircleCheck, RotateCw, TriangleAlert } from 'lucide-react';
 import type { EmployeeRecordView } from '@pulse/talent';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { Button } from '@pulse/ui/components/button';
@@ -34,8 +34,18 @@ import { PhotoControls } from './photo-controls';
 //
 // From step 2.2 the record also has the photo (Change and Remove), the e-signature status, the 201
 // file and Skills & certifications, with their sheets (`employee-documents-sheets.tsx`).
+//
+// From step 2.3 the Compensation section opens "Assign allowance" too, and a salary saved with no
+// minimum wage on file for the region shows the save's note under the confirmation.
 
 const LOAD_FAILED = 'This record couldn’t load. Check your connection and try again.';
+
+/** The line shown after a change, for one opening of one record; `note` is a second, warning line. */
+interface Notice {
+  for: string;
+  message: string;
+  note: string | null;
+}
 
 function replaceEmployeeParam(employeeId: string | null) {
   const params = new URLSearchParams(window.location.search);
@@ -177,7 +187,7 @@ export function EmployeeInspector({
   const sheetFocus = useReturnFocus();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
-  const [notice, setNotice] = useState<{ for: string; message: string } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   function remember() {
     sheetFocus.remember(document.activeElement as HTMLElement | null);
@@ -200,9 +210,12 @@ export function EmployeeInspector({
     setSheetOpen(true);
   }
 
-  /** After a change: show `message`, reload the record and refresh the list behind it. */
-  function changed(message: string) {
-    setNotice({ for: `${employeeId}:${session}`, message });
+  /**
+   * After a change: show `message` (and `note`, such as "No minimum wage on file …"), reload the
+   * record and refresh the list behind it.
+   */
+  function changed(message: string, note?: string) {
+    setNotice({ for: `${employeeId}:${session}`, message, note: note ?? null });
     reload();
     router.refresh();
   }
@@ -237,7 +250,7 @@ export function EmployeeInspector({
             documentHandlers={documentHandlers}
             imageUpload={tools.uploads.image}
             onPhotoChanged={changed}
-            notice={notice && notice.for === `${employeeId}:${session}` ? notice.message : null}
+            notice={notice && notice.for === `${employeeId}:${session}` ? notice : null}
           />
         ) : null}
       </InspectorPanel>
@@ -249,9 +262,9 @@ export function EmployeeInspector({
                 key={sheet.session}
                 section={sheet.section}
                 view={view}
-                onSaved={(message) => {
+                onSaved={(message, note) => {
                   setSheetOpen(false);
-                  changed(message);
+                  changed(message, note);
                 }}
                 onReload={() => {
                   setSheetOpen(false);
@@ -299,7 +312,7 @@ function RecordBody({
   documentHandlers: DocumentHandlers;
   imageUpload: UploadHints['image'];
   onPhotoChanged: (message: string) => void;
-  notice: string | null;
+  notice: Notice | null;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
     return (
@@ -356,10 +369,18 @@ function RecordBody({
     <div className="flex flex-col gap-5" aria-busy={refreshing || undefined}>
       <div role="status" className="empty:hidden">
         {notice ? (
-          <p className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium text-success-text shadow-card">
-            <CircleCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
-            <span>{notice}</span>
-          </p>
+          <div className="flex flex-col gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium shadow-card">
+            <p className="flex items-start gap-2 text-success-text">
+              <CircleCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
+              <span>{notice.message}</span>
+            </p>
+            {notice.note ? (
+              <p className="flex items-start gap-2 text-warning-text">
+                <TriangleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
+                <span>{notice.note}</span>
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <div className="flex items-center gap-3">

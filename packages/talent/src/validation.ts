@@ -263,8 +263,17 @@ export const compensationEntrySchema = z.object({
   rateType: z.enum(RATE_TYPES, { error: 'Choose monthly-rated or daily-rated.' }),
   minimumWageEarner: checkbox,
   reason: reasonField,
+  /**
+   * "Save anyway" on the minimum wage warning (step 2.3): without it, a salary below the minimum
+   * wage saves nothing and the service returns the warning.
+   */
+  allowBelowMinimumWage: checkbox,
 });
-export type CompensationEntryInput = z.output<typeof compensationEntrySchema>;
+/** What `addCompensationEntry` takes; `allowBelowMinimumWage` defaults to false. */
+export type CompensationEntryInput = Omit<
+  z.output<typeof compensationEntrySchema>,
+  'allowBelowMinimumWage'
+> & { allowBelowMinimumWage?: boolean };
 
 /**
  * The "Add salary change" form: the basic salary is typed in pesos with up to 2 decimals and
@@ -282,6 +291,7 @@ export const compensationEntryFormSchema = z
     rateType: z.enum(RATE_TYPES, { error: 'Choose monthly-rated or daily-rated.' }),
     minimumWageEarner: checkbox,
     reason: reasonField,
+    allowBelowMinimumWage: checkbox,
   })
   .transform(({ basicSalary, ...rest }): CompensationEntryInput => ({
     ...rest,

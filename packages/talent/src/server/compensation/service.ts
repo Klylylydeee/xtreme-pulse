@@ -19,7 +19,9 @@ import {
   compensationStatuses,
   latestEffectiveDate,
 } from '../../compensation';
+import { DEFAULT_WORK_REGION, type WorkRegion } from '../../fixed-sets';
 import { SALARY_MASK } from '../../formats';
+import type { MinimumWageWarning } from '../../payroll/minimum-wage';
 import { type CompensationEntryInput, compensationEntrySchema } from '../../validation';
 import {
   BASIC_SALARY_FIELD,
@@ -33,6 +35,11 @@ import {
   assertCanEditEmployeeRecord,
   type TalentActor,
 } from '../policy';
+import {
+  checkMinimumWage,
+  isCurrentSalaryBelowMinimumWage,
+  workRegionsOf,
+} from '../minimum-wage/service';
 import { type CompensationEntryDocument, CompensationEntryModel } from './model';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 and
@@ -40,8 +47,13 @@ import { type CompensationEntryDocument, CompensationEntryModel } from './model'
 // is a new compensation entry, never an edit. Adding one follows the sensitive-change rule
 // (policy.ts), in one transaction with its `create` audit entry (labelled
 // `<employee number> · <effective date>`; the salary is hidden in the snapshot). The effective
-// date is on or after the date hired and at most a year ahead. Allowances and the minimum wage
-// warning come in step 2.3.
+// date is on or after the date hired and at most a year ahead.
+//
+// Step 2.3 adds the minimum wage warning ("Save anyway", decisions 205 and 206): a salary below the
+// work region's minimum wage, on the later of the effective date and today, saves nothing unless
+// `allowBelowMinimumWage` confirms it, and then saves with `minimumWageWarningConfirmed`. With no
+// minimum wage on file for the region, the salary saves with a note. The section gets the
+// server-computed "Below minimum wage" badge.
 //
 // The Compensation section is built only for a viewer who may reveal `salary` (the record
 // service checks that); even then the amount is sent masked with no digits ("••••"). The full
@@ -73,6 +85,7 @@ async function loadEntries(employeeId: string): Promise<EntryRow[]> {
 export async function buildCompensationSection(
   employeeId: string,
   today: BusinessDate,
+  region: WorkRegion = DEFAULT_WORK_REGION,
 ): Promise<CompensationSectionView> {
   const rows = await loadEntries(employeeId);
   const timeline = rows.map((row) => ({
@@ -98,19 +111,39 @@ export async function buildCompensationSection(
       reason: row.reason,
       status: statuses.get(id) ?? 'previous',
       createdAt: row.createdAt,
+      minimumWageWarningConfirmed: row.minimumWageWarningConfirmed === true,
     }));
-  return { current: entries.find((entry) => entry.status === 'current') ?? null, entries };
+  const current = entries.find((entry) => entry.status === 'current') ?? null;
+  return {
+    current,
+    entries,
+    belowMinimumWage: current
+      ? await isCurrentSalaryBelowMinimumWage(employeeId, region, today)
+      : false,
+  };
 }
+
+/** What "Add salary change" gets back. */
+export type AddCompensationEntryResult =
+  /** Saved. */
+  | { status: 'saved'; id: string }
+  /** Saved, with a note to show: no minimum wage is on file for the work region. */
+  | { status: 'savedWithNote'; id: string; note: string }
+  /** Nothing saved: show the warning and turn the button into "Save anyway". */
+  | { status: 'belowMinimumWage'; warning: MinimumWageWarning };
 
 /**
  * Adds a compensation entry (a salary change or a same-date correction): Talent Write and HR or
  * the System Administrator; for an HR-department employee, Talent Write and the System
  * Administrator or a Board member; never one's own. Accounting is always refused.
+ *
+ * A salary below the minimum wage saves nothing and returns the warning, unless
+ * `allowBelowMinimumWage` is set ("Save anyway").
  */
 export async function addCompensationEntry(
   actor: TalentActor,
   input: CompensationEntryInput,
-): Promise<{ id: string }> {
+): Promise<AddCompensationEntryResult> {
   const parsed = compensationEntrySchema.safeParse(input);
   if (!parsed.success) throw inputError(parsed.error.issues);
   const values = parsed.data;
@@ -149,6 +182,20 @@ export async function addCompensationEntry(
       });
     }
 
+    const region =
+      (await workRegionsOf([identity.employeeId], { session })).get(identity.employeeId) ??
+      DEFAULT_WORK_REGION;
+    const check = await checkMinimumWage({
+      amountCentavos: values.basicSalaryCentavos,
+      rateType: values.rateType,
+      region,
+      effectiveDate: values.effectiveDate,
+      session,
+    });
+    if (check.status === 'below' && !values.allowBelowMinimumWage) {
+      return { status: 'belowMinimumWage', warning: check.warning } as const;
+    }
+
     const entry = new CompensationEntryModel({
       employeeId: new Types.ObjectId(identity.employeeId),
       effectiveDate: startOfBusinessDate(values.effectiveDate),
@@ -156,6 +203,7 @@ export async function addCompensationEntry(
       rateType: values.rateType,
       minimumWageEarner: values.minimumWageEarner,
       reason: values.reason,
+      ...(check.status === 'below' ? { minimumWageWarningConfirmed: true } : {}),
       createdBy: current.id,
       updatedBy: current.id,
     });
@@ -177,6 +225,9 @@ export async function addCompensationEntry(
       },
       { session },
     );
-    return { id: entry._id.toHexString() };
+    const id = entry._id.toHexString();
+    return check.status === 'noRate'
+      ? ({ status: 'savedWithNote', id, note: check.note } as const)
+      : ({ status: 'saved', id } as const);
   });
 }

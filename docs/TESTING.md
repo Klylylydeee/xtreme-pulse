@@ -1,13 +1,13 @@
 # Testing
 
-How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests) and the [document, e-signature and certification tests](#document-e-signature-and-certification-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
+How changes are checked. The short version: **few automated tests** (see [ADR 0010](adr/0010-manual-verification-before-automated-tests.md)): only the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests), the [document, e-signature and certification tests](#document-e-signature-and-certification-tests) and the [payroll settings tests](#payroll-settings-tests). Every build step is checked with typecheck, lint and a browser check, and every phase ends with a review and a hands-on phase check.
 
 ## What happens today
 
 | Check | When | How |
 |---|---|---|
 | Typecheck and lint | After every build step | `pnpm typecheck` and `pnpm lint` must pass |
-| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests), [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), [Employee record tests](#employee-record-tests) and [Document, e-signature and certification tests](#document-e-signature-and-certification-tests)) |
+| Automated tests | After every build step | `pnpm test` must pass (see [Sensitive-data guard tests](#sensitive-data-guard-tests), [Audit, notification and reveal tests](#audit-notification-and-reveal-tests), [Core administration tests](#core-administration-tests), [User account tests](#user-account-tests), [Module access tests](#module-access-tests), [User access tests](#user-access-tests), [Master data tests](#master-data-tests), [Approvals tests](#approvals-tests), [Holiday calendar tests](#holiday-calendar-tests), [Directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), [Employee record tests](#employee-record-tests), [Document, e-signature and certification tests](#document-e-signature-and-certification-tests) and [Payroll settings tests](#payroll-settings-tests)) |
 | Browser check | After every build step | Open the step's screens in light and dark appearance and at phone width (see [Checking a screen](DESIGN_SYSTEM.md#checking-a-screen)) |
 | "Done when" | After every build step | Each step in the [build plan](BUILD_PLAN.md) ends with a concrete "Done when" line. That line is the step's acceptance test |
 | Phase review | End of every phase | A review sub-agent checks the whole phase against the docs, using the [security review checklist](../SECURITY.md#review-checklist) |
@@ -16,7 +16,7 @@ How changes are checked. The short version: **few automated tests** (see [ADR 00
 
 Development aids: `/dev/ui` shows every token and component, and `/dev/health` checks MongoDB (with a transaction), Redis, the worker, storage and encryption. Both are development-only.
 
-`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation); and from build step 2.1, the employee record suites (the Core identity service, the employee record and compensation models and services, section visibility, who may change what, the Talent reveals, the formats and the My record navigation); and from build step 2.2, the document, e-signature and certification suites (file view audit, the profile photo, the approval signer, the medical rule, 201 documents, e-signature pinning, certifications and their read services, skills, and the expiry alert job and its worker wiring).
+`pnpm test` runs the committed automated tests: the sensitive-data guard suite; from build step 1.3, the audit log, notification and sensitive reveal suites; from build step 1.4, the departments, positions, company settings, company details reminder, allowed email domains, upload settings and company logo route suites; from build step 1.5, the employee number, reporting line, user, user account schema, employee model, session and temporary password suites; from build step 1.6, the module access level, effective access, file access and navigation suites; and from build step 1.7, the user access, access reminder, duplicate notification, access-change notification, system account disable and enable, and admin recovery suites; and from build step 1.8, the master data suites (clients, sites and contacts, products, catalog items, suppliers, the TIN and mobile helpers and the product seed loader); and from build step 1.9, the approvals suites (the decision schema and fixed sets, routing, the engine and its hooks, the development sample type and the Approvals navigation); and from build step 1.10, the holiday calendar suites (the Easter and rule dates, the auto-draft and the online source, holiday changes and visibility, the reminder, holidays-changed, the worker's Core job wiring and the Holidays navigation); and from build step 1.11, the directory, org chart and command bar suites (the directory allowlist and visibility, the org chart graph and layout, reporting line edits, the command bar registry and people provider, the Home team and oldest waiting approval, and the Directory and Org chart navigation); and from build step 2.1, the employee record suites (the Core identity service, the employee record and compensation models and services, section visibility, who may change what, the Talent reveals, the formats and the My record navigation); and from build step 2.2, the document, e-signature and certification suites (file view audit, the profile photo, the approval signer, the medical rule, 201 documents, e-signature pinning, certifications and their read services, skills, and the expiry alert job and its worker wiring); and from build step 2.3, the payroll settings suites (the seed loaders, the SSS, PhilHealth, Pag-IBIG and withholding lookups, cut-offs, the minimum wage check and warning, automatic and explicit allowances, adding a version, the wage order list and the Payroll settings navigation).
 
 ## Sensitive-data guard tests
 
@@ -285,6 +285,80 @@ Added in build step 2.2 ([Documents, photo, e-signature and certifications](modu
     - With no active HR user, the System Administrators get the HR alerts.
     - The worker registers the schedule `0 8 * * *` and wires the handler.
 
+## Payroll settings tests
+
+Added in build step 2.3 ([Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23), decisions 191–212). The figures below are worked by hand from the seeded rates in [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23). If HR replaces a seeded table, the tests keep testing the seed data, not the database.
+
+- **Where.** Next to the code they test, as `*.test.ts`, in `packages/talent/src/` (the pure schemas and lookups) and `packages/talent/src/server/` (`payroll-settings/`, `allowances/`, `minimum-wage/`, `compensation/`), plus `apps/web/lib/navigation.test.ts`.
+- **A fixed "today".** The payroll settings, allowance and minimum wage service tests fake only `Date`, at 2026-10-12 10:00 Manila (after NCR-28 took effect), and move it where a test needs another day (2026-09-01 for ₱695, 2026-11-03 for the date hired). A version's status, "upcoming", the badge and the wage order list mean the same thing whenever the tests run.
+- **Seeding.**
+  - Each of the ten loaders adds its seeded versions once; a second run adds nothing.
+  - A setting that already has a version is left alone.
+  - Every seeded value passes its schema and has no fractional number.
+  - Every seeded version has a source.
+- **SSS** (`sssRowFor`, monthly compensation → MSC, employee, employer, EC). The generated table has 61 rows.
+
+  | Compensation | MSC | Employee | Employer | EC |
+  |---|---|---|---|---|
+  | ₱4,000.00 | ₱5,000 | ₱250 | ₱500 | ₱10 |
+  | ₱14,749.99 | ₱14,500 | ₱725 | ₱1,450 | ₱10 |
+  | ₱14,750.00 | ₱15,000 | ₱750 | ₱1,500 | ₱30 |
+  | ₱20,000.00 | ₱20,000 (MPF 0) | ₱1,000 | ₱2,000 | ₱30 |
+  | ₱25,000.00 | ₱20,000 + MPF ₱5,000 | ₱1,250 (₱1,000 + ₱250) | ₱2,500 (₱2,000 + ₱500) | ₱30 |
+  | ₱50,000.00 | ₱20,000 + MPF ₱15,000 | ₱1,750 | ₱3,500 | ₱30 |
+
+- **PhilHealth** (5%, half each; the premium is rounded half-up once, the employee's half is rounded half-up and the employer takes the remainder, so the two add up to the premium):
+  - ₱8,000 → floor ₱10,000 → premium ₱500, employee ₱250.
+  - ₱25,000 → ₱1,250, employee ₱625.
+  - ₱150,000 → ceiling ₱100,000 → ₱5,000, employee ₱2,500.
+- **Pag-IBIG:**
+  - ₱1,500 → employee ₱15, employer ₱30.
+  - ₱8,000 → ₱160 and ₱160.
+  - ₱30,000 → capped at ₱10,000 → ₱200 and ₱200.
+- **BIR semi-monthly** (`semiMonthlyWithholding`):
+  - ₱10,417.00 → ₱0.00.
+  - ₱12,000.00 → ₱237.45 (15% of ₱1,583).
+  - ₱20,000.00 → ₱1,604.10 (₱937.50 + 20% of ₱3,333).
+  - ₱50,000.00 → ₱8,437.45 (₱4,270.70 + 25% of ₱16,667).
+  - The seeded brackets are continuous: each base tax equals the previous base plus its rate times the width.
+- **De minimis.** The overtime meal limit is 30% of the regional minimum wage: ₱226.50 a day at ₱755.
+- **Cut-offs** (`cutOffFor`, seeded schedule):
+  - 2026-02-11 to 2026-02-25 pays on 2026-02-28.
+  - 2026-01-26 to 2026-02-10 pays on 2026-02-15.
+  - The end-of-month cut-off in February 2028 pays on the 29th.
+  - A split that doesn't total exactly 1, overlapping cut-offs, and a `payrollSettings` version not starting on a cut-off start day are refused.
+- **Minimum wage** (NCR, factor 261). The exact comparison is monthly × 12 < minimum × 261.
+  - At ₱755 (from 2026-09-26):
+    - Monthly ₱16,421.24 is below (1,642,124 × 12 = 19,705,488 < 75,500 × 261 = 19,705,500).
+    - ₱16,421.25 isn't (equal).
+    - Daily ₱754.99 is below; ₱755.00 isn't.
+    - Monthly ₱16,000.00 shows the daily rate ₱735.63.
+    - The warning rounds the daily rate down: ₱16,421.24 a month (₱754.9995… a day) shows ₱754.99, never ₱755.00.
+  - At ₱695 (a "today" before 2026-09-26): ₱15,116.24 is below and ₱15,116.25 isn't.
+  - **The "Done when", in the service.** A salary below the minimum without the confirmation saves nothing and returns the warning. With "Save anyway" it saves with `minimumWageWarningConfirmed`. A region with no rate saves with the note.
+  - The check uses the later of the effective date and today.
+  - The badge appears only for a current salary below today's minimum, and only in the Compensation section.
+- **Allowances.**
+  - **The "Done when".** A new employee hired 2026-11-03 has no allowance on 2026-11-02 and the internet allowance (₱500 per cut-off, automatic) from 2026-11-03. On 2026-10-12 the record shows it as upcoming ("Starts"); from 2026-11-03 it no longer is.
+  - Correcting the date hired in Core moves the start.
+  - An `end` entry stops the allowance, and a `set` entry changes its amount.
+  - A new `talent.allowanceTypes` default applies from its version's date.
+  - A tie on the same date goes to the newest entry.
+  - Assigned amounts are stored encrypted and revealed only through the audit-logged reveal (`talent.allowanceAssignment`, `amount`).
+  - Who assigns:
+    - HR assigns.
+    - Talent Write alone, Accounting and anyone on their own record are refused.
+    - HR is refused for HR staff, and a Board member or the System Administrator is allowed.
+  - The allowances part is sent only to a viewer who may reveal `allowances`.
+- **The view.** On 2026-10-12 NCR-28 is in effect and NCR-26 superseded; on 2026-09-01 NCR-28 is scheduled and NCR-26 in effect. "Add version" accepts dates from the day after the latest version to one year ahead (2027-10-12).
+- **Adding a version.**
+  - Talent Owner without HR or the System Administrator is refused, and so is HR without Talent Owner.
+  - A date on or before the latest version, or more than a year ahead, is refused. A same-day collision is refused.
+  - Removing an allowance type key is refused.
+  - The `create` entry on `core.configVersion` is written in the same transaction.
+- **The wage order list** counts and lists the active employees below a version in its region, shows no amounts, and is refused without Talent Read or for a viewer outside HR, Accounting and the System Administrator.
+- **Navigation.** `/talent/payroll-settings` keeps the Talent item current, with the breadcrumb "Pulse Talent › Payroll settings".
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
@@ -296,7 +370,7 @@ The riskiest code computes money, time and deadlines. Until automated tests exis
 
 ## When automated tests arrive (proposed)
 
-Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests) and the [document, e-signature and certification tests](#document-e-signature-and-certification-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
+Apart from the [sensitive-data guard tests](#sensitive-data-guard-tests), the [audit, notification and reveal tests](#audit-notification-and-reveal-tests), the [Core administration tests](#core-administration-tests), the [user account tests](#user-account-tests), the [module access tests](#module-access-tests), the [user access tests](#user-access-tests), the [master data tests](#master-data-tests), the [approvals tests](#approvals-tests), the [holiday calendar tests](#holiday-calendar-tests), the [directory, org chart and command bar tests](#directory-org-chart-and-command-bar-tests), the [employee record tests](#employee-record-tests), the [document, e-signature and certification tests](#document-e-signature-and-certification-tests) and the [payroll settings tests](#payroll-settings-tests), none of this is in use yet. It's a plan for when tests are added, in priority order:
 
 1. **Unit tests for pure computations**, with Vitest: money rounding, pay computation, DTR, leave and offset balances, 13th month, milestone split, SLA business-hours math, employee and document numbers, Holy Week dates.
 2. **Service tests against a real MongoDB replica set**, for example `mongodb-memory-server` in replica-set mode: transactions, balanced journal entries, stock movements and derived on-hand, duplicate receipts. The approvals engine's tests already run (see [Approvals tests](#approvals-tests)).

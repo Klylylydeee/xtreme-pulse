@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { defineAction, OBJECT_ID_PATTERN } from '@pulse/core';
 import { removeEmployeePhoto, setEmployeePhoto } from '@pulse/core/server';
 import {
+  allowanceAssignmentFormSchema,
   bankAccountSectionSchema,
   certificationCreateSchema,
   certificationRemoveSchema,
@@ -23,6 +24,7 @@ import {
   addCompensationEntry,
   addEmployeeDocument,
   archiveEmployeeDocument,
+  assignAllowance,
   createCertification,
   getEmployeeRecordView,
   removeCertification,
@@ -58,6 +60,10 @@ import { requireModuleAccess, signedInUser } from '@/lib/auth';
 // Read) and the expiry alert lead days (Talent Owner). Uploads come as FormData fields `file`,
 // `attachment` and `photo`; nothing returns file contents, only ids, versions and URLs of the
 // access-checked file route. The employee's own photo and e-signature are in `talent-self.ts`.
+//
+// Step 2.3 (docs/modules/talent.md#payroll-settings-and-allowances-build-step-23, decisions 203–
+// 205): "Add salary change" answers the minimum wage warning instead of saving (the sheet's "Save
+// anyway" sends the form again to confirm it), and "Assign allowance" adds an allowance assignment.
 
 const TALENT_READ = 'You don’t have access to Pulse Talent. Ask HR or the System Administrator.';
 const TALENT_WRITE =
@@ -141,12 +147,53 @@ export const setBankAccountAction = defineAction({
   },
 });
 
+/**
+ * What "Add salary change" answers (step 2.3, decision 205): the new entry's id, the note or the
+ * warning's sentence, never the stored amount.
+ *
+ * - `saved`: the entry was added.
+ * - `savedWithNote`: added, with `note` to show ("No minimum wage on file for <region>. …").
+ * - `belowMinimumWage`: nothing was saved. `warning` is the spec's sentence for under the amount
+ *   ("The daily rate ₱650.00 is below the NCR minimum wage …"), which repeats only the rate the
+ *   user just typed; the button becomes "Save anyway", which sends the form again with
+ *   `allowBelowMinimumWage`.
+ */
+export type CompensationSaveResult =
+  | { status: 'saved'; id: string }
+  | { status: 'savedWithNote'; id: string; note: string }
+  | { status: 'belowMinimumWage'; warning: string };
+
 /** "Add salary change": a new compensation entry, the amount typed in pesos. */
 export const addCompensationEntryAction = defineAction({
   access: talentWriters,
   schema: compensationEntryFormSchema,
-  handler: async (input) => {
+  handler: async (input): Promise<CompensationSaveResult> => {
     const result = await addCompensationEntry(await signedInUser(), input);
+    // Nothing was saved, so there is nothing to refresh.
+    if (result.status === 'belowMinimumWage') {
+      return { status: 'belowMinimumWage', warning: result.warning.message };
+    }
+    revalidatePath('/talent');
+    return result.status === 'savedWithNote'
+      ? { status: 'savedWithNote', id: result.id, note: result.note }
+      : { status: 'saved', id: result.id };
+  },
+});
+
+// --- Step 2.3: allowances -----------------------------------------------------------------------
+
+/**
+ * "Assign allowance": a new allowance assignment (set an amount, typed in pesos, or end) from its
+ * effective date. Talent Write here; the service checks the salary rule again in its transaction
+ * (HR or the System Administrator; for the HR department the System Administrator or a Board
+ * member; never one's own record) and writes the audit entry with the amount hidden. Answers only
+ * the new entry's id.
+ */
+export const assignAllowanceAction = defineAction({
+  access: talentWriters,
+  schema: allowanceAssignmentFormSchema,
+  handler: async (input) => {
+    const result = await assignAllowance(await signedInUser(), input);
     revalidatePath('/talent');
     return { id: result.id };
   },

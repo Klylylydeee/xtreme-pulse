@@ -31,7 +31,8 @@ import {
 // Administration sub-groups), docs/TESTING.md#approvals-tests (navigation, step 1.9),
 // docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10),
 // docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11),
-// docs/TESTING.md#employee-record-tests (My record, step 2.1) and
+// docs/TESTING.md#employee-record-tests (My record, step 2.1), the Payroll settings breadcrumb
+// (step 2.3) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -407,6 +408,36 @@ describe('My record (step 2.1)', () => {
     // Talent stays current on its own pages, /talent/members included.
     expect(activeEntry(talentWriter, '/talent')?.entry.label).toBe('Talent');
     expect(isEntryActive(getNavEntry('/talent'), '/talent/members')).toBe(true);
+  });
+});
+
+describe('Payroll settings (step 2.3)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+
+  it('reads "Pulse Talent › Payroll settings" in the breadcrumb, with Talent current', () => {
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, '/talent/payroll-settings')).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll settings',
+      });
+      expect(activeEntry(groups, '/talent/payroll-settings')?.entry.label).toBe('Talent');
+    }
+    expect(breadcrumbFor(talentReader, '/talent')).toEqual({
+      parent: 'Modules',
+      current: 'Pulse Talent',
+    });
+  });
+
+  it('isn’t a sidebar entry, and reads "No access" without Talent Read', () => {
+    expect(visibleHrefs(systemAdministrator)).not.toContain('/talent/payroll-settings');
+    expect(breadcrumbFor(visibleNavigation(newUser), '/talent/payroll-settings')).toEqual({
+      current: NO_ACCESS_PAGE_TITLE,
+    });
+    expect(breadcrumbFor(visibleNavigation(hr), '/talent/payroll-settings')).toEqual({
+      current: NO_ACCESS_PAGE_TITLE,
+    });
   });
 });
 

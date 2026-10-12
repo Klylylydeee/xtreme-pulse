@@ -2,6 +2,7 @@ import type { BusinessDate, EmploymentStatus } from '@pulse/core';
 import type { EmployeeIdentity } from '@pulse/core/server';
 import type { CompensationStatus } from './compensation';
 import type { ExpiryState } from './derived';
+import type { AllowancesSectionView } from './payroll/views';
 import type {
   CertificationStatus,
   CivilStatus,
@@ -108,6 +109,8 @@ export interface CompensationEntryView {
   reason: string;
   status: CompensationStatus;
   createdAt: Date;
+  /** True when HR chose "Save anyway" on the minimum wage warning (step 2.3). */
+  minimumWageWarningConfirmed: boolean;
 }
 
 export interface CompensationSectionView {
@@ -115,6 +118,11 @@ export interface CompensationSectionView {
   current: CompensationEntryView | null;
   /** Every entry, newest first (by effective date, then by creation). */
   entries: CompensationEntryView[];
+  /**
+   * The "Below minimum wage" badge (step 2.3): the current salary is below the minimum wage in
+   * effect today for the work region. Computed on the server; no amount is sent.
+   */
+  belowMinimumWage: boolean;
 }
 
 /** What the viewer may do on this record; each service checks again itself. */
@@ -128,6 +136,8 @@ export interface EmployeeRecordPermissions {
   editGovernmentIds: boolean;
   editBankAccount: boolean;
   addCompensation: boolean;
+  /** "Assign allowance" (the same rule as salary, step 2.3). */
+  assignAllowance: boolean;
   /** Change and Remove on the profile photo (Core's rule: the employee, HR, the System Administrator). */
   changePhoto: boolean;
   /** Upload, Edit and Archive on the 201 file (Talent Write and HR or the System Administrator). */
@@ -157,6 +167,11 @@ export interface EmployeeRecordView {
   employment: EmploymentSectionView;
   /** Present only for a viewer who may reveal `salary` for this employee. */
   compensation?: CompensationSectionView;
+  /**
+   * The allowances (step 2.3), present only for a viewer who may reveal `allowances` for this
+   * employee. Shown inside the Compensation section.
+   */
+  allowances?: AllowancesSectionView;
   /** Present only for a viewer who may reveal `governmentId` for this employee. */
   governmentIds?: GovernmentIdsSectionView;
   /** Present only for a viewer who may reveal `bankAccount` for this employee. */

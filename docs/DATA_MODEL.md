@@ -32,7 +32,7 @@ Each module owns its collections, and no module writes to another module's colle
 | Module | Owns |
 |---|---|
 | Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients (`clients`) with sites (`clientSites`) and contacts (`clientContacts`), products (`brands`), catalog items (`catalogItems`), suppliers (`suppliers`), holidays (`holidays`), approval requests (`approvalRequests`), notifications (`notifications`), audit log (`auditLogs`) |
-| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents (`employeeDocuments`, build step 2.2), e-signatures (`eSignatures`) and their uses (`signatureApplications`, build step 2.2), certifications (`certifications`, build step 2.2), work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings, allowance types and assignments, payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
+| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents (`employeeDocuments`, build step 2.2), e-signatures (`eSignatures`) and their uses (`signatureApplications`, build step 2.2), certifications (`certifications`, build step 2.2), work schedules, timesheets (time entries and reimbursements), leave and offset entries and requests, payroll settings and allowance types (versioned configuration, build step 2.3), allowance assignments (`allowanceAssignments`, build step 2.3), payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
 | Supply | Purchase requests, purchase orders (`purchaseOrders`), receiving records, stock movements, serial items (`serialItems`), stock locations, delivery receipts, RMAs |
@@ -73,6 +73,7 @@ The collection has the `$jsonSchema` validator for its sensitive paths ([Sensiti
   - `rateType` (`RATE_TYPES`: `monthly`, `daily`)
   - `minimumWageEarner` (true or false)
   - `reason` (1 to 1,000 characters)
+  - `minimumWageWarningConfirmed` (true when HR chose "Save anyway" on the minimum wage warning; build step 2.3. Entries saved before step 2.3 lack it and read as false)
   - the base fields
 - **Insert-only:** every update, replacement and delete is refused.
 - **Index:** `{ employeeId, effectiveDate: -1, createdAt: -1 }`.
@@ -110,6 +111,20 @@ The formats are in [The employee record](modules/talent.md#the-employee-record-b
   - `version`
   - Indexes: `{ employeeId }`, `{ brandId }`, `{ expiryDate }`.
 
+**Allowances** (build step 2.3, [the spec](modules/talent.md#payroll-settings-and-allowances-build-step-23)). The allowance types are the versioned setting `talent.allowanceTypes` ([Versioned configuration](#versioned-configuration)). An automatic type (the internet allowance) is derived from Core's date hired and never stored.
+
+- **`allowanceAssignments`.** Insert-only, no soft delete, never deleted (updates, replacements and deletes are refused):
+  - `employeeId`
+  - `typeKey` (a key from `talent.allowanceTypes`; a new assignment needs an active type)
+  - `effectiveDate` (the Manila day at 00:00, stored as UTC; on or after the date hired, at most a year ahead)
+  - `kind` (`ALLOWANCE_ASSIGNMENT_KINDS`: `set`, `end`)
+  - `amountCentavos` (a `sensitiveField()` holding a whole number of centavos above zero, in the type's basis; absent for `end`)
+  - `reason` (1 to 1,000 characters)
+  - the base fields
+  - Index: `{ employeeId, typeKey, effectiveDate: -1, createdAt: -1 }`.
+  - The collection has the `$jsonSchema` validator for its sensitive path.
+- **In effect on a day:** for each type, the latest entry with an effective date on or before that day, the latest created on a tie; `end` means none. An automatic type with no such entry applies from the date hired at the default amount in effect that day, while it is active in that day's version. Before the date hired, nothing applies.
+
 ## Naming
 
 - Collections: plural camelCase (`purchaseOrders`, `serialItems`)
@@ -138,6 +153,24 @@ The spec calls for versioning for:
 | Salary and allowance history, work schedules | [Compensation](modules/talent.md#compensation), [Work schedule](modules/talent.md#work-schedule) |
 | Holiday auto-draft rules (`core.holidayRules`, build step 1.10) | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Expiry alert lead days (`talent.expiryAlerts`: `documentLeadDays`, `certificationLeadDays`, 1 to 180, default 30; build step 2.2) | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| Payroll settings (build step 2.3): the ten `talent.*` settings below | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+
+**Payroll settings** (build step 2.3). Each is declared with `defineConfigSetting` in `packages/talent`. Every number is a whole number (centavos, days, counts); rates are decimal strings of up to 6 digits before and after the point (`"0.05"`, `"1.30"`), read exactly with `ratio`. A cut-off that doesn't wrap and ends on day 28 runs to the month's last day.
+
+| Key | Value |
+|---|---|
+| `talent.payrollSettings` | `cutOffs`: exactly two `{ key: 'midMonth' \| 'endOfMonth', startDay, endDay, payDay }` (days 1–28; pay day 1–31, moved to the month's last day; together they cover the month with no overlap; the pay date is in the month the cut-off ends, after its end day). `dailyRateFactor` (261), `hoursPerDay` (8). `contributionSplit`: for each of `sss`, `philhealth`, `pagibig`, `{ midMonth, endOfMonth }` as decimal strings adding up to exactly 1. A new version must take effect on a cut-off start day of its own schedule |
+| `talent.sssContributions` | `rows`: ascending, the first starting at 0, each `{ minCompensationCentavos, regularMscCentavos, mpfMscCentavos, employee: { regularCentavos, mpfCentavos }, employer: { regularCentavos, mpfCentavos }, ecCentavos }`, with regular + MPF = the MSC |
+| `talent.philhealthContributions` | `{ premiumRate, employeeShare, floorCentavos, ceilingCentavos }` |
+| `talent.pagibigContributions` | `brackets`: ascending `{ upToCentavos (null for the last), employeeRate, employerRate }`; `maxFundSalaryCentavos` |
+| `talent.withholdingTaxSemiMonthly` | `brackets`: ascending `{ overCentavos, baseTaxCentavos, rate }`, the first `{ 0, 0, '0' }` |
+| `talent.premiumRates` | `regularHolidayWorked`, `regularHolidayUnworked`, `specialDayWorked`, `specialDayUnworked`, `restDayWorked`, `specialDayOnRestDay`, `regularHolidayOnRestDay`, `overtimeOrdinaryAddOn`, `overtimeRestDayHolidayAddOn`, `nightDifferentialAddOn` (decimal strings), `nightStart`, `nightEnd` (`HH:MM`) |
+| `talent.deMinimisLimits` | `items`: `{ key, label, period: 'month' \| 'semester' \| 'year' \| 'day', limitCentavos, rateOfMinimumWage }`, exactly one of the last two set, keys unique |
+| `talent.thirteenthMonthExemption` | `{ exemptCeilingCentavos }` |
+| `talent.minimumWages` | `regions`: `{ region (WORK_REGIONS), wageOrder, dailyRateCentavos }`, one per region (the general, non-agriculture rate) |
+| `talent.allowanceTypes` | `types`: `{ key, name, taxTreatment: 'taxable' \| 'nonTaxable' \| 'deMinimis', deMinimisKey (required exactly for de minimis), basis: 'perCutOff' \| 'perDayPresent', defaultAmountCentavos, autoAssign (per cut-off types only), active }`. A key, once added, stays in every later version |
+
+The seeded values, with their sources, are in [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23).
 
 Who checks these against official issuances, and when, is in [Keeping rates current](COMPLIANCE.md#keeping-rates-current).
 
@@ -164,7 +197,7 @@ Some records can't be edited once they reach a certain state. Corrections go thr
 - Posted journal entries: reversal entries ([Ledger](#ledger-pulse-fiscal))
 - Finalized payroll runs, and approved timesheets after the run: adjustments in the next cut-off ([Payroll run & payslips](modules/talent.md#payroll-run--payslips))
 - Closed accounting periods: postings in the current open period ([Chart of accounts and ledger](modules/fiscal.md#chart-of-accounts-and-ledger))
-- Salary and allowance history: new effective-dated entries. From build step 2.1, `compensationEntries` are insert-only, and a correction is a new entry with the same effective date ([Compensation](modules/talent.md#compensation), [The employee record](modules/talent.md#the-employee-record-build-step-21))
+- Salary and allowance history: new effective-dated entries. From build step 2.1, `compensationEntries` are insert-only, and a correction is a new entry with the same effective date. From build step 2.3, `allowanceAssignments` are insert-only too ([Compensation](modules/talent.md#compensation), [The employee record](modules/talent.md#the-employee-record-build-step-21))
 - Sent quotations and BOQ versions: a new revision or version ([Quotations](modules/engage.md#quotations), [Presales and BOQ](modules/engage.md#presales-and-boq))
 - Audit log entries: never changed or deleted ([Audit log](modules/core.md#audit-log))
 - Notifications: never deleted; only `readAt` changes, when the recipient marks one read (`dedupeKey` is fixed once stored) ([Notifications](modules/core.md#notifications))

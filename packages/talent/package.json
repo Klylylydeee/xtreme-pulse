@@ -8,6 +8,10 @@
     "./server": {
       "browser": "./src/server/client-guard.ts",
       "default": "./src/server/index.ts"
+    },
+    "./server/seed": {
+      "browser": "./src/server/client-guard.ts",
+      "default": "./src/server/seed/index.ts"
     }
   },
   "scripts": {

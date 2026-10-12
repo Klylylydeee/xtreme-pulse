@@ -20,6 +20,8 @@ export interface CompensationEntryDocument {
   rateType: RateType;
   minimumWageEarner: boolean;
   reason: string;
+  /** True when HR chose "Save anyway" on the minimum wage warning (step 2.3); absent reads as false. */
+  minimumWageWarningConfirmed?: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy: Types.ObjectId | null;
@@ -40,6 +42,8 @@ const compensationEntrySchema = new Schema<CompensationEntryDocument>({
     maxlength: COMPENSATION_REASON_MAX_LENGTH,
     immutable: true,
   },
+  // Step 2.3 (decision 205). No default, so entries saved before step 2.3 keep lacking it.
+  minimumWageWarningConfirmed: { type: Boolean, immutable: true },
 });
 
 compensationEntrySchema.index({ employeeId: 1, effectiveDate: -1, createdAt: -1 });

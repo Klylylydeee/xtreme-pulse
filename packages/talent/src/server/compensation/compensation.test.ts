@@ -20,6 +20,7 @@ import {
   type Person,
   person,
   rawAuditJson,
+  savedId,
   withoutIdsAndDates,
 } from '../testing/fixtures';
 import { CompensationEntryModel } from './model';
@@ -61,7 +62,9 @@ function entry(
 describe('insert-only entries', () => {
   it('refuses every update, replacement and delete', async () => {
     const subject = await person('Ana', 'Bello', NET);
-    const { id } = await addCompensationEntry(hr.actor, entry(subject, '2024-02-01', 2500000));
+    const { id } = savedId(
+      await addCompensationEntry(hr.actor, entry(subject, '2024-02-01', 2500000)),
+    );
     const filter = { _id: new Types.ObjectId(id) };
     const refused = /never changed or deleted/;
     await expect(
@@ -131,15 +134,20 @@ describe('the current entry', () => {
   it('is the latest effective date on or before today; a correction wins; a future one is scheduled', async () => {
     const subject = await person('Cita', 'Dumlao', NET);
     const today = businessToday();
-    const first = await addCompensationEntry(hr.actor, entry(subject, '2024-01-01', 2000000));
-    const second = await addCompensationEntry(hr.actor, entry(subject, '2024-06-01', 2300000));
-    const correction = await addCompensationEntry(
-      hr.actor,
-      entry(subject, '2024-06-01', 2350000, 'Correction: wrong amount'),
+    const first = savedId(
+      await addCompensationEntry(hr.actor, entry(subject, '2024-01-01', 2000000)),
     );
-    const scheduled = await addCompensationEntry(
-      hr.actor,
-      entry(subject, addDays(today, 30), 2600000),
+    const second = savedId(
+      await addCompensationEntry(hr.actor, entry(subject, '2024-06-01', 2300000)),
+    );
+    const correction = savedId(
+      await addCompensationEntry(
+        hr.actor,
+        entry(subject, '2024-06-01', 2350000, 'Correction: wrong amount'),
+      ),
+    );
+    const scheduled = savedId(
+      await addCompensationEntry(hr.actor, entry(subject, addDays(today, 30), 2600000)),
     );
 
     const view = await getEmployeeRecordView(hr.actor, subject.employeeId);
@@ -193,7 +201,7 @@ describe('amounts and dates', () => {
     });
     expect(parsed.basicSalaryCentavos).toBe(123456789);
     expect(parsed.minimumWageEarner).toBe(true);
-    const { id } = await addCompensationEntry(hr.actor, parsed);
+    const { id } = savedId(await addCompensationEntry(hr.actor, parsed));
     const stored = await CompensationEntryModel.findById(id).select('+basicSalaryCentavos').lean();
     expect(await decryptSensitive(stored?.basicSalaryCentavos)).toBe(123456789);
     const revealed = await revealSensitiveField({

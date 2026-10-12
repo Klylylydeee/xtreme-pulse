@@ -14,7 +14,7 @@ export {
   updateEmployment,
   updatePersonal,
 } from './employee-records/service';
-export { addCompensationEntry } from './compensation/service';
+export { addCompensationEntry, type AddCompensationEntryResult } from './compensation/service';
 
 // The 201 file (build step 2.2): add (optionally archiving the document a renewal replaces),
 // edit the details, archive with a reason, and the gated list.
@@ -65,11 +65,36 @@ export {
   type ExpiryAlertsResult,
   runExpiryAlerts,
 } from './expiry-alerts/job';
+// Payroll settings (build step 2.3): the ten versioned settings, the page's view and "Add
+// version"; the seed loaders are in `@pulse/talent/server/seed`.
+export {
+  ALLOWANCE_TYPES_SETTING,
+  DE_MINIMIS_LIMITS_SETTING,
+  MINIMUM_WAGES_SETTING,
+  PAGIBIG_CONTRIBUTIONS_SETTING,
+  PAYROLL_SETTINGS,
+  PAYROLL_SETTINGS_SETTING,
+  payrollSettingVersionOn,
+  PHILHEALTH_CONTRIBUTIONS_SETTING,
+  PREMIUM_RATES_SETTING,
+  SSS_CONTRIBUTIONS_SETTING,
+  THIRTEENTH_MONTH_EXEMPTION_SETTING,
+  WITHHOLDING_TAX_SEMI_MONTHLY_SETTING,
+} from './payroll-settings/settings';
+export { addPayrollSettingsVersion, getPayrollSettingsView } from './payroll-settings/service';
+// Allowances (build step 2.3): "Assign allowance" and the allowances in effect (server-only).
+export { allowancesInEffect, assignAllowance } from './allowances/service';
+// The minimum wage (build step 2.3): the wage order counts and list.
+export {
+  countEmployeesBelowMinimumWage,
+  listEmployeesBelowMinimumWage,
+} from './minimum-wage/service';
 // File access (build step 2.2): the file route calls this beside registerCoreFileAccess().
 export { registerTalentFileAccess } from './files/registrations';
 
 // Who may see and change what (SECURITY.md#sensitive-data). Each service checks again itself.
 export {
+  assertCanAddPayrollSettingsVersion,
   assertCanChangeBirthAndCivilStatus,
   assertCanChangeExpiryAlertSettings,
   assertCanChangeSensitiveDetails,
@@ -78,8 +103,10 @@ export {
   assertCanManageDocuments,
   assertCanReadCertifications,
   assertCanReadEmployeeRecords,
+  assertCanViewWageOrderList,
   assertCanRemoveCertifications,
   BIRTH_AND_CIVIL_STATUS_DENIED,
+  canAddPayrollSettingsVersion,
   canChangeBirthAndCivilStatus,
   canChangeExpiryAlertSettings,
   canChangeSensitiveDetails,
@@ -92,6 +119,8 @@ export {
   canReadCertifications,
   canReadEmployeeRecords,
   canRemoveCertifications,
+  canViewWageOrderList,
+  canSeeAllowances,
   canSeeBirthAndCivilStatus,
   canSeeDocumentCategory,
   canSeeESignatureImage,
@@ -103,11 +132,13 @@ export {
   NO_EMPLOYEE_SIGNATURE,
   HR_SENSITIVE_CHANGE_DENIED,
   OWN_RECORD_DENIED,
+  PAYROLL_SETTINGS_CHANGE_DENIED,
   type RecordTarget,
   SENSITIVE_CHANGE_DENIED,
   type TalentActor,
   TALENT_READ_DENIED,
   TALENT_WRITE_DENIED,
+  WAGE_ORDER_LIST_DENIED,
 } from './policy';
 
 // The reveals (SECURITY.md#sensitive-data): call before `revealSensitiveField`.

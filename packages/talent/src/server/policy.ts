@@ -272,3 +272,49 @@ export function canChangeExpiryAlertSettings(actor: TalentActor): boolean {
 export function assertCanChangeExpiryAlertSettings(actor: TalentActor): void {
   if (!canChangeExpiryAlertSettings(actor)) throw new AccessDeniedError(EXPIRY_SETTINGS_DENIED);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.3: payroll settings, allowances and the wage order list (SECURITY.md#sensitive-data,
+// "Payroll settings and allowances"; decisions 198, 203, 204 and 207 in docs/BUILD_PLAN.md).
+//
+// - Viewing the payroll settings: Talent Read (the rates aren't sensitive).
+// - Adding a version: Talent Owner and HR or the System Administrator.
+// - Seeing an employee's allowances: whoever may reveal `allowances` for that employee.
+// - Assigning allowances: the salary rule (canChangeSensitiveDetails).
+// - The wage order list and counts: Talent Read and HR, Accounting or the System Administrator.
+
+export const PAYROLL_SETTINGS_CHANGE_DENIED =
+  'Only HR or the System Administrator, with Talent Owner access, add payroll settings versions.';
+export const WAGE_ORDER_LIST_DENIED =
+  'The wage order list is visible to HR, Accounting and the System Administrator, with Talent access.';
+
+/** True when `actor` may add a payroll settings version. */
+export function canAddPayrollSettingsVersion(actor: TalentActor): boolean {
+  return hasModuleAccess(actor, 'talent', 'owner') && (isHR(actor) || isSystemAdministrator(actor));
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may add a payroll settings version. */
+export function assertCanAddPayrollSettingsVersion(actor: TalentActor): void {
+  if (!canAddPayrollSettingsVersion(actor)) {
+    throw new AccessDeniedError(PAYROLL_SETTINGS_CHANGE_DENIED);
+  }
+}
+
+/** True when `actor` is sent `target`'s allowances (the reveal rule for `allowances`). */
+export function canSeeAllowances(actor: TalentActor, target: RecordTarget): boolean {
+  return canRevealSensitive(actor, 'allowances', target);
+}
+
+/** True when `actor` may see the wage order counts and list. */
+export function canViewWageOrderList(actor: TalentActor): boolean {
+  return (
+    canReadEmployeeRecords(actor) &&
+    (isHR(actor) || isAccounting(actor) || isSystemAdministrator(actor))
+  );
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may see the wage order counts and list. */
+export function assertCanViewWageOrderList(actor: TalentActor): void {
+  if (!canReadEmployeeRecords(actor)) throw new AccessDeniedError(TALENT_READ_DENIED);
+  if (!canViewWageOrderList(actor)) throw new AccessDeniedError(WAGE_ORDER_LIST_DENIED);
+}

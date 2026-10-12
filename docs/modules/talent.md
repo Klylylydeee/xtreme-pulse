@@ -43,7 +43,7 @@ Much of this module is sensitive personal information. The [Sensitive data](../.
 
 ### The employee record (build step 2.1)
 
-Built in step 2.1. The record holds the five groups above. Documents, the profile photo and the e-signature are added in step 2.2 ([Documents, photo, e-signature and certifications](#documents-photo-e-signature-and-certifications-build-step-22)), allowances in step 2.3 and the work schedule in step 2.4; until then the record shows each one as "Added in a later step". Who may see, reveal and change each part is in [Sensitive data](../../SECURITY.md#sensitive-data).
+Built in step 2.1. The record holds the five groups above. Documents, the profile photo and the e-signature are added in step 2.2 ([Documents, photo, e-signature and certifications](#documents-photo-e-signature-and-certifications-build-step-22)), allowances in step 2.3 ([Payroll settings and allowances](#payroll-settings-and-allowances-build-step-23)) and the work schedule in step 2.4; until then the record shows each one as "Added in a later step". Who may see, reveal and change each part is in [Sensitive data](../../SECURITY.md#sensitive-data).
 
 **Where each field lives.** Talent never writes Core's `employees` or `users` ([Architecture rules](../ARCHITECTURE.md#architecture-rules)).
 
@@ -75,7 +75,7 @@ The fields, fixed sets and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#colle
   | Bank account number (UnionBank or RCBC) | 10 to 16 | the digits as entered |
   | Mobile numbers | 11, starting with `09` | `0917 123 4567` |
 
-- **Compensation is effective-dated and append-only.** Each salary change is a new compensation entry: effective date, basic salary in centavos, rate type (monthly-rated or daily-rated: for a daily-rated employee the amount is the daily rate), the minimum wage earner flag and a required reason. An entry is never edited or deleted. The **current** entry is the latest one whose effective date is today or earlier in Manila; a later effective date shows as "Scheduled". To correct a mistake, add a new entry with the **same effective date** and a reason: the newer entry (by creation time) wins that date, and the old one stays in the history marked "Superseded". The effective date is on or after the date hired and at most one year ahead. The salary is entered in pesos with up to 2 decimals, converted to centavos without floating point, and must be more than zero ([Money](../DATA_MODEL.md#money)). The minimum wage warning comes in step 2.3 ([Minimum wage check](#minimum-wage-check)).
+- **Compensation is effective-dated and append-only.** Each salary change is a new compensation entry: effective date, basic salary in centavos, rate type (monthly-rated or daily-rated: for a daily-rated employee the amount is the daily rate), the minimum wage earner flag and a required reason. An entry is never edited or deleted. The **current** entry is the latest one whose effective date is today or earlier in Manila; a later effective date shows as "Scheduled". To correct a mistake, add a new entry with the **same effective date** and a reason: the newer entry (by creation time) wins that date, and the old one stays in the history marked "Superseded". The effective date is on or after the date hired and at most one year ahead. The salary is entered in pesos with up to 2 decimals, converted to centavos without floating point, and must be more than zero ([Money](../DATA_MODEL.md#money)). The minimum wage warning is added in step 2.3 ([Payroll settings and allowances](#payroll-settings-and-allowances-build-step-23)).
 - **Editing.** Each section (Personal, Employment, Government IDs, Payroll bank account) has its own Edit sheet, and Compensation has "Add salary change". Saving one section leaves the others unchanged. Each form sends back the record's `version` it loaded; if someone else saved first, the save is refused with "Someone else changed this record. Reload to see it." A save that changes nothing still raises the `version` and writes an `update` entry. "Add salary change" sends no `version`: it only ever adds an entry, so there is nothing to overwrite. A sensitive input is never filled in with the stored value: it starts empty with the hint "Ends in 1234", and leaving it empty keeps the stored value. A stored government ID or account number can be replaced but not cleared in step 2.1.
 - **Nobody edits their own record in Pulse Talent in step 2.1**, the System Administrator included. Employees change their own details through change requests in step 2.6 ([Self-service & record changes](#self-service--record-changes)). Supervisors in `reportingTo` editing a record also comes with step 2.6. Until then, editing needs Talent Write.
 - **Audit.** Record type `talent.employeeRecord`, labelled `<employee number> · <first name> <last name>`: the first save is a `create` entry, later saves are `update` entries with both sides snapshotted (`snapshotsForAudit`), so a changed sensitive value shows only as "Hidden (sensitive), changed". Record type `talent.compensationEntry`, labelled `<employee number> · <effective date YYYY-MM-DD>`: one `create` entry per entry. Reveals are `reveal` entries on these record types, module `talent` ([Audit logging](../../SECURITY.md#audit-logging)). Nothing in step 2.1 sends a notification.
@@ -434,6 +434,94 @@ Applies to employees on the Standard timesheet.
 
 ### Year-end
 - BIR Form 2316 per employee, the annual 1604-C and the alphalist (Pulse Talent owns these; Pulse Fiscal lists them with its BIR reports).
+
+### Payroll settings and allowances (build step 2.3)
+
+Built in step 2.3. Decisions 191–212 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The setting shapes and the new collection are in [DATA_MODEL.md](../DATA_MODEL.md#versioned-configuration). The seeded issuances, with their sources and how far each was verified, are in [COMPLIANCE.md](../COMPLIANCE.md#seeded-payroll-rates-build-step-23). Step 2.3 stores the settings and the allowances and adds the minimum wage warning. It computes no pay: the payroll run, payslips and remittances come in later Phase 2 steps.
+
+**Every seeded rate, table and amount is an *Assumption, to be confirmed by HR or the accountant*.** Before the first real payroll, HR checks each one against the current SSS, PhilHealth, Pag-IBIG, BIR and DOLE issuances ([Keeping rates current](../COMPLIANCE.md#keeping-rates-current)).
+
+**The settings.** Each is a versioned setting in the [configuration store](../DATA_MODEL.md#versioned-configuration). A change is a new version with its own effective date; old versions are never edited or deleted. Amounts are whole centavos, and rates are decimal strings (`"0.05"`), read exactly with the money helpers.
+
+| Setting | What it holds | Seeded |
+|---|---|---|
+| `talent.payrollSettings` | The two cut-offs (start day, end day, pay day), the daily rate factor, the hours per day, and how each government contribution is split across the two cut-offs | 26th–10th paid on the 15th; 11th–25th paid on the 30th (the last day of a shorter month); factor 261; 8 hours; SSS, PhilHealth and Pag-IBIG half in each cut-off |
+| `talent.sssContributions` | The SSS schedule, one row per monthly salary credit (MSC): the lowest compensation in the row, the regular SS and MPF parts of the MSC, the employee and employer shares (each split into regular SS and MPF) and the EC contribution | SSS Circular No. 2024-006, from January 2025 |
+| `talent.philhealthContributions` | The premium rate, the employee's share of it, and the income floor and ceiling | 5%, half each, floor ₱10,000, ceiling ₱100,000 |
+| `talent.pagibigContributions` | Brackets (up to an amount: employee rate, employer rate) and the maximum fund salary | 1% employee and 2% employer up to ₱1,500; 2% and 2% above; maximum fund salary ₱10,000 |
+| `talent.withholdingTaxSemiMonthly` | BIR's semi-monthly brackets: the amount the bracket starts over, the base tax and the rate on the excess | RR 11-2018 Annex E, from January 2023 |
+| `talent.premiumRates` | The holiday, rest day, overtime and night differential rates of [Pay computation per cut-off](#pay-computation-per-cut-off), and the night window | The values listed there, night 10:00 PM to 6:00 AM |
+| `talent.deMinimisLimits` | Each de minimis benefit: a key, a label, the period (month, semester, year or day) and either an amount or a share of the regional minimum wage | RR 29-2025, from January 6, 2026 |
+| `talent.thirteenthMonthExemption` | The tax-exempt ceiling for 13th month pay and other benefits | ₱90,000 (RA 10963) |
+| `talent.minimumWages` | Per region: the wage order and the daily minimum wage (the general, non-agriculture rate) | NCR only: Wage Order NCR-26 (₱695, from July 18, 2025) and NCR-28 (₱755, from September 26, 2026) |
+| `talent.allowanceTypes` | The allowance types (below) | The internet allowance only |
+
+- **Seeded once.** `pnpm seed:admin` adds a setting's seeded versions only when the setting has no version at all, so a later run never adds or replaces one ([Bootstrap System Administrator account](core.md#bootstrap-system-administrator-account)). Seed writes are system writes and aren't audit-logged. Every version records its source: the issuance's name and, where there is one, its link.
+- **Seeded effective dates.** A legal table takes effect on its issuance's own effective date. Company policy (`payrollSettings`, `allowanceTypes`) and the premium rates take effect on 2000-01-01, so that they cover every date hired.
+- **Cut-offs.** Exactly two. Their days run from 1 to 28 and together cover every day of the month with no overlap. A pay day runs from 1 to 31 and moves to the month's last day in a shorter month. The pay date falls in the month the cut-off ends, after its end day. A new `payrollSettings` version must take effect on a cut-off start day of its own schedule, so a schedule never changes in the middle of a cut-off.
+- **The contribution split** for each agency must add up to exactly 1. Splitting a month's share gives the end-of-month cut-off the remainder, so the two parts always add up to the share.
+- **Withholding tax** isn't split: each cut-off uses the semi-monthly table. **Minimum wage earners** stay exempt ([Compensation](#compensation)).
+- **De minimis.** RR 29-2025 also raised monetized unused vacation leave to 12 days. It isn't seeded, because leave is never converted to cash ([Leave](#leave)).
+- **Which version a payroll applies.** Later steps use, and store on each finalized run, the version in effect:
+  - for SSS, PhilHealth and Pag-IBIG, on the first day of the contribution month (the month of the pay date)
+  - for the withholding table, the de minimis limits and the 13th month ceiling, on the pay date
+  - for the premium rates, the minimum wage and the allowance types, on each day
+  - for `payrollSettings`, on the cut-off's start date
+
+  Which pay counts as compensation for each contribution is decided in the payroll run step. *Recommendation, to be confirmed by the accountant:* PhilHealth on the monthly basic salary; SSS and Pag-IBIG on the month's total taxable compensation.
+
+**Payroll settings page.** `/talent/payroll-settings` (Talent Read), opened from a "Payroll settings" button on `/talent`. The Talent item in the sidebar stays current, and the breadcrumb reads Pulse Talent › Payroll settings.
+
+- **Layout.** A segmented control switches between Pay schedule, Contributions (SSS, PhilHealth, Pag-IBIG), Withholding tax, Premiums and benefits (premium rates, de minimis limits, 13th month ceiling), Minimum wage and Allowance types. Each setting shows the version in effect ("In effect since <date>", with its source), a scheduled version if there is one, and the history of versions, read-only. A seeded version carries the note "Seeded: check against the current issuance before the first payroll."
+- **Adding a version** needs Talent Owner **and** HR or the System Administrator. "Add version" opens a sheet filled in with the version in effect. The SSS and withholding tables are editable grids with rows to add and remove; on a phone a grid scrolls inside its own region, and the page itself never scrolls sideways. The sheet asks for:
+  - the effective date: later than every existing version of that setting (it may be in the past, for an issuance published late) and at most one year ahead
+  - the source (required, up to 300 characters, for example "SSS Circular No. 2024-006")
+
+  Saving asks for confirmation: "Versions can't be changed or withdrawn once added. Check every figure against the issuance." A version taking effect on the same day as another is refused.
+- **Audit.** Each version added from the page is a `create` entry on `core.configVersion` (module `core`, labelled `<key> from <date>`), in the same transaction, as for the expiry alert setting.
+- **A wrong version** can't be withdrawn. A newer version replaces it from its own effective date; a wrong version that is already scheduled stays in effect until then. See [RUNBOOK](../RUNBOOK.md#a-wrong-payroll-settings-version-was-added).
+
+**Allowance types** are the versioned setting `talent.allowanceTypes`. Each type has:
+
+- a key (fixed once added, and never removed: a type no longer used is marked inactive) and a name
+- a tax treatment: taxable, non-taxable, or de minimis (which names its de minimis limit, so the excess over the limit is taxed)
+- a basis: a fixed amount per cut-off, or an amount per day present
+- a default amount, in centavos per cut-off or per day
+- whether it is assigned automatically (only for a fixed amount per cut-off)
+- whether it is active (an inactive type can't be newly assigned)
+
+The seeded type is the **internet allowance**: ₱500 per cut-off (₱1,000 a month), non-taxable, assigned automatically. *Assumption, to be confirmed by the accountant:* the spec makes it non-taxable, but an internet allowance isn't on BIR's de minimis list.
+
+**Allowance assignments.**
+
+- **Automatic types apply from the date hired.** Every employee gets each automatic type from their date hired in Core, at the type's default amount in effect on each day, with nothing stored. A corrected date hired moves the start, a new default amount applies from its version's date, and employees hired before the setting existed get it too.
+- **Explicit assignments.** HR adds an assignment to give a type to an employee, change their amount, or end it (an automatic type included). Each is a new entry in `allowanceAssignments`: the type, the effective date (on or after the date hired, at most a year ahead), set with an amount or end, and a required reason. Entries are never edited or deleted. For a type on a day, the latest entry on or before that day wins (on a tie, the newest); "end" means none. An automatic type with no entry on or before that day applies automatically.
+- **Who assigns.** The same rule as salary: Talent Write and HR or the System Administrator; for an employee in the HR department, Talent Write and the System Administrator or a Board member, never HR. Accounting never changes them, and nobody changes their own.
+- **Sensitive.** An assigned amount is encrypted and shown masked (`••••`) until revealed, and each reveal is audit-logged. The automatic line shows the company default unmasked, since it says nothing about one person. The allowances appear inside the Compensation section, only for a viewer who may reveal `allowances` for that employee ([Sensitive data](../../SECURITY.md#sensitive-data)).
+- **On the record.** The Compensation section lists the allowances in effect, each with its basis and where it comes from, then the history. For example "Internet allowance · ₱500.00 per cut-off (₱1,000.00 a month) · Automatic from 3 Nov 2026", or "Starts 3 Nov 2026" for a future date hired. HR assigns from "Assign allowance". `/talent/me` shows the employee's own allowances read-only, with Reveal.
+- **Audit.** A `create` entry on `talent.allowanceAssignment`, labelled `<employee number> · <type name> · <YYYY-MM-DD>`, with the amount hidden.
+
+**Minimum wage warning.** This is a warning, never a block.
+
+- **When.** Saving a salary change ("Add salary change") compares the employee's daily rate with the minimum wage for their work region (NCR when the record has none). It uses the versions in effect on the later of the entry's effective date and today.
+- **The daily rate.** A daily-rated amount is the daily rate. A monthly-rated amount is compared exactly as monthly × 12 ÷ the daily rate factor, with no rounding. The warning shows that daily rate rounded down to the centavo, so a rate just under the minimum never reads as the minimum itself (₱16,421.24 a month shows ₱754.99, not ₱755.00).
+- **No pay schedule on file** for the date (only possible before `pnpm seed:admin` has run): a daily rate is still checked, but a monthly salary is refused with "No pay schedule is on file for that date, so a monthly salary can't be compared with the minimum wage. Add one in Payroll settings."
+- **Below the minimum.** The save is refused once, and a warning shows under the amount, for example "The daily rate ₱650.00 is below the NCR minimum wage of ₱755.00 (Wage Order NCR-28). It will be flagged in payroll." The button becomes "Save anyway" ([Non-blocking warnings](../DESIGN_SYSTEM.md#feedback--motion)). Changing the amount, rate type or effective date clears the warning. A confirmed save stores `minimumWageWarningConfirmed` on the entry.
+- **No rate for the region.** The salary saves, with the note "No minimum wage on file for <region>. Add it in Payroll settings."
+- **On the record.** A current salary below the minimum in effect today shows a "Below minimum wage" badge, with a warning icon and text, inside the Compensation section only.
+- **When a new wage order takes effect.** On Payroll settings › Minimum wage, each version shows how many active employees in its region are paid below it, on the later of its effective date and today. "View list" opens their names, numbers, departments and positions, with no amounts, each linking to their record. The count and the list need Talent Read and HR, Accounting or the System Administrator. They aren't audit-logged, since they show no amount.
+- **Scope.** The check uses the general (non-agriculture) rate only. No job or notification is added in step 2.3; the payroll run flags these employees in its own step.
+
+**Choices made in the build** (step 2.3, checked in the review):
+
+- **Before the date hired, no allowance applies,** automatic or assigned: the employee isn't employed yet. An automatic type applies only while it is active in that day's `talent.allowanceTypes` version. Nothing yet stops the automatic line at a separation date; the payroll and final pay steps decide that.
+- **"Seeded".** A stored version is shown as seeded when its effective date and source match one of the seed's versions exactly. A version HR adds can't match, because a second version on the same date is refused.
+- **PhilHealth rounding.** The premium on the basis is rounded half-up to the centavo once; the employee's share of it is rounded half-up, and the employer takes the remainder, so the two always add up to the premium. **Pag-IBIG:** each share is its own rate on the basis, rounded half-up separately.
+- **The cut-off end day.** A cut-off that doesn't wrap and ends on day 28 runs to the month's last day. The pay day must come after the end day in every month, February included, so `min(pay day, 28)` must be later than the end day.
+- **The "Add version" sheet** starts with the figures of the version in effect (or the latest one), and an empty effective date and source, so neither is added by accident.
+- **Rates are typed as decimals** in the sheet ("0.05" is 5%, "1.3" is 130%) and shown as percentages on the page, converted by moving the decimal point, never through floating point. Amounts are typed in pesos and converted to centavos with `parsePesos`.
+
+*Assumptions, to be confirmed by HR or the accountant:* no pay date moves for a weekend or holiday; double holidays (300%), special working days and the lower wage rates for small retail, service and manufacturing employers aren't seeded, since the spec doesn't list them.
 
 ## Separation
 

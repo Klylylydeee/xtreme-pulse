@@ -442,7 +442,8 @@ Phase 2 (Pulse Talent) started on 2026-10-12. The user asked for it to be built 
 | Step | Status |
 |---|---|
 | 2.1 Employee record and sensitive fields | **Done: committed as `cd2a5a6` (2026-10-12), not pushed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in) |
-| 2.2 201 file, profile photo, e-signature and certifications | **Built and verified (2026-10-12), not committed.** Spec written first (BUILD_PLAN decisions 173–190, [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)), then built by four agents (Core; Talent and worker; UI; Talent web) and reviewed with a focus on the file route, the document access matrix and the e-signature; four small fixes made (see [2.2 review](#22-review-2026-10-12)). Typecheck, lint, `pnpm test` (65 files, 1059 tests) and the production build pass. **Open:** the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 9–26 in [Assumptions to check](#assumptions-to-check) |
+| 2.2 201 file, profile photo, e-signature and certifications | **Done: committed as `58e3971` (2026-10-12), not pushed.** Spec written first (BUILD_PLAN decisions 173–190), built by four agents and reviewed; four small fixes made (see [2.2 review](#22-review-2026-10-12)). Typecheck, lint, `pnpm test` (65 files, 1059 tests) and the production build pass. **Open:** the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in). Assumptions 9–26 in [Assumptions to check](#assumptions-to-check) |
+| 2.3 Payroll settings and seeded configuration | **Built and verified (2026-10-12), not committed.** Spec written first (BUILD_PLAN decisions 191–212), with the seeded rates checked online on 2026-10-12 ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)). Built by three agents and reviewed; one bug fixed and the clock-dependent tests pinned (see [2.3 review](#23-review-2026-10-12)). Typecheck, lint, `pnpm test` (69 files, 1126 tests) and the production build pass. **Open:** the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 27–45 in [Assumptions to check](#assumptions-to-check) |
 
 ### 2.1 notes
 
@@ -526,9 +527,60 @@ Set up as in [Assumptions to check](#assumptions-to-check) item 18. Then:
 5. **Photos everywhere.** After adding a photo, it shows in the directory, the org chart, the access page, the approvals list and inspector, the Talent list and inspector, and the command bar's people results (⌘K or Ctrl+K, type a name).
 6. **Light and dark, and phone width (about 390 px):** the Documents and Skills & certifications sections, every sheet, the signature tile (dark ink stays readable in dark appearance) and `/talent/me` fit with no sideways scroll, and every badge carries text.
 
+### 2.3 notes
+
+- **Rates checked on 2026-10-12.** The planning figures (mid-2025) were checked online against the agencies. Changed from the plan:
+  - **NCR minimum wage:** ₱755 from 2026-09-26 (Wage Order NCR-28), seeded after NCR-26 (₱695, from 2025-07-18). NCR-27 isn't seeded: a Pasig RTC injunction blocked it, NCR-28 replaced it, and its case is before the Supreme Court.
+  - **De minimis limits:** RR 29-2025, from 2026-01-06, replaces the RR 11-2018 figures (for example rice ₱2,500 a month, and overtime meals at 30% of the minimum wage).
+  - **Unchanged and confirmed:** SSS (Circular No. 2024-006 is still the latest schedule), PhilHealth, Pag-IBIG, the BIR table and the ₱90,000 ceiling. How each was verified is in [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23).
+- **Build order (planned):**
+  1. **One Talent server agent, in order:**
+     - the pure schemas and lookups
+     - the settings and seed loaders, with `scripts/seed-admin.ts` and the `./server/seed` export
+     - the allowances and minimum wage services
+     - the compensation and record view changes and the reveal registration, with tests
+
+     These share `views.ts`, `validation.ts`, `policy.ts` and `server/index.ts`, so one agent does them in sequence.
+  2. **Then two agents in parallel:**
+     - the Payroll settings page: `apps/web/app/(pulse)/talent/payroll-settings/`, `lib/actions/talent-payroll.ts`, the button on `/talent` and the breadcrumb
+     - the record UI: `employee-record-sections.tsx`, `employee-record-sheets.tsx`, `employee-inspector.tsx`, `talent/me/page.tsx` and `lib/actions/talent.ts`
+  3. **Verification:** typecheck, lint, Prettier, `pnpm test`, the production build, `pnpm seed:admin` twice on a throwaway database, and a review focused on money and sensitive data.
+  4. **Docs:** HANDOFF, BUILD_SUMMARY and the step's results in TESTING.
+- **Hands-on checks:** see [2.3 hands-on checks](#23-hands-on-checks-by-the-user-signed-in).
+
+### 2.3 review (2026-10-12)
+
+An independent review checked the step against decisions 191–212, COMPLIANCE.md, DATA_MODEL.md, SECURITY.md and TESTING.md. Confirmed as built:
+
+- **Money.** No floating point: the actions convert pesos with `parsePesos`, rates are decimal strings read with `ratio`, percentages are shown by moving the decimal point, the monthly figure is `addCentavos(amount, amount)`, and the minimum wage comparison is exact (monthly × 12 < minimum × factor, in BigInt). Every seeded value is whole centavos with rates as decimal strings (tested).
+- **The seed figures match COMPLIANCE.md.** The SSS generator gives 61 rows and matches the six pinned rows. PhilHealth, Pag-IBIG, the ₱90,000 ceiling, the RR 29-2025 de minimis limits, the premium rates, the pay schedule, NCR-26 (₱695 from 2025-07-18), NCR-28 (₱755 from 2026-09-26) and the internet allowance (₱500 per cut-off, automatic) are as listed. The BIR brackets are continuous: ₱937.50 = 15% × ₱6,250; ₱4,270.70 = ₱937.50 + 20% × ₱16,666; ₱16,770.70 = ₱4,270.70 + 25% × ₱50,000; ₱91,770.70 = ₱16,770.70 + 30% × ₱250,000. Every hand-checked figure in TESTING.md was recomputed and is asserted by a test.
+- **Minimum wage.** The check runs in the salary transaction, saves nothing on `belowMinimumWage`, stores `minimumWageWarningConfirmed` on "Save anyway", saves with a note when the region has no rate, and uses the work region (NCR by default) and the later of the effective date and today. The sheet clears the warning when the amount, rate type or effective date changes. The wage order list shows no amounts and needs Talent Read and HR, Accounting or the System Administrator.
+- **Allowances.** The automatic line is derived from Core's date hired and the type version in effect; explicit entries are insert-only (`guardWrites`) with the amount encrypted; the reveal is registered and audited; `view.allowances` is absent for a viewer who may not reveal `allowances`; the salary rule applies, never on one's own record.
+- **The settings service** checks Talent Owner and HR or the System Administrator in the action and again in the transaction, enforces the date rules (after the latest version, at most a year ahead, a cut-off start for `payrollSettings`), keeps allowance keys, writes the `core.configVersion` audit entry in the transaction, and turns a same-date race into the friendly message.
+- **The seed** is idempotent, writes with no actor and no audit, and `scripts/seed-admin.ts` runs `talentSeedLoaders` after Core's.
+
+Fixed in the review:
+
+1. **The minimum wage warning could say "The daily rate ₱755.00 is below the NCR minimum wage of ₱755.00"** (`payroll/minimum-wage.ts`, `minimumWageWarningFor`). The exact rate (₱754.9995… for ₱16,421.24 a month) was rounded half-up for the sentence. It is now rounded down, so it reads ₱754.99. Test added (`payroll.test.ts`), and the service test updated.
+2. **Clock-dependent tests** (`payroll-settings.test.ts`, `allowances.test.ts`, `minimum-wage.test.ts`). The view's version statuses, "upcoming", the badge, the scheduled salary from 2027-06-01 and the wage order list depended on the real date being on or after 2026-09-26 (and before 2027-06-01). These files now fake only `Date`, at 2026-10-12 10:00 Manila, and move it where a test needs another day. A test was added for NCR-28 shown as scheduled on 2026-09-01.
+
+Also aligned: talent.md, TESTING.md and DATA_MODEL.md now describe the build's choices (allowances before the date hired, how "Seeded" is detected, the PhilHealth and Pag-IBIG rounding, the cut-off end day, the empty effective date, rates typed as decimals, the `end` entry with no amount). New assumptions 42–45.
+
+Not checked: the screens in a browser (no browser tools here), and `pnpm seed:admin` against a real database (the seed loaders are tested against the in-memory replica set).
+
+### 2.3 hands-on checks (by the user, signed in)
+
+1. **The seed, twice.** On a fresh database, run `pnpm seed:admin`: it prints a line for each of the ten `talent.*` loaders, with `talent.minimumWages: added 2, kept 0`. Run it again: every loader says `added 0`.
+2. **The "Done when", allowance.** As HR with Talent Write, create a user whose date hired is today (or a later date) and open their record in `/talent`: Compensation shows "Internet allowance · ₱500.00 per cut-off (₱1,000.00 a month) · Automatic from <date>" (or "Starts <date>"). No allowance entry is stored.
+3. **The "Done when", the warning.** For an NCR employee, use "Add salary change" with ₱16,000 a month (or ₱750 a day): nothing saves, the warning names ₱735.63 (or ₱750.00) against ₱755.00 (Wage Order NCR-28), and the button reads "Save anyway". Change the amount: the warning clears. Put ₱16,000 back and choose "Save anyway": it saves and the "Below minimum wage" badge shows. Set the work region to one with no rate and save: the note "No minimum wage on file for <region>. Add it in Payroll settings." shows.
+4. **Adding a version.** As a Talent Owner in HR (or the System Administrator), open `/talent/payroll-settings` from "Payroll settings" on `/talent`, and add a premium rates version with a source: the confirmation shows, the version appears as scheduled or in effect, and `/admin/audit` has a `create` entry on `core.configVersion`. A date on or before the latest version is refused. A Talent Owner outside HR sees no "Add version".
+5. **The wage order list.** On Minimum wage, NCR-28 shows the count of employees paid below it; "View list" shows names, numbers, departments and positions, with no amounts. A Talent Read user outside HR, Accounting and the System Administrator sees no counts.
+6. **Allowances.** "Assign allowance" sets an amount (shown "••••", Reveal adds a `reveal` entry in `/admin/audit`) and "End" stops it. The employee sees their own allowances read-only on `/talent/me`.
+7. **Light and dark, and phone width (about 390 px):** every payroll settings view and its "Add version" sheet (the SSS and withholding grids scroll inside their own region), the Compensation section with its badge and allowances, and both sheets fit with no sideways page scroll.
+
 ## Assumptions to check
 
-Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
+Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Items 27–34 note how far each seeded rate was verified online on 2026-10-12. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
 
 | # | Assumption or action | Step | Who confirms | Where it lives |
 |---|---|---|---|---|
@@ -558,6 +610,25 @@ Things the build assumed that a person still has to confirm or do. Later Phase 2
 | 24 | **The certification read services use the directory's idea of active**: an employee whose account doesn't resolve to active (separated, or with no user) is left out | 2.2 | The user | [Skills & certifications](modules/talent.md#skills--certifications) |
 | 25 | **The inspector's photo actions need Talent Read**, like the inspector. HR without Talent Read changes no one's photo there | 2.2 | The user | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
 | 26 | **Approvals decided before step 2.2** show "Approved without an e-signature", since they have no signature field | 2.2 | The user | [Approvals](modules/core.md#approvals) |
+| 27 | **SSS schedule:** MSC ₱5,000–₱35,000 in ₱500 steps, 15% (employee 5%, employer 10%), regular SS up to ₱20,000 then MPF, EC ₱10 or ₱30, from SSS Circular No. 2024-006 (2025-01-01). **Verified (official):** still the latest schedule on sss.gov.ph on 2026-10-12; the rows weren't re-read line by line. *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 28 | **PhilHealth:** 5% of the monthly basic salary, half each, floor ₱10,000, ceiling ₱100,000 (from 2024-01-01). **Verified (official) for 2025** (Advisory No. 2025-0002). 2026 is unchanged per secondary sources; Advisory No. 2026-0042 couldn't be read. *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 29 | **Pag-IBIG:** employee 1% up to ₱1,500 and 2% above, employer 2%, maximum fund salary ₱10,000 (HDMF Circular No. 460, from 2024-02-01). **Verified (secondary):** PNA and payroll guides; no 2026 change found. *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 30 | **BIR semi-monthly withholding table** (RR 11-2018 Annex E, from 2023-01-01). **Verified (secondary):** payroll guides confirm it still applies in 2026; the BIR text wasn't re-read. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 31 | **NCR minimum wage:** NCR-26 ₱695 from 2025-07-18, and NCR-28 ₱755 from 2026-09-26 (non-agriculture). **NCR-28 verified (official, NWPC); NCR-26's date is secondary.** NCR-27 isn't seeded (enjoined, then replaced; still before the Supreme Court). If the Court revives it, HR adds a version. *Assumption, to be confirmed by HR or counsel* | 2.3 | HR, counsel | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 32 | **De minimis limits per RR 29-2025** (from 2026-01-06):<ul><li>rice ₱2,500 a month</li><li>uniform ₱8,000 a year</li><li>dependents' medical cash allowance ₱2,000 a semester</li><li>medical assistance ₱12,000 a year</li><li>laundry ₱400 a month</li><li>achievement awards ₱12,000 a year</li><li>gifts ₱6,000 a year</li><li>overtime meals 30% of the minimum wage</li><li>CBA and productivity ₱12,000 a year</li></ul>**Verified (secondary):** Grant Thornton and other firms; the RR text wasn't read. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 33 | **13th month and other benefits ceiling ₱90,000** (RA 10963). **Verified (secondary):** unchanged; House Bill 7661 (₱150,000) is pending. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 34 | **Premium rates** as written in talent.md: 200/100%, 130/0%, 130%, 150%, 260%, overtime +25% and +30%, night differential +10% from 10:00 PM to 6:00 AM. **Not re-checked** (spec values). Check this year's DOLE holiday pay advisory. *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23) |
+| 35 | **Pay dates don't move** for weekends or holidays (the 15th, and the 30th or the last day of a shorter month). *Assumption, to be confirmed by HR* | 2.3 | HR | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 36 | **Daily rate factor 261, 8 hours a day, and contributions split half in each cut-off** (spec defaults, seeded as company policy). *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 37 | **The internet allowance is non-taxable** (₱500 per cut-off, automatic from the date hired). The spec says so, but an internet allowance isn't on BIR's de minimis list. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 38 | **The minimum wage check** uses the general (non-agriculture) rate and the later of the effective date and today. The list of employees below a wage order shows no amounts, is limited to HR, Accounting and the System Administrator, and isn't audit-logged. *Assumption, to be confirmed by HR* | 2.3 | HR | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 39 | **The contribution basis** is left to the payroll run step. Recommended: PhilHealth on the monthly basic salary; SSS and Pag-IBIG on the month's total taxable compensation. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 40 | **Not seeded:** double holidays (300%), special working days, and the lower minimum wage for agriculture and small retail, service and manufacturing employers (₱718 in NCR), since the spec doesn't list them. *Assumption, to be confirmed by HR or the accountant* | 2.3 | HR, the accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 41 | **Versions can't be withdrawn.** A wrong payroll settings version is replaced from a later date ([RUNBOOK](RUNBOOK.md#a-wrong-payroll-settings-version-was-added)). Company policy and the premium rates are seeded from 2000-01-01 so they cover every date hired | 2.3 | The user | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 42 | **Allowances and the date hired.** No allowance applies before the date hired, automatic or assigned. An automatic type applies only while it is active in that day's allowance types version. Nothing stops the automatic internet allowance at a separation date yet; the payroll run and final pay steps decide that. *Assumption, to be confirmed by HR* | 2.3 | HR | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 43 | **Contribution rounding.** PhilHealth: the premium rounded half-up once, the employee's half rounded half-up, the employer the remainder. Pag-IBIG: each share rounded half-up on its own. The agencies' own rounding wasn't checked. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 44 | **The minimum wage warning shows the daily rate rounded down** to the centavo (₱16,421.24 a month shows ₱754.99 against ₱755.00), so it never reads as the minimum itself. The comparison stays exact. Changed in the review | 2.3 | HR | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 45 | **Edge cases left as built:** a monthly salary is refused, not warned, when no pay schedule is on file (only before `pnpm seed:admin` has run). The seed adds a setting's versions only when it has none, so if a run stopped between NCR-26 and NCR-28, a later run wouldn't add NCR-28; HR would add it on the page. A version counts as "Seeded" when its date and source match the seed's exactly | 2.3 | The user | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
 
 ## Open items for later steps
 
@@ -619,7 +690,12 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
     - **the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in)**: the "Done when" with `pnpm dev:approval` and `pnpm dev:expiry-alerts`, uploads, the open audit, photos and the command bar, light and dark, phone width
     - **the commit**, with the user's go-ahead
 
-    Assumptions 9–26 are in [Assumptions to check](#assumptions-to-check).
+    Assumptions 9–26 are in [Assumptions to check](#assumptions-to-check). **Committed as `58e3971`** (2026-10-12), not pushed; the hands-on checks are still open.
+19. **Step 2.3**, "Payroll settings and seeded configuration". **Built and verified** (2026-10-12) per decisions 191–212, with one review fix and the clock-dependent tests pinned ([2.3 review](#23-review-2026-10-12)), not committed. Next:
+    - **the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in)**: `pnpm seed:admin` twice on a fresh database, the "Done when" (the internet allowance from the date hired, and the warning with "Save anyway" below ₱755 a day), adding a version, the wage order list, light and dark, phone width
+    - **the commit**
+
+    Assumptions 27–45 are in [Assumptions to check](#assumptions-to-check). Before the first real payroll, HR checks every seeded rate against the current issuances.
 
 ## 1.11 build (2026-10-12)
 

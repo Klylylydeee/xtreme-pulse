@@ -392,6 +392,16 @@ export const OTHER_PAGES: { href: string; parent: string; title: string }[] = [
 ];
 
 /**
+ * Pages under a sidebar entry that name themselves in the breadcrumb after the section's title,
+ * such as "Pulse Talent › Payroll settings" (step 2.3,
+ * docs/modules/talent.md#payroll-settings-and-allowances-build-step-23). The section's entry stays
+ * current, and a user who can't see the section reads "No access", as on the section itself.
+ */
+export const SECTION_PAGES: { href: string; section: string; title: string }[] = [
+  { href: '/talent/payroll-settings', section: '/talent', title: 'Payroll settings' },
+];
+
+/**
  * What the navigation needs to know about the signed-in user. The layout builds it on the server
  * from the `CurrentUser`: the effective module access, and `canOpenAdminArea` from
  * `@pulse/core/server`, so the role rule lives in one place.
@@ -513,6 +523,10 @@ export function breadcrumbFor(groups: readonly NavGroup[], pathname: string): Br
   if (section && section.entry.href !== match?.entry.href) return { current: NO_ACCESS_PAGE_TITLE };
   if (!match) return { current: APP_NAME };
   const { group, entry } = match;
+  const sectionPage = SECTION_PAGES.find(
+    (candidate) => candidate.section === entry.href && isEntryActive(candidate, pathname),
+  );
+  if (sectionPage) return { parent: entry.title, current: sectionPage.title };
   return { parent: group.label === entry.title ? undefined : group.label, current: entry.title };
 }
 

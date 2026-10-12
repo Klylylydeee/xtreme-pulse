@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { CircleCheck, Search, Settings, Users } from 'lucide-react';
+import { Banknote, CircleCheck, Search, Settings, Users } from 'lucide-react';
 import {
   type DirectoryDepartmentOption,
   EMPLOYMENT_STATUS,
@@ -11,7 +12,7 @@ import {
   formatDate,
 } from '@pulse/core';
 import type { EmployeeListRow, ExpiryAlertSettingsView } from '@pulse/talent';
-import { Button } from '@pulse/ui/components/button';
+import { Button, buttonVariants } from '@pulse/ui/components/button';
 import {
   createDataTableColumns,
   DataTable,
@@ -210,20 +211,30 @@ export function EmployeesManager({
         title="Employees"
         description="Everyone’s employee record: personal and employment details, and for HR and Accounting, pay, government IDs and bank details."
         actions={
-          expirySettings.canChange ? (
-            <Button
-              variant="secondary"
-              onClick={(event) => {
-                settingsFocus.remember(event.currentTarget);
-                setSettingsNotice(null);
-                setSettingsSession((count) => count + 1);
-                setSettingsOpen(true);
-              }}
+          <>
+            {/* Step 2.3: Talent Read, which this page already needs. */}
+            <Link
+              href="/talent/payroll-settings"
+              className={buttonVariants({ variant: 'secondary' })}
             >
-              <Settings aria-hidden="true" className="size-4.5" />
-              Settings
-            </Button>
-          ) : undefined
+              <Banknote aria-hidden="true" className="size-4.5" />
+              Payroll settings
+            </Link>
+            {expirySettings.canChange ? (
+              <Button
+                variant="secondary"
+                onClick={(event) => {
+                  settingsFocus.remember(event.currentTarget);
+                  setSettingsNotice(null);
+                  setSettingsSession((count) => count + 1);
+                  setSettingsOpen(true);
+                }}
+              >
+                <Settings aria-hidden="true" className="size-4.5" />
+                Settings
+              </Button>
+            ) : null}
+          </>
         }
       />
       {expirySettings.canChange ? (

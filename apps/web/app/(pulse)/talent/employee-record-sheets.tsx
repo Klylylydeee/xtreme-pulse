@@ -1,11 +1,14 @@
 'use client';
 
-import { type ReactNode, useRef, useState } from 'react';
-import { CircleAlert, RotateCw } from 'lucide-react';
-import { businessToday, type FieldErrors } from '@pulse/core';
+import { type ReactNode, useId, useRef, useState } from 'react';
+import { CircleAlert, RotateCw, TriangleAlert } from 'lucide-react';
+import { businessToday, type FieldErrors, formatPeso } from '@pulse/core';
 import {
   ACCOUNT_NAME_MAX_LENGTH,
   ADDRESS_MAX_LENGTH,
+  ALLOWANCE_BASIS_LABELS,
+  ALLOWANCE_REASON_MAX_LENGTH,
+  type AllowanceAssignmentKind,
   CIVIL_STATUS_LABELS,
   CIVIL_STATUSES,
   COMPENSATION_REASON_MAX_LENGTH,
@@ -29,6 +32,7 @@ import {
 } from '@pulse/talent';
 import { Button } from '@pulse/ui/components/button';
 import { FormField, FormSection, Input, Select, Switch, Textarea } from '@pulse/ui/components/form';
+import { SegmentedControl } from '@pulse/ui/components/segmented-control';
 import { SheetBody, SheetClose, SheetFooter, SheetHeader } from '@pulse/ui/components/sheet';
 import {
   ariaKeyShortcuts,
@@ -40,6 +44,8 @@ import { FormAlert } from '@/components/form-alert';
 import { useActionSubmit } from '@/components/org-structure';
 import {
   addCompensationEntryAction,
+  assignAllowanceAction,
+  type CompensationSaveResult,
   setBankAccountAction,
   setGovernmentIdsAction,
   updateEmploymentAction,
@@ -57,6 +63,13 @@ import type { RecordSectionKey } from './employee-record-sections';
 // - The date of birth and civil status inputs are in the form only for viewers who may change
 //   them; without them the service keeps the stored values.
 // - Errors come back inline next to each field; no message repeats a sensitive value.
+// - Step 2.3 (docs/modules/talent.md#payroll-settings-and-allowances-build-step-23, decision 205):
+//   "Add salary change" follows the "Save anyway" pattern (docs/DESIGN_SYSTEM.md#feedback--motion).
+//   A salary below the minimum wage saves nothing the first time: the spec's sentence shows under
+//   Basic salary in `warning-text` and the button reads "Save anyway", which sends the form again
+//   with `allowBelowMinimumWage`. Changing the amount, rate type or effective date clears it. A
+//   save with no minimum wage on file for the region closes the sheet and shows the note. The
+//   "Assign allowance" sheet adds an allowance assignment (set an amount, or end).
 
 const SAVE = ['mod', 's'] as const;
 const SAVE_FAILED = 'The changes weren’t saved. Check your connection and try again.';
@@ -65,6 +78,7 @@ const SHEET_TITLES: Record<RecordSectionKey, string> = {
   personal: 'Edit personal details',
   employment: 'Edit employment details',
   compensation: 'Add salary change',
+  allowance: 'Assign allowance',
   governmentIds: 'Edit government IDs',
   bankAccount: 'Edit payroll bank account',
 };
@@ -80,8 +94,8 @@ export function RecordSectionSheet({
 }: {
   section: RecordSectionKey;
   view: EmployeeRecordView;
-  /** After a save: closes the sheet and shows `message`. */
-  onSaved: (message: string) => void;
+  /** After a save: closes the sheet and shows `message`, and `note` when the save has one. */
+  onSaved: (message: string, note?: string) => void;
   /** After the stale-form message: closes the sheet and loads the record again. */
   onReload: () => void;
 }) {
@@ -95,10 +109,32 @@ export function RecordSectionSheet({
           ? setGovernmentIdsAction
           : section === 'bankAccount'
             ? setBankAccountAction
-            : addCompensationEntryAction;
-  const save = useActionSubmit(action, () =>
-    onSaved(section === 'compensation' ? 'Salary change added.' : 'Changes saved.'),
-  );
+            : section === 'allowance'
+              ? assignAllowanceAction
+              : addCompensationEntryAction;
+  // The minimum wage warning (step 2.3): nothing was saved; "Save anyway" sends the form again
+  // with `allowBelowMinimumWage`. Changing the amount, rate type or effective date clears it.
+  const [wageWarning, setWageWarning] = useState<string | null>(null);
+  const [allowanceKind, setAllowanceKind] = useState<AllowanceAssignmentKind>('set');
+  const save = useActionSubmit(action, (data) => {
+    if (section === 'allowance') {
+      onSaved(allowanceKind === 'end' ? 'Allowance ended.' : 'Allowance assigned.');
+      return;
+    }
+    if (section !== 'compensation') {
+      onSaved('Changes saved.');
+      return;
+    }
+    const result = data as CompensationSaveResult;
+    if (result.status === 'belowMinimumWage') {
+      setWageWarning(result.warning);
+      requestAnimationFrame(() => {
+        formRef.current?.querySelector<HTMLElement>('[name="basicSalary"]')?.focus();
+      });
+      return;
+    }
+    onSaved('Salary change added.', result.status === 'savedWithNote' ? result.note : undefined);
+  });
   const [networkError, setNetworkError] = useState<string | null>(null);
   const stale = save.formError === RECORD_CHANGED_ELSEWHERE;
   const name = `${view.identity.firstName} ${view.identity.lastName}`;
@@ -137,7 +173,7 @@ export function RecordSectionSheet({
       />
       <SheetBody>
         <input type="hidden" name="employeeId" value={view.employeeId} />
-        {section !== 'compensation' ? (
+        {section !== 'compensation' && section !== 'allowance' ? (
           <input type="hidden" name="version" value={view.version} />
         ) : null}
         {stale ? (
@@ -161,7 +197,22 @@ export function RecordSectionSheet({
         {section === 'employment' ? <EmploymentFields view={view} errors={errors} /> : null}
         {section === 'governmentIds' ? <GovernmentIdFields view={view} errors={errors} /> : null}
         {section === 'bankAccount' ? <BankAccountFields view={view} errors={errors} /> : null}
-        {section === 'compensation' ? <CompensationFields view={view} errors={errors} /> : null}
+        {section === 'compensation' ? (
+          <CompensationFields
+            view={view}
+            errors={errors}
+            warning={wageWarning}
+            onWarningCleared={() => setWageWarning(null)}
+          />
+        ) : null}
+        {section === 'allowance' ? (
+          <AllowanceFields
+            view={view}
+            errors={errors}
+            kind={allowanceKind}
+            onKindChange={setAllowanceKind}
+          />
+        ) : null}
       </SheetBody>
       <SheetFooter>
         <SheetClose asChild>
@@ -177,7 +228,13 @@ export function RecordSectionSheet({
           aria-keyshortcuts={ariaKeyShortcuts(SAVE)}
           className="pr-3"
         >
-          {section === 'compensation' ? 'Add salary change' : 'Save'}
+          {section === 'compensation'
+            ? wageWarning
+              ? 'Save anyway'
+              : 'Add salary change'
+            : section === 'allowance'
+              ? 'Assign allowance'
+              : 'Save'}
           <ShortcutHint keys={SAVE} tone="on-fill" className="hidden sm:inline-flex" />
         </Button>
       </SheetFooter>
@@ -472,12 +529,26 @@ function BankAccountFields({ view, errors }: FieldsProps) {
   );
 }
 
-function CompensationFields({ view, errors }: FieldsProps) {
+function CompensationFields({
+  view,
+  errors,
+  warning,
+  onWarningCleared,
+}: FieldsProps & {
+  /** The minimum wage warning from the last try, or null. */
+  warning: string | null;
+  /** The amount, rate type or effective date changed: the warning no longer applies. */
+  onWarningCleared: () => void;
+}) {
   const today = businessToday();
   const current = view.compensation?.current ?? null;
   const [minimumWageEarner, setMinimumWageEarner] = useState(current?.minimumWageEarner ?? false);
+  const warningId = useId();
+  const clearWarning = warning ? onWarningCleared : undefined;
   return (
     <>
+      {/* "Save anyway" confirms the warning: the server saves and records it on the entry. */}
+      {warning ? <input type="hidden" name="allowBelowMinimumWage" value="on" /> : null}
       <FormSection
         title="Salary change"
         footer="Entries can’t be edited. To correct one, add a new entry with the same effective date."
@@ -495,6 +566,7 @@ function CompensationFields({ view, errors }: FieldsProps) {
             min={view.identity.dateHired}
             max={latestEffectiveDate(today)}
             required
+            onChange={clearWarning}
             className="numeric sm:max-w-60"
           />
         </FormField>
@@ -511,11 +583,29 @@ function CompensationFields({ view, errors }: FieldsProps) {
             autoComplete="off"
             maxLength={20}
             required
+            aria-describedby={warning ? warningId : undefined}
+            onChange={clearWarning}
             className="numeric sm:max-w-60"
           />
+          <div aria-live="polite">
+            {warning ? (
+              <p
+                id={warningId}
+                className="flex items-start gap-1.5 text-footnote font-medium text-warning-text"
+              >
+                <TriangleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
+                <span>{warning}</span>
+              </p>
+            ) : null}
+          </div>
         </FormField>
         <FormField label="Rate type" required error={errors.rateType}>
-          <Select name="rateType" defaultValue={current?.rateType ?? 'monthly'} required>
+          <Select
+            name="rateType"
+            defaultValue={current?.rateType ?? 'monthly'}
+            required
+            onChange={clearWarning}
+          >
             {RATE_TYPES.map((type) => (
               <option key={type} value={type}>
                 {RATE_TYPE_LABELS[type]}
@@ -544,6 +634,137 @@ function CompensationFields({ view, errors }: FieldsProps) {
           error={errors.reason}
         >
           <Textarea name="reason" maxLength={COMPENSATION_REASON_MAX_LENGTH} required />
+        </FormField>
+      </FormSection>
+    </>
+  );
+}
+
+const ALLOWANCE_KIND_OPTIONS = [
+  { value: 'set', label: 'Set an amount' },
+  { value: 'end', label: 'End' },
+] as const satisfies readonly { value: AllowanceAssignmentKind; label: string }[];
+
+/**
+ * "Assign allowance" (step 2.3): the type, set an amount or end, the amount in pesos (hidden for
+ * End), the effective date and the reason. An inactive type can be ended but not newly set. The
+ * amount input starts empty; the company default is in its hint.
+ */
+function AllowanceFields({
+  view,
+  errors,
+  kind,
+  onKindChange,
+}: FieldsProps & {
+  kind: AllowanceAssignmentKind;
+  onKindChange: (kind: AllowanceAssignmentKind) => void;
+}) {
+  const today = businessToday();
+  const types = view.allowances?.types ?? [];
+  const [typeKey, setTypeKey] = useState(
+    () => (types.find((type) => type.active) ?? types[0])?.key ?? '',
+  );
+  const type = types.find((candidate) => candidate.key === typeKey) ?? null;
+  const dateHired = view.identity.dateHired;
+  const amountHint = type
+    ? `In pesos${type.basis ? `, ${ALLOWANCE_BASIS_LABELS[type.basis]}` : ''}. The company default is ${formatPeso(type.defaultAmountCentavos)}.`
+    : 'In pesos.';
+
+  return (
+    <>
+      <input type="hidden" name="kind" value={kind} />
+      <FormSection
+        title="Allowance"
+        footer="Entries can’t be edited. To correct one, add a new entry with the same effective date."
+      >
+        <FormField
+          label="Type"
+          required
+          hint={
+            types.length === 0
+              ? 'No allowance types are set up. Add them in Payroll settings.'
+              : undefined
+          }
+          error={errors.typeKey}
+        >
+          <Select
+            name="typeKey"
+            value={typeKey}
+            onChange={(event) => setTypeKey(event.currentTarget.value)}
+            required
+          >
+            <option value="" disabled>
+              Choose a type
+            </option>
+            {types.map((option) => (
+              <option
+                key={option.key}
+                value={option.key}
+                disabled={kind === 'set' && !option.active}
+              >
+                {option.active ? option.name : `${option.name} (inactive)`}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <div className="flex flex-col gap-1.5 px-4 py-3">
+          <SegmentedControl
+            label="Change"
+            options={ALLOWANCE_KIND_OPTIONS}
+            value={kind}
+            onValueChange={onKindChange}
+            tone="accent"
+            fullWidth
+          />
+          {errors.kind ? (
+            <p className="text-footnote font-medium text-destructive-text" role="alert">
+              {errors.kind}
+            </p>
+          ) : null}
+        </div>
+        {kind === 'set' ? (
+          <FormField
+            label="Amount"
+            required
+            hint={amountHint}
+            error={errors.amount ?? errors.amountCentavos}
+          >
+            <Input
+              name="amount"
+              defaultValue=""
+              inputMode="decimal"
+              autoComplete="off"
+              maxLength={20}
+              required
+              className="numeric sm:max-w-60"
+            />
+          </FormField>
+        ) : null}
+        <FormField
+          label="Effective date"
+          required
+          hint="From the date hired up to a year ahead."
+          error={errors.effectiveDate}
+        >
+          <Input
+            type="date"
+            name="effectiveDate"
+            defaultValue={today < dateHired ? dateHired : today}
+            min={dateHired}
+            max={latestEffectiveDate(today)}
+            required
+            className="numeric sm:max-w-60"
+          />
+        </FormField>
+      </FormSection>
+      <FormSection title="Reason">
+        <FormField
+          label="Reason"
+          required
+          hint="For example “Field work from January”."
+          error={errors.reason}
+        >
+          <Textarea name="reason" maxLength={ALLOWANCE_REASON_MAX_LENGTH} required />
         </FormField>
       </FormSection>
     </>

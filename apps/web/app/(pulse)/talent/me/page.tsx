@@ -32,6 +32,12 @@ const DESCRIPTION =
 // each version was applied), through self-service actions that act on the signed-in user's own
 // employee only; and the 201 file, skills and certifications, read-only. Opening a 201 document
 // goes through the file route, which records every open in the audit log.
+//
+// From step 2.3 (docs/modules/talent.md#payroll-settings-and-allowances-build-step-23) the
+// Compensation section also lists the employee's own allowances, read-only: the automatic ones
+// with the company default, assigned amounts masked with Reveal (audit-logged by the reveal
+// action). `getOwnRecordView` includes them only when the employee may reveal their own
+// `allowances`; there is no "Assign allowance" here.
 export default async function MyRecordPage() {
   const user = await requireCurrentUser();
   return (

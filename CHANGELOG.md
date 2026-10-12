@@ -6,6 +6,33 @@ Notable changes to Xtreme Pulse, newest first. The format follows [Keep a Change
 
 ### Spec changes
 
+- 2026-10-12: Step 2.3 spec (before the build): payroll settings and seeded configuration ([Payroll settings and allowances](docs/modules/talent.md#payroll-settings-and-allowances-build-step-23)).
+  - **Ten versioned Talent settings.**
+    - The settings: `talent.payrollSettings` (cut-offs, pay days, the 261 factor, the contribution split), `talent.sssContributions`, `talent.philhealthContributions`, `talent.pagibigContributions`, `talent.withholdingTaxSemiMonthly`, `talent.premiumRates`, `talent.deMinimisLimits`, `talent.thirteenthMonthExemption`, `talent.minimumWages` and `talent.allowanceTypes`.
+    - Seeded once by `pnpm seed:admin` through new Talent loaders.
+  - **Seeded rates, checked on 2026-10-12** ([Seeded payroll rates](docs/COMPLIANCE.md#seeded-payroll-rates-build-step-23)):
+    - SSS Circular No. 2024-006 (from January 2025)
+    - PhilHealth 5% with a ₱10,000 floor and a ₱100,000 ceiling
+    - Pag-IBIG HDMF Circular No. 460
+    - BIR RR 11-2018 Annex E (2023 table)
+    - De minimis limits per RR 29-2025 (from 2026-01-06)
+    - 13th month ceiling ₱90,000
+    - NCR minimum wage per Wage Orders NCR-26 (₱695) and NCR-28 (₱755, from 2026-09-26). NCR-27 isn't seeded: it was enjoined, then replaced.
+
+    All are assumptions to be confirmed by HR or the accountant.
+  - **Payroll settings page.**
+    - `/talent/payroll-settings`, open to Talent Read.
+    - Adding a version needs Talent Owner and HR or the System Administrator. A version takes effect later than every existing one, has a required source and is audit-logged on `core.configVersion`.
+  - **Allowances.**
+    - New insert-only collection `allowanceAssignments`, with the amount encrypted and a reveal registered (category `allowances`).
+    - The internet allowance (₱500 per cut-off) applies automatically from each employee's date hired, derived from Core and never stored.
+  - **Minimum wage warning.**
+    - Saving a salary below the work region's minimum asks "Save anyway", and the confirmation is stored on the compensation entry.
+    - A badge shows on the record.
+    - Payroll settings lists the employees below each wage order, without amounts.
+  - **Runbook.** "A wrong payroll settings version was added".
+  - **Assumptions.** Items 27–41 in [HANDOFF › Assumptions to check](docs/HANDOFF.md#assumptions-to-check). BUILD_PLAN decisions 191–212.
+
 - 2026-10-12: Step 2.2 spec (before the build): 201 file, profile photo, e-signature and certifications ([Documents, photo, e-signature and certifications](docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)).
   - **New Talent collections.**
     - `employeeDocuments` (the 201 file): never deleted, archived with a reason.

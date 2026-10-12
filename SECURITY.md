@@ -184,7 +184,7 @@ These rules apply the Data Privacy Act of 2012 (RA 10173). See also [COMPLIANCE.
 
 **The Talent employee record** (build step 2.1, [The employee record](docs/modules/talent.md#the-employee-record-build-step-21)):
 
-- **Encrypted fields.** The TIN, SSS number, PhilHealth PIN, Pag-IBIG MID and bank account number (`employeeRecords`) and the basic salary (`compensationEntries`) are `sensitiveField()`s, encrypted with `encryptSensitive` before saving. The RDO code, the bank, the account name, the rate type and the minimum wage earner flag are stored plain, but are sent only inside the section they belong to (below).
+- **Encrypted fields.** The TIN, SSS number, PhilHealth PIN, Pag-IBIG MID and bank account number (`employeeRecords`), the basic salary (`compensationEntries`) and, from build step 2.3, assigned allowance amounts (`allowanceAssignments`) are `sensitiveField()`s, encrypted with `encryptSensitive` before saving. The RDO code, the bank, the account name, the rate type and the minimum wage earner flag are stored plain, but are sent only inside the section they belong to (below).
 - **Sections are sent only to people who may reveal them.** The record's service builds the Compensation section only for viewers allowed to reveal `salary` for that employee, Government IDs only for `governmentId`, and Payroll bank account only for `bankAccount` (the reveal table below). Anyone else gets no part of these sections from the server: no masked value, no last 4 digits, no "has a value" flag, only the line "Pay, government IDs and bank details are visible to HR, Accounting and the System Administrator." So Talent Read, Write or Owner alone shows none of them.
 - **Date of birth and civil status** are sent only to HR, Accounting, the System Administrator and the employee, not stored encrypted, and never shown in the employee list. They don't appear for Talent access alone, Board members included. *Assumption, to be confirmed by HR or counsel:* RA 10173 Section 3(l) counts age and marital status as sensitive personal information, so the app limits who sees them, but it doesn't encrypt them, because the spec's list of encrypted fields doesn't include them. They do appear in audit snapshots, which only the System Administrator can browse.
 - **Masks.** Government IDs and the account number show their last 4 digits. Salary amounts show `••••` with no digits, because the last digits of an amount mean nothing and still tell something. The last 4 are computed on the server (`sensitiveLastFour`), only for a viewer who may reveal the field.
@@ -202,6 +202,13 @@ These rules apply the Data Privacy Act of 2012 (RA 10173). See also [COMPLIANCE.
 - **The e-signature** is changed and applied only by its owner. The service that applies it takes no employee id and signs as the signed-in user, so one user can never sign as another. Its image opens only for the owner and the System Administrator.
 - **The profile photo** isn't sensitive. Directory fields include it, and every signed-in user sees it. Photos and signatures are re-encoded on upload to strip metadata such as GPS. Only the employee (on `/talent/me`), HR and the System Administrator change it; the inspector's photo actions also need Talent Read, and Core's photo service checks the person again. Only the current photo opens.
 - *Assumption, to be confirmed by the project owner:* the app doesn't encrypt stored files. Production keeps `storage/` on an encrypted disk or volume, and includes it in backups ([DEPLOYMENT.md](docs/DEPLOYMENT.md#still-to-decide)).
+
+**Payroll settings and allowances** (build step 2.3, [Payroll settings and allowances](docs/modules/talent.md#payroll-settings-and-allowances-build-step-23)):
+
+- **Payroll settings aren't sensitive.** Contribution tables, tax brackets, premium rates, de minimis limits, the 13th month ceiling, minimum wages and allowance types are law or company policy. Anyone with Talent Read sees them on `/talent/payroll-settings`. Adding a version needs Talent Owner **and** HR or the System Administrator, checked in the Server Action and again in the transaction.
+- **Assigned allowance amounts are encrypted.** `allowanceAssignments.amountCentavos` is a `sensitiveField()`. `registerTalentSensitiveReveals()` also registers `talent.allowanceAssignment` with `amount` (category `allowances`). The allowances are built only for a viewer who may reveal `allowances` for that employee (the reveal table below), and amounts show `••••` until revealed. The automatic internet allowance shows the company default unmasked, since it is the same for everyone.
+- **Who assigns allowances.** The salary rule: Talent Write and HR or the System Administrator; for an employee in the HR department, Talent Write and the System Administrator or a Board member, never HR. Accounting never changes them, and nobody changes their own.
+- **The minimum wage warning and badge** say only that a salary is below the minimum, and only inside the Compensation section. The list of employees below a wage order shows no amounts and needs Talent Read and HR, Accounting or the System Administrator. Neither is audit-logged, since neither shows a value.
 
 **Revealing a value** (build step 1.3). The masked field's Reveal button calls one Server Action, which needs a signed-in user and calls `revealSensitiveField` in `@pulse/core/server`. Each sensitive field that can be revealed is registered by the module that owns it (`registerSensitiveReveal`), with its category (salary, allowances, government ID, bank account, payslip, medical, 201 file, disciplinary) and the employee it belongs to. An unregistered record type or field is refused. Who may reveal:
 
@@ -268,6 +275,12 @@ Every create, update and delete on business records writes an audit log entry (s
   - the expiry alert setting: `create` on `core.configVersion`
 
   See [Documents, photo, e-signature and certifications](docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22)
+- Payroll settings and allowances (build step 2.3):
+  - each payroll settings version added from the page: `create` on `core.configVersion` (module `core`, labelled `<key> from <date>`); seeded versions aren't logged
+  - each allowance assignment: `create` on `talent.allowanceAssignment` (labelled `<employee number> · <type name> · <YYYY-MM-DD>`), with the amount hidden; revealing an amount: `reveal` on the same record type
+  - a salary saved after the minimum wage warning: the `create` entry on `talent.compensationEntry` shows `minimumWageWarningConfirmed: true`
+
+  See [Payroll settings and allowances](docs/modules/talent.md#payroll-settings-and-allowances-build-step-23)
 
 Viewing the audit log and opening or marking notifications are not logged, nor, from build step 1.11, opening the directory or the org chart or searching in the command bar. Sign-ins are never logged.
 

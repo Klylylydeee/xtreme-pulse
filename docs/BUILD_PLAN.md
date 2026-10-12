@@ -678,3 +678,116 @@ The former open questions, and the follow-ups they raised, are now answered in t
      - the expiry job (the "Done when")
 
      ([Spec](TESTING.md#document-e-signature-and-certification-tests))
+191. **Step 2.3:** The step's "Done when" stands: "a new employee gets the internet allowance from the date hired, and a salary below NCR minimum wage shows a warning on save". Step 2.3 stores settings and allowances and adds the warning; it computes no pay. ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
+192. **Step 2.3:** Ten Talent settings live in the versioned configuration store (`defineConfigSetting`): `talent.payrollSettings`, `talent.sssContributions`, `talent.philhealthContributions`, `talent.pagibigContributions`, `talent.withholdingTaxSemiMonthly`, `talent.premiumRates`, `talent.deMinimisLimits`, `talent.thirteenthMonthExemption`, `talent.minimumWages` and `talent.allowanceTypes`. Amounts are whole centavos and rates are decimal strings. Their shapes and checks are in [DATA_MODEL.md](DATA_MODEL.md#versioned-configuration). ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
+193. **Step 2.3:** The seeded figures are those in [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23), each with its issuance, effective date, link and how far it was verified on 2026-10-12. Every one is *an assumption, to be confirmed by HR or the accountant*, checked before the first real payroll. ([Spec](COMPLIANCE.md#keeping-rates-current))
+194. **Step 2.3:** NCR minimum wage is seeded as two versions:
+     - **Wage Order NCR-26:** ₱695, from 2025-07-18.
+     - **Wage Order NCR-28:** ₱755, from 2026-09-26.
+     - **Not seeded: Wage Order NCR-27** (₱85 in two tranches). A Pasig RTC injunction blocked it, and NCR-28 replaced it; the NCR-27 case is still before the Supreme Court.
+     - **Rate used:** the general (non-agriculture) rate only.
+
+     ([Spec](COMPLIANCE.md#seeded-payroll-rates-build-step-23))
+195. **Step 2.3:** The de minimis limits follow RR 29-2025 (from 2026-01-06), not RR 11-2018. Monetized unused leave isn't seeded, because leave is never converted to cash. ([Spec](COMPLIANCE.md#seeded-payroll-rates-build-step-23))
+196. **Step 2.3:** Seeding:
+     - **Loaders.** `talentSeedLoaders` (from `@pulse/talent/server/seed`) run after Core's in `pnpm seed:admin`, one loader per setting.
+     - **Seeded once.** A loader adds the seeded versions only when the setting has no version at all.
+     - **Not audited.** Seed writes are system writes.
+     - **Effective dates.** Legal tables take effect on their issuance's date. `payrollSettings`, `allowanceTypes` and `premiumRates` take effect on 2000-01-01, so they cover every date hired.
+
+     ([Spec](modules/core.md#bootstrap-system-administrator-account))
+197. **Step 2.3:** Adding a version from the page:
+     - **Effective date.** Later than every existing version of that setting, past dates allowed, at most one year ahead.
+     - **`payrollSettings`.** The date must also be a cut-off start day of the new schedule.
+     - **Source.** Required, up to 300 characters.
+     - **Confirmation.** Saving asks to confirm, because versions are never changed or withdrawn.
+     - **A wrong version** is replaced by a newer one from its own date. Core's store isn't changed: no withdrawal, and no same-date correction.
+
+     ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23), [RUNBOOK](RUNBOOK.md#a-wrong-payroll-settings-version-was-added))
+198. **Step 2.3:** Who may do what:
+     - **Viewing** the settings needs Talent Read; the rates aren't sensitive.
+     - **Adding a version** needs Talent Owner **and** HR or the System Administrator, checked in the Server Action and again in the transaction.
+     - **Audit.** Each version is a `create` entry on `core.configVersion` (module `core`, labelled `<key> from <date>`), as decision 187 does.
+
+     ([Spec](../SECURITY.md#module-access-rwo))
+199. **Step 2.3:** Which version a later payroll applies, stored on each finalized run:
+     - **SSS, PhilHealth and Pag-IBIG:** the 1st of the contribution month (the month of the pay date).
+     - **Withholding table, de minimis limits and the 13th month ceiling:** the pay date.
+     - **Premium rates, minimum wage and allowance types:** each day.
+     - **`payrollSettings`:** the cut-off's start date.
+
+     The contribution basis is left to the payroll run step. ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
+200. **Step 2.3:** Cut-offs:
+     - **Two cut-offs**, days 1 to 28, covering the month with no overlap.
+     - **Pay day** 1 to 31, moved to the month's last day in a shorter month. The pay date falls in the month the cut-off ends, after its end day.
+     - **No moving** for weekends or holidays (*assumption, to be confirmed by HR*).
+     - **The contribution split** for each agency totals exactly 1, and the end-of-month cut-off takes the remainder.
+     - **A pure helper** `cutOffFor(day, settings)` returns the cut-off and pay date, for step 2.4.
+
+     ([Spec](modules/talent.md#pay-schedule))
+201. **Step 2.3:** Allowance types are the versioned setting `talent.allowanceTypes`:
+     - **Keys** never change and are never removed; a type no longer used is marked inactive.
+     - **De minimis types** name their limit.
+     - **Automatic assignment** applies only to a fixed amount per cut-off.
+     - **Seeded:** the internet allowance only, ₱500 per cut-off (₱1,000 a month), non-taxable, automatic.
+
+     *Assumption, to be confirmed by the accountant:* the non-taxable treatment, since an internet allowance isn't BIR de minimis. ([Spec](modules/talent.md#allowances))
+202. **Step 2.3:** Automatic allowances are derived, never stored:
+     - **From the date hired.** Each automatic type applies from Core's current date hired, at the default amount in effect on each day, unless an explicit entry on or before that day says otherwise.
+     - **No hook.** Core can't call Talent, and the date hired can be corrected. Nothing is backfilled.
+
+     ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23), [Architecture rules](ARCHITECTURE.md#architecture-rules))
+203. **Step 2.3:** `allowanceAssignments` is insert-only:
+     - **Fields.** Type, effective date (on or after the date hired, at most a year ahead), set with an encrypted amount or end, and a reason.
+     - **Which entry wins.** The latest entry on or before a day wins; on a tie, the newest.
+     - **Who adds them.** The salary rule (decision 161).
+     - **Audit.** A `create` entry on `talent.allowanceAssignment`, labelled `<employee number> · <type name> · <YYYY-MM-DD>`.
+
+     ([Spec](DATA_MODEL.md#collection-ownership))
+204. **Step 2.3:** Allowance amounts are sensitive:
+     - **Encrypted.** An assigned amount is a `sensitiveField()`.
+     - **Reveal.** `registerTalentSensitiveReveals()` adds `talent.allowanceAssignment` with `amount` (category `allowances`).
+     - **Who sees them.** The allowances are built only for a viewer who may reveal `allowances` for that employee.
+     - **The automatic line** shows the company default unmasked.
+
+     ([Spec](../SECURITY.md#sensitive-data))
+205. **Step 2.3:** The minimum wage warning follows the "Save anyway" pattern:
+     - **The input.** `compensationEntrySchema` gains `allowBelowMinimumWage`.
+     - **Below the minimum, not confirmed.** Nothing is saved, and the result is `{ status: 'belowMinimumWage', warning }`.
+     - **Confirmed.** The entry saves with `minimumWageWarningConfirmed: true`.
+     - **No rate for the region.** The salary saves with a note.
+
+     ([Spec](modules/talent.md#minimum-wage-check), [Non-blocking warnings](DESIGN_SYSTEM.md#feedback--motion))
+206. **Step 2.3:** How the minimum wage check works:
+     - **Region.** The work region, NCR by default.
+     - **Date.** The versions in effect on the later of the effective date and today.
+     - **Comparison.** Exact: a daily rate directly; a monthly salary as monthly × 12 < minimum × factor, with no rounding.
+     - **The badge.** A current salary below today's minimum shows "Below minimum wage", inside Compensation only.
+
+     ([Spec](modules/talent.md#minimum-wage-check))
+207. **Step 2.3:** The wage order list:
+     - **Where.** On Payroll settings › Minimum wage, each version shows the count of active employees in its region below it, and "View list".
+     - **What it shows.** Name, number, department and position, with no amounts.
+     - **Who sees it.** Talent Read and HR, Accounting or the System Administrator.
+     - **Not audit-logged.** It shows no amount.
+     - **No job or notification** in step 2.3.
+
+     ([Spec](modules/talent.md#minimum-wage-check))
+208. **Step 2.3:** Screens:
+     - **`/talent/payroll-settings`** (Talent Read), from a "Payroll settings" button on `/talent`. It has a segmented control, each setting's version in effect, the scheduled version and the history, and "Add version" sheets.
+     - **The inspector's Compensation section** gets Allowances, "Assign allowance", the warning and the badge.
+     - **`/talent/me`** shows the employee's own allowances.
+
+     ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23), [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md#layout--components))
+209. **Step 2.3:** Pure table lookups for the tests and later steps, with no pay computation:
+     - `sssRowFor`
+     - `philhealthShares`
+     - `pagibigShares`
+     - `semiMonthlyWithholding`
+     - `dailyRateRatio`
+     - `isBelowMinimumWage`
+
+     ([Spec](TESTING.md#payroll-settings-tests))
+210. **Step 2.3:** Double holidays (300%), special working days and the lower wage rates for small employers aren't seeded, because the spec doesn't list them. *Assumption, to be confirmed by HR or the accountant.* ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
+211. **Step 2.3:** The contribution basis isn't decided in step 2.3. *Recommendation for the payroll run step, to be confirmed by the accountant:* PhilHealth on the monthly basic salary, SSS and Pag-IBIG on the month's total taxable compensation. ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
+212. **Step 2.3:** `pnpm test` adds the payroll settings tests: seeding, each table with hand-checked figures, cut-offs, the minimum wage boundary (the "Done when"), automatic and explicit allowances (the "Done when"), who may add a version, and the wage order list. ([Spec](TESTING.md#payroll-settings-tests))

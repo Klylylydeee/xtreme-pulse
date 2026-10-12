@@ -3,8 +3,12 @@
 import { type ReactNode, useId } from 'react';
 import Link from 'next/link';
 import { ExternalLink, Lock, Plus, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { formatDate, formatPeso, TIMESHEET_TYPE_LABELS } from '@pulse/core';
+import { addCentavos, formatDate, formatPeso, TIMESHEET_TYPE_LABELS } from '@pulse/core';
 import {
+  ALLOWANCE_BASIS_LABELS,
+  type AllowanceAssignmentView,
+  type AllowanceLineView,
+  type AllowancesSectionView,
   CIVIL_STATUS_LABELS,
   COMPENSATION_STATUS_LABELS,
   type CompensationEntryView,
@@ -51,9 +55,13 @@ import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record
 //   again. Nothing here is logged, and no value is kept anywhere but the masked field's own state.
 // - From step 2.2 the Documents section holds the photo, the e-signature status and the 201 file,
 //   and a Skills & certifications section follows it (`employee-documents-sections.tsx`).
+// - From step 2.3 (docs/modules/talent.md#payroll-settings-and-allowances-build-step-23) the
+//   Compensation section shows the "Below minimum wage" badge on the current salary (the server's
+//   `belowMinimumWage`, no amount), and the allowances when the view has them (only for a viewer
+//   who may reveal `allowances`), with "Assign allowance" when `can.assignAllowance`.
 
 export type RecordSectionKey =
-  'personal' | 'employment' | 'compensation' | 'governmentIds' | 'bankAccount';
+  'personal' | 'employment' | 'compensation' | 'allowance' | 'governmentIds' | 'bankAccount';
 
 const LATER_STEP = 'Added in a later step';
 
@@ -234,11 +242,11 @@ export function EmployeeRecordSections({
         </RecordCard>
       </RecordSection>
 
-      {view.compensation ? (
+      {view.compensation || view.allowances ? (
         <RecordSection
           title="Compensation"
           action={
-            onEdit && can.addCompensation ? (
+            onEdit && view.compensation && can.addCompensation ? (
               <Button variant="plain" onClick={() => onEdit('compensation')}>
                 <Plus aria-hidden="true" className="size-4.5" />
                 Add salary change
@@ -246,7 +254,13 @@ export function EmployeeRecordSections({
             ) : null
           }
         >
-          <CompensationCards compensation={view.compensation} />
+          {view.compensation ? <CompensationCards compensation={view.compensation} /> : null}
+          {view.allowances ? (
+            <AllowancesBlock
+              allowances={view.allowances}
+              onAssign={onEdit && can.assignAllowance ? () => onEdit('allowance') : undefined}
+            />
+          ) : null}
         </RecordSection>
       ) : null}
 
@@ -336,7 +350,7 @@ function CompensationCards({
 }: {
   compensation: NonNullable<EmployeeRecordView['compensation']>;
 }) {
-  const { current, entries } = compensation;
+  const { current, entries, belowMinimumWage } = compensation;
   const historyId = useId();
   return (
     <>
@@ -351,6 +365,11 @@ function CompensationCards({
       >
         {current ? (
           <>
+            {belowMinimumWage ? (
+              <div className="px-4 py-2.5">
+                <BelowMinimumWageBadge />
+              </div>
+            ) : null}
             <MaskedSalary
               label={current.rateType === 'daily' ? 'Daily rate' : 'Basic salary'}
               value={current.basicSalary}
@@ -361,9 +380,6 @@ function CompensationCards({
         ) : (
           <Row term="Basic salary" />
         )}
-        <Row term="Allowances">
-          <span className="text-text-secondary">{LATER_STEP}</span>
-        </Row>
       </RecordCard>
       {entries.length > 0 ? (
         <div className="flex flex-col gap-2">
@@ -398,6 +414,147 @@ function CompensationEntryRow({ entry }: { entry: CompensationEntryView }) {
         {RATE_TYPE_LABELS[entry.rateType]}
         {entry.minimumWageEarner ? ' · Minimum wage earner' : null}
       </p>
+      <p className="px-4 text-footnote break-words text-text-primary">{entry.reason}</p>
+    </li>
+  );
+}
+
+// --- Step 2.3: the minimum wage badge and the allowances ----------------------------------------
+
+/** The current salary is below today's minimum wage: text and an icon, never color alone. */
+function BelowMinimumWageBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-bg-grouped px-2 py-0.5 text-footnote font-medium whitespace-nowrap text-warning-text">
+      <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+      Below minimum wage
+    </span>
+  );
+}
+
+/**
+ * An automatic line's company default: "₱500.00 per cut-off (₱1,000.00 a month)". A month has
+ * exactly two cut-offs, so the monthly figure is the amount twice, in whole centavos.
+ */
+function defaultAmountText(
+  amount: number | undefined,
+  basis: AllowanceLineView['basis'],
+): string | null {
+  if (amount === undefined) return null;
+  if (basis === 'perCutOff') {
+    return `${formatPeso(amount)} ${ALLOWANCE_BASIS_LABELS.perCutOff} (${formatPeso(addCentavos(amount, amount))} a month)`;
+  }
+  return basis ? `${formatPeso(amount)} ${ALLOWANCE_BASIS_LABELS[basis]}` : formatPeso(amount);
+}
+
+/** "Automatic from Nov 3, 2026", "Assigned from …", or "Starts …" for a later date. */
+function sinceText(line: AllowanceLineView): string {
+  if (line.upcoming) return `Starts ${formatDate(line.since)}`;
+  return `${line.origin === 'automatic' ? 'Automatic' : 'Assigned'} from ${formatDate(line.since)}`;
+}
+
+/**
+ * The allowances in effect, then the explicit assignments, newest first. Only for a viewer who
+ * may reveal `allowances` (the server leaves `view.allowances` out otherwise). An automatic line
+ * shows the company default unmasked; an assigned amount stays "••••" until revealed.
+ */
+function AllowancesBlock({
+  allowances,
+  onAssign,
+}: {
+  allowances: AllowancesSectionView;
+  /** Opens "Assign allowance"; without it the allowances are read-only. */
+  onAssign?: () => void;
+}) {
+  const { lines, history } = allowances;
+  const headingId = useId();
+  const historyId = useId();
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 pl-4">
+          <h4 id={headingId} className="text-footnote font-semibold text-text-secondary">
+            Allowances
+          </h4>
+          {onAssign ? (
+            <Button variant="plain" onClick={onAssign}>
+              <Plus aria-hidden="true" className="size-4.5" />
+              Assign allowance
+            </Button>
+          ) : null}
+        </div>
+        {lines.length > 0 ? (
+          <ul
+            aria-labelledby={headingId}
+            className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card"
+          >
+            {lines.map((line) => (
+              <AllowanceLineRow key={line.typeKey} line={line} />
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-card bg-surface px-4 py-3 text-subheadline text-text-secondary shadow-card">
+            No allowances.
+          </p>
+        )}
+      </div>
+      {history.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <h4 id={historyId} className="px-4 text-footnote font-semibold text-text-secondary">
+            Allowance history
+          </h4>
+          <ol
+            aria-labelledby={historyId}
+            className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card"
+          >
+            {history.map((entry) => (
+              <AllowanceHistoryRow key={entry.id} entry={entry} />
+            ))}
+          </ol>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function AllowanceLineRow({ line }: { line: AllowanceLineView }) {
+  if (line.origin === 'assigned' && line.amount) {
+    return (
+      <li className="flex flex-col pb-2.5">
+        <MaskedSalary label={line.name} value={line.amount} />
+        <p className="px-4 text-footnote text-text-secondary">
+          {[line.basis ? ALLOWANCE_BASIS_LABELS[line.basis] : null, sinceText(line)]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </li>
+    );
+  }
+  const amount = defaultAmountText(line.defaultAmountCentavos, line.basis);
+  return (
+    <li className="px-4 py-2.5 text-subheadline break-words">
+      <span className="font-medium">{line.name}</span>
+      {amount ? <span className="numeric"> · {amount}</span> : null}
+      <span className="text-text-secondary"> · {sinceText(line)}</span>
+    </li>
+  );
+}
+
+function AllowanceHistoryRow({ entry }: { entry: AllowanceAssignmentView }) {
+  return (
+    <li className="flex flex-col gap-1 py-2">
+      <div className="flex flex-wrap items-center gap-2 px-4">
+        <span className="numeric text-subheadline font-semibold">
+          {formatDate(entry.effectiveDate)}
+        </span>
+        <Badge tone={STATUS_TONES[entry.status]}>{COMPENSATION_STATUS_LABELS[entry.status]}</Badge>
+      </div>
+      {entry.kind === 'set' && entry.amount ? (
+        <MaskedSalary label={entry.typeName} value={entry.amount} />
+      ) : (
+        <p className="px-4 text-subheadline break-words">
+          {entry.typeName} <span className="text-text-secondary">· Ended</span>
+        </p>
+      )}
       <p className="px-4 text-footnote break-words text-text-primary">{entry.reason}</p>
     </li>
   );

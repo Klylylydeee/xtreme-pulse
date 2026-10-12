@@ -15,6 +15,7 @@ import {
   type Person,
   person,
   rawAuditJson,
+  savedId,
   withoutIdsAndDates,
 } from '../testing/fixtures';
 import { registerTalentSensitiveReveals } from './reveals';
@@ -55,14 +56,16 @@ async function filled(dept: Department, name: string): Promise<Filled> {
     accountNumber: ACCOUNT_NUMBER,
     accountName: `${name} Ilagan`,
   });
-  const { id: entryId } = await addCompensationEntry(admin.actor, {
-    employeeId: subject.employeeId,
-    effectiveDate: '2024-01-01',
-    basicSalaryCentavos: SALARY_CENTAVOS,
-    rateType: 'monthly',
-    minimumWageEarner: false,
-    reason: 'Starting salary',
-  });
+  const { id: entryId } = savedId(
+    await addCompensationEntry(admin.actor, {
+      employeeId: subject.employeeId,
+      effectiveDate: '2024-01-01',
+      basicSalaryCentavos: SALARY_CENTAVOS,
+      rateType: 'monthly',
+      minimumWageEarner: false,
+      reason: 'Starting salary',
+    }),
+  );
   const view = await getEmployeeRecordView(admin.actor, subject.employeeId);
   if (!view?.recordId) throw new Error('No record.');
   return { subject, recordId: view.recordId, entryId };

@@ -5,7 +5,9 @@ import nextEnv from '@next/env';
 // `pnpm seed:admin`. Spec: docs/modules/core.md#bootstrap-system-administrator-account
 //
 // 1. Loads Core's base data (allowed email domains, departments, positions, company settings
-//    placeholders, products), inserting only what is missing. Later phases add their loaders here.
+//    placeholders, products, holiday rules), inserting only what is missing, then Pulse Talent's
+//    payroll settings (build step 2.3): each setting's seeded versions, only when it has none.
+//    Later phases add their loaders here.
 // 2. Creates the bootstrap System Administrator from SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD,
 //    unless a System Administrator already exists.
 //
@@ -27,8 +29,9 @@ async function main(): Promise<void> {
   const { connectDb, disconnectDb, redactConnectionString } = await import('@pulse/db');
   const { coreSeedLoaders, createBootstrapAdministrator, hasSystemAdministrator, SeedInputError } =
     await import('@pulse/core/server/seed');
+  const { talentSeedLoaders } = await import('@pulse/talent/server/seed');
 
-  const loaders = [...coreSeedLoaders];
+  const loaders = [...coreSeedLoaders, ...talentSeedLoaders];
 
   try {
     await connectDb();

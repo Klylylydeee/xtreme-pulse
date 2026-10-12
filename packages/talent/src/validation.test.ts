@@ -203,6 +203,8 @@ describe('form schemas', () => {
       rateType: 'daily',
       minimumWageEarner: true,
       reason: 'Starting salary',
+      // Step 2.3: "Save anyway" on the minimum wage warning, off unless the form sends it.
+      allowBelowMinimumWage: false,
     });
     expect(compensationEntrySchema.parse(values)).toEqual(values);
     expect(

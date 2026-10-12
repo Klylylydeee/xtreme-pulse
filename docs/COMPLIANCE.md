@@ -37,7 +37,7 @@ The Philippine legal and regulatory obligations Xtreme Pulse implements. Each ro
 | VAWC leave, 10 days | RA 9262 | [Leave](modules/talent.md#leave) |
 | Special leave for women, up to 2 months | RA 9710 | [Leave](modules/talent.md#leave) |
 | Holiday, rest day, overtime and night differential premiums | DOLE defaults (seeded) | [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off) |
-| Regional minimum wage | Wage orders (NCR seeded) | [Minimum wage check](modules/talent.md#minimum-wage-check) |
+| Regional minimum wage, with a warning when a salary is below it | Wage orders (NCR seeded: NCR-26 and NCR-28, build step 2.3) | [Minimum wage check](modules/talent.md#minimum-wage-check), [Seeded payroll rates](#seeded-payroll-rates-build-step-23) |
 | 13th month pay, paid on or before December 24 | PD 851 | [13th month pay](modules/talent.md#13th-month-pay) |
 | Final pay within 30 days of separation | DOLE Labor Advisory No. 06-2020 | [Final pay](modules/talent.md#separation-final-pay--certificate-of-employment) |
 | Certificate of Employment within 3 days of the request | DOLE Labor Advisory No. 06-2020 | [HR documents](modules/talent.md#hr-documents) |
@@ -60,7 +60,7 @@ The offset arrangement for Standard-timesheet positions (extra hours become offs
 | Obligation | Where it's implemented |
 |---|---|
 | Withholding tax on compensation (semi-monthly table). Minimum wage earners exempt | [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off), [Compensation](modules/talent.md#compensation) |
-| De minimis limits, and the 13th month and other benefits ceiling | [Allowances](modules/talent.md#allowances), [13th month pay](modules/talent.md#13th-month-pay) |
+| De minimis limits (RR 29-2025 seeded, build step 2.3), and the 13th month and other benefits ceiling | [Allowances](modules/talent.md#allowances), [13th month pay](modules/talent.md#13th-month-pay), [Seeded payroll rates](#seeded-payroll-rates-build-step-23) |
 | BIR Form 1601-C monthly; 2316 per employee (and on separation); 1604-C and alphalist yearly | [Year-end](modules/talent.md#year-end), [Employer contributions & monthly remittances](modules/talent.md#employer-contributions--monthly-remittances) |
 | VAT at 12%, or zero-rated or exempt per client; 2550Q with summary lists of sales and purchases | [Ledger](DATA_MODEL.md#ledger-pulse-fiscal), [Clients, sites and contacts](modules/engage.md#clients-sites-and-contacts), [BIR tax reports](modules/fiscal.md#bir-tax-reports) |
 | Expanded withholding on supplier payments: ATC codes, 2307 to suppliers, 0619-E, 1601-EQ with QAP, 1604-E | [Supplier bills (AP)](modules/fiscal.md#supplier-bills-ap), [BIR tax reports](modules/fiscal.md#bir-tax-reports) |
@@ -76,10 +76,34 @@ Pulse must not issue system-generated invoices or keep computerized books until 
 ## Keeping rates current
 
 - Every rate and table that changes by law is versioned configuration (see [Versioned configuration](DATA_MODEL.md#versioned-configuration)). A new issuance becomes a new effective-dated version, and existing versions are never edited.
-- **Before the first real payroll**, HR checks the seeded SSS, PhilHealth, Pag-IBIG, BIR withholding and minimum wage tables against current issuances (build step 2.3).
+- **Before the first real payroll**, HR checks the seeded SSS, PhilHealth, Pag-IBIG, BIR withholding and minimum wage tables against current issuances (build step 2.3). What was seeded, and how far it was verified, is in [Seeded payroll rates](#seeded-payroll-rates-build-step-23).
 - **Before go-live**, every seeded rate is checked against its latest official issuance, including the VAT rate, ATC codes and EWT rates once Fiscal is in use (see [Going live](DEPLOYMENT.md#going-live), item 3).
 - **When a new wage order takes effect**, HR reviews the employees who fall below it (see [Minimum wage check](modules/talent.md#minimum-wage-check)).
 - **Every year**, HR confirms the holidays against the proclamation, checking each auto-draft's date and type and entering its legal basis (see [Holiday calendar](modules/core.md#holiday-calendar)). From build step 1.10 the auto-draft rules are versioned configuration (`core.holidayRules`); a holiday added or changed by law becomes a new version.
+
+## Seeded payroll rates (build step 2.3)
+
+`pnpm seed:admin` seeds these as versioned settings ([Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23)). They were checked on **2026-10-12** against the issuances found online. **Every figure is an *Assumption, to be confirmed by HR or the accountant*,** whatever its verification status. Each version's `source` holds the issuance and the link below.
+
+Verification status:
+
+- **Official:** read on the issuing agency's website.
+- **Secondary:** confirmed by a news agency, a professional firm or payroll guides, but the issuance itself wasn't read.
+- **Spec:** taken from the spec, not re-checked.
+
+| Setting | Seeded | Issuance | Effective | Source | Status |
+|---|---|---|---|---|---|
+| SSS (`talent.sssContributions`) | MSC ₱5,000 to ₱35,000 in ₱500 steps (compensation below ₱5,250 → ₱5,000; ₱34,750 and up → ₱35,000; each MSC covers ₱250 either side). 15% of the MSC: employee 5%, employer 10%. Regular SS up to an MSC of ₱20,000, the rest MPF. EC ₱10 below an MSC of ₱15,000, ₱30 from ₱15,000 | SSS Circular No. 2024-006, Schedule of SSS Contributions for All Business Employers and Employees Effective January 2025 | 2025-01-01 | [sss.gov.ph circulars](https://www.sss.gov.ph/sss-circulars/) | Official: the circular is listed as the latest schedule, and SSS Circular No. 2026-002 (pension reform) changes no contribution. The row figures follow the published schedule and weren't re-read |
+| PhilHealth (`talent.philhealthContributions`) | 5% of the monthly basic salary, half each; floor ₱10,000, ceiling ₱100,000 (₱500 to ₱5,000 a month) | PhilHealth Circular No. 2020-0005 (Revision 1), under RA 11223; confirmed for 2025 by PhilHealth Advisory No. 2025-0002 | 2024-01-01 | [PA2025-0002](https://www.philhealth.gov.ph/advisories/2025/PA2025-0002.pdf) | Official for 2025. 2026 unchanged per secondary sources and PhilHealth Advisory No. 2026-0042, which couldn't be read |
+| Pag-IBIG (`talent.pagibigContributions`) | Employee 1% and employer 2% up to ₱1,500; 2% and 2% above; maximum fund salary ₱10,000 (₱200 each at most) | HDMF Circular No. 460 | 2024-02-01 | [PNA](https://www.pna.gov.ph/articles/1217214) | Secondary. No later change found for 2026 |
+| BIR withholding (`talent.withholdingTaxSemiMonthly`) | Semi-monthly: ₱10,417 and below, nil; over ₱10,417, 15% of the excess; over ₱16,667, ₱937.50 + 20%; over ₱33,333, ₱4,270.70 + 25%; over ₱83,333, ₱16,770.70 + 30%; over ₱333,333, ₱91,770.70 + 35% | RR 11-2018 Annex E, under RA 10963 (TRAIN), the table from January 1, 2023 | 2023-01-01 | [payroll guide](https://www.pesohub.ph/government/bir/withholding-tax-table-philippines/) | Secondary. No newer table found |
+| Minimum wage, NCR (`talent.minimumWages`) | ₱695 a day (non-agriculture) | Wage Order No. NCR-26 | 2025-07-18 | [NWPC NCR](https://nwpc.dole.gov.ph/ncr/) | Secondary for the date; the ₱695 base is on NWPC's matrix |
+| Minimum wage, NCR (`talent.minimumWages`) | ₱755 a day (non-agriculture; ₱718 for agriculture and small retail, service and manufacturing employers, not seeded) | Wage Order No. NCR-28, issued 2026-09-07, published 2026-09-11 | 2026-09-26 | [NWPC NCR](https://nwpc.dole.gov.ph/ncr/), [Wage Order NCR-28](https://nwpc.dole.gov.ph/wp-content/uploads/2026/09/Wage-Order-No.-NCR-28.pdf) | Official. Wage Order NCR-27 (₱755 from 2026-07-25, then ₱780 from 2027-01-20) is **not seeded**: a Pasig RTC injunction blocked it, NCR-28 replaced it, and its case is before the Supreme Court. If the Court revives it, HR adds a new version |
+| De minimis (`talent.deMinimisLimits`) | Rice ₱2,500 a month; uniform and clothing ₱8,000 a year; medical cash allowance to dependents ₱2,000 a semester; actual medical assistance ₱12,000 a year; laundry ₱400 a month; employee achievement awards ₱12,000 a year; Christmas and major anniversary gifts ₱6,000 a year; overtime or night-shift meals up to 30% of the regional basic minimum wage a day; CBA and productivity incentives ₱12,000 a year combined | RR 29-2025, issued 2025-12-22, amending RR 2-98 as last amended by RR 4-2025 | 2026-01-06 | [Grant Thornton](https://www.grantthornton.com.ph/insights/articles-and-updates1/tax-notes/updated-de-minimis-benefits-threshold/) | Secondary. Monetized unused leave (12 days) isn't seeded |
+| 13th month and other benefits (`talent.thirteenthMonthExemption`) | ₱90,000 | RA 10963 (TRAIN) | 2018-01-01 | RA 10963 | Secondary. House Bill 7661 (₱150,000) is pending, not law |
+| Premium rates (`talent.premiumRates`) | Regular holiday 200% worked, 100% unworked; special day 130% worked, 0% unworked; rest day 130%; special day on a rest day 150%; regular holiday on a rest day 260%; overtime +25% (ordinary days), +30% (rest days and holidays); night differential +10%, 10:00 PM to 6:00 AM | Labor Code and DOLE defaults, as in the spec | 2000-01-01 (seed policy date) | [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off) | Spec. Check this year's DOLE holiday pay advisory |
+| Pay schedule, factor and split (`talent.payrollSettings`) | 26th–10th paid on the 15th; 11th–25th paid on the 30th (the last day of a shorter month); factor 261; 8 hours; contributions half in each cut-off; no moving for weekends or holidays | Company policy | 2000-01-01 | [Pay schedule](modules/talent.md#pay-schedule) | Spec, plus the no-moving assumption |
+| Internet allowance (`talent.allowanceTypes`) | ₱500 per cut-off (₱1,000 a month), non-taxable, automatic from the date hired | Company policy | 2000-01-01 | [Allowances](modules/talent.md#allowances) | Spec. The non-taxable treatment needs the accountant, since an internet allowance isn't BIR de minimis |
 
 ## Inputs to get before building
 

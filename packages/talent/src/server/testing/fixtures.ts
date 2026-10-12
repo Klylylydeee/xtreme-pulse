@@ -303,3 +303,28 @@ export async function notifications(filter: Record<string, unknown> = {}) {
     .sort({ _id: 1 })
     .toArray();
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.3 helpers (docs/TESTING.md#payroll-settings-tests).
+
+/** The id of a saved compensation entry; fails the test when it wasn't saved. */
+export function savedId(
+  result: { status: 'saved' | 'savedWithNote'; id: string } | { status: 'belowMinimumWage' },
+): { id: string } {
+  if (result.status === 'belowMinimumWage') throw new Error('The salary was not saved.');
+  return { id: result.id };
+}
+
+/** Corrects an employee's date hired, as Core's user service would. */
+export async function setDateHired(employee: Person, dateHired: string): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    { $set: { dateHired: new Date(`${dateHired}T00:00:00+08:00`) } },
+  );
+}
+
+/** Runs Pulse Talent's seed loaders (the payroll settings), as `pnpm seed:admin` would. */
+export async function seedPayrollSettings(): Promise<void> {
+  const { talentSeedLoaders } = await import('../seed');
+  for (const loader of talentSeedLoaders) await loader.run();
+}
