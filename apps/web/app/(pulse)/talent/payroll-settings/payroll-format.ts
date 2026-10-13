@@ -1,14 +1,35 @@
 import { centavosToDecimalString } from '@pulse/core';
-import type { PayrollSettingKey, PayrollSettingValues } from '@pulse/talent';
+import {
+  ISO_WEEKDAY_LABELS,
+  ISO_WEEKDAYS,
+  type IsoWeekday,
+  isOvernightSchedule,
+  minutesOfClockTime,
+  type PayrollSettingKey,
+  type PayrollSettingValues,
+  type WorkSchedule,
+} from '@pulse/talent';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 — the pure helpers of
 // `/talent/payroll-settings`: the segmented control's views, how a rate and a day read, and the
 // "Add version" sheet's draft (every figure as the text in its input). Amounts stay exact: a
 // draft amount is the decimal string of its centavos, and the Server Action converts it back with
 // `parsePesos`. No floating point anywhere.
+//
+// From build step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)
+// the Work schedule view holds `talent.workSchedule` and `talent.timesheetSettings`. A schedule
+// draft's work days and minutes are typed as text; `draftToValue` turns them into numbers before
+// the sheet sends the version (text that isn't digits stays text, so the schema names the field).
+// The schedule helpers below are shared with the employee record's Work schedule section.
 
 export type PayrollView =
-  'schedule' | 'contributions' | 'withholding' | 'benefits' | 'minimumWage' | 'allowances';
+  | 'schedule'
+  | 'contributions'
+  | 'withholding'
+  | 'benefits'
+  | 'minimumWage'
+  | 'allowances'
+  | 'workSchedule';
 
 /** The segmented control's views, in order, with the settings each shows. */
 export const PAYROLL_VIEWS: readonly {
@@ -34,7 +55,18 @@ export const PAYROLL_VIEWS: readonly {
   },
   { value: 'minimumWage', label: 'Minimum wage', keys: ['talent.minimumWages'] },
   { value: 'allowances', label: 'Allowance types', keys: ['talent.allowanceTypes'] },
+  {
+    value: 'workSchedule',
+    label: 'Work schedule',
+    keys: ['talent.workSchedule', 'talent.timesheetSettings'],
+  },
 ];
+
+/** The settings that are company policy, not a government issuance. */
+export const POLICY_SETTINGS: ReadonlySet<PayrollSettingKey> = new Set([
+  'talent.workSchedule',
+  'talent.timesheetSettings',
+]);
 
 /** The settings whose figures are a table, which get the wider "Add version" sheet. */
 export const TABLE_SETTINGS: ReadonlySet<PayrollSettingKey> = new Set([
@@ -160,6 +192,19 @@ export function emptyDraft<K extends PayrollSettingKey>(key: K): SettingDraft<K>
     'talent.thirteenthMonthExemption': { exemptCeilingCentavos: '' },
     'talent.minimumWages': { regions: [newMinimumWageRegion()] },
     'talent.allowanceTypes': { types: [] },
+    // Build step 2.4: the Work schedule segment.
+    'talent.workSchedule': {
+      workDays: [],
+      start: '',
+      end: '',
+      breakStart: '',
+      breakMinutes: '',
+      graceMinutes: '',
+    },
+    'talent.timesheetSettings': {
+      offsetRatio: '',
+      extraHours: { overtime: 'overtime', standard: 'offset' },
+    },
   };
   return empty[key] as SettingDraft<K>;
 }
@@ -229,4 +274,114 @@ export function setIn<T>(source: T, path: string, value: unknown): T {
     return copy as T;
   }
   return { ...current, [head]: next } as T;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Draft to value (build step 2.4)
+
+/** Digits as a number; anything else stays as typed, so the schema names the field. */
+function wholeNumber(text: string): number | string | undefined {
+  const trimmed = text.trim();
+  if (trimmed === '') return undefined;
+  return /^\d{1,6}$/.test(trimmed) ? Number(trimmed) : trimmed;
+}
+
+/** A work schedule draft as the schema takes it: work days and minutes as numbers. */
+export function scheduleDraftToValue(draft: SettingDraft<'talent.workSchedule'>): {
+  [K in keyof WorkSchedule]: unknown;
+} {
+  return {
+    workDays: [...draft.workDays].map(Number).sort((a, b) => a - b),
+    start: draft.start,
+    end: draft.end,
+    breakStart: draft.breakStart,
+    breakMinutes: wholeNumber(draft.breakMinutes),
+    graceMinutes: wholeNumber(draft.graceMinutes),
+  };
+}
+
+/**
+ * The sheet's draft as the Server Action takes it. Amounts stay as typed (the action converts
+ * them with `parsePesos`); a work schedule's days and minutes become numbers here.
+ */
+export function draftToValue(key: PayrollSettingKey, draft: SettingDraft): unknown {
+  if (key === 'talent.workSchedule') {
+    return scheduleDraftToValue(draft as SettingDraft<'talent.workSchedule'>);
+  }
+  return draft;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Work schedules, for display (build step 2.4)
+
+/** `"08:00"` → `"8:00 AM"`, `"17:30"` → `"5:30 PM"`, `"00:00"` → `"12:00 AM"`. */
+export function formatClockTime(time: string): string {
+  const minutes = minutesOfClockTime(time);
+  const hours = Math.floor(minutes / 60);
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes % 60).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
+/** The clock time `minutes` after `time`, past midnight wrapping round. */
+function clockTimeAfter(time: string, minutes: number): string {
+  const total = (minutesOfClockTime(time) + minutes) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * ISO weekdays as words: a run of three or more reads "Monday to Friday", the rest are listed
+ * ("Monday, Wednesday and Friday"). Every day reads "Every day".
+ */
+export function formatWeekdays(days: readonly number[]): string {
+  const sorted = [...new Set(days)].filter((day) => day >= 1 && day <= 7).sort((a, b) => a - b);
+  if (sorted.length === 0) return 'None';
+  if (sorted.length === 7) return 'Every day';
+  const parts: string[] = [];
+  let index = 0;
+  while (index < sorted.length) {
+    let end = index;
+    while (end + 1 < sorted.length && sorted[end + 1] === (sorted[end] ?? 0) + 1) end += 1;
+    const first = ISO_WEEKDAY_LABELS[sorted[index] as IsoWeekday];
+    const last = ISO_WEEKDAY_LABELS[sorted[end] as IsoWeekday];
+    if (end - index >= 2) {
+      parts.push(`${first} to ${last}`);
+    } else {
+      for (let day = index; day <= end; day += 1) {
+        parts.push(ISO_WEEKDAY_LABELS[sorted[day] as IsoWeekday]);
+      }
+    }
+    index = end + 1;
+  }
+  if (parts.length === 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+/** The weekdays a schedule doesn't list: its rest days. */
+export function restDaysOf(workDays: readonly number[]): IsoWeekday[] {
+  return ISO_WEEKDAYS.filter((day) => !workDays.includes(day));
+}
+
+/** "8:00 AM to 5:00 PM", with "the next day" when the schedule ends after midnight. */
+export function scheduleHoursText(schedule: Pick<WorkSchedule, 'start' | 'end'>): string {
+  const text = `${formatClockTime(schedule.start)} to ${formatClockTime(schedule.end)}`;
+  return isOvernightSchedule(schedule) ? `${text} the next day` : text;
+}
+
+/** "12:00 PM to 1:00 PM (60 min)", or "No break". */
+export function scheduleBreakText(
+  schedule: Pick<WorkSchedule, 'breakStart' | 'breakMinutes'>,
+): string {
+  if (schedule.breakMinutes === 0) return 'No break';
+  const end = clockTimeAfter(schedule.breakStart, schedule.breakMinutes);
+  return `${formatClockTime(schedule.breakStart)} to ${formatClockTime(end)} (${schedule.breakMinutes} min)`;
+}
+
+/** "15 min", or "None". */
+export function graceText(minutes: number): string {
+  return minutes === 0 ? 'None' : `${minutes} min`;
+}
+
+/** One line: "Monday to Friday, 8:00 AM to 5:00 PM". */
+export function scheduleSummary(schedule: WorkSchedule): string {
+  return `${formatWeekdays(schedule.workDays)}, ${scheduleHoursText(schedule)}`;
 }

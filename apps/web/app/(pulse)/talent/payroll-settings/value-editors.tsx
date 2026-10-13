@@ -1,8 +1,8 @@
 'use client';
 
-import type { ComponentProps, ReactNode } from 'react';
+import { type ComponentProps, type ReactNode, useId } from 'react';
 import { CircleAlert, Plus, Trash2 } from 'lucide-react';
-import type { FieldErrors } from '@pulse/core';
+import { type FieldErrors, TIMESHEET_TYPES } from '@pulse/core';
 import {
   ALLOWANCE_BASES,
   ALLOWANCE_BASIS_LABELS,
@@ -13,11 +13,22 @@ import {
   type CutOffKey,
   DE_MINIMIS_PERIOD_LABELS,
   DE_MINIMIS_PERIODS,
+  EXTRA_HOURS_TREATMENT_LABELS,
+  EXTRA_HOURS_TREATMENTS,
+  formatHours,
+  GRACE_MINUTES_MAX,
+  BREAK_MINUTES_MAX,
+  ISO_WEEKDAY_LABELS,
+  ISO_WEEKDAY_SHORT_LABELS,
+  ISO_WEEKDAYS,
   type PayrollSettingKey,
   PREMIUM_RATE_FIELDS,
   PREMIUM_RATE_LABELS,
+  scheduledMinutes,
+  TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
   WORK_REGIONS,
+  workScheduleSchema,
 } from '@pulse/talent';
 import { cn } from '@pulse/ui';
 import { Button } from '@pulse/ui/components/button';
@@ -31,6 +42,9 @@ import {
   newSssRow,
   newWithholdingBracket,
   rateAsPercent,
+  restDaysOf,
+  scheduleDraftToValue,
+  formatWeekdays,
   setIn,
   type SettingDraft,
 } from './payroll-format';
@@ -41,6 +55,11 @@ import { AGENCY_LABELS } from './setting-values';
 // version" sheet. Amounts are typed in pesos (converted to centavos by the Server Action); rates
 // as decimals ("0.05" is 5%). Errors come back under `value.<path>` and show next to their field,
 // or on their cell in a grid.
+//
+// From build step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)
+// the company work schedule (weekday toggles, start, end, break and grace period) and the
+// timesheet settings (the offset ratio as a decimal, and the extra-hours treatment for each
+// timesheet type). `WorkScheduleFields` is shared with the inspector's "Set schedule" sheet.
 
 export interface EditorProps<K extends PayrollSettingKey> {
   draft: SettingDraft<K>;
@@ -111,7 +130,7 @@ function TextField({
   onChange: (value: string) => void;
   error?: string;
   hint?: ReactNode;
-  kind?: 'text' | 'integer' | 'rate' | 'peso' | 'time';
+  kind?: 'text' | 'integer' | 'decimal' | 'rate' | 'peso' | 'time';
   required?: boolean;
   className?: string;
 }) {
@@ -135,7 +154,13 @@ function TextField({
       ) : (
         <Input
           {...shared}
-          inputMode={kind === 'integer' ? 'numeric' : kind === 'rate' ? 'decimal' : undefined}
+          inputMode={
+            kind === 'integer'
+              ? 'numeric'
+              : kind === 'rate' || kind === 'decimal'
+                ? 'decimal'
+                : undefined
+          }
           autoComplete="off"
           spellCheck={false}
           className={cn(kind !== 'text' && 'numeric sm:max-w-40')}
@@ -627,6 +652,221 @@ function AllowanceTypesEditor({
   );
 }
 
+// --- Build step 2.4: work schedules and timesheet settings --------------------------------------
+
+/** The seven weekday toggles: a pressed day is a work day, the rest are rest days. */
+function WeekdayToggles({
+  value,
+  onChange,
+  error,
+}: {
+  value: readonly string[];
+  onChange: (days: string[]) => void;
+  error: string | undefined;
+}) {
+  const labelId = useId();
+  const errorId = useId();
+  const hintId = useId();
+  const days = value.map(Number);
+  const rest = restDaysOf(days);
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <span id={labelId} className="text-subheadline font-medium text-text-primary">
+        Work days
+        <span aria-hidden="true" className="text-text-secondary">
+          {' *'}
+        </span>
+      </span>
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        aria-describedby={[hintId, error ? errorId : null].filter(Boolean).join(' ')}
+        className="grid grid-cols-7 gap-1"
+      >
+        {ISO_WEEKDAYS.map((day) => {
+          const pressed = days.includes(day);
+          return (
+            <button
+              key={day}
+              type="button"
+              aria-pressed={pressed}
+              aria-label={ISO_WEEKDAY_LABELS[day]}
+              onClick={() =>
+                onChange(
+                  (pressed ? days.filter((other) => other !== day) : [...days, day])
+                    .sort((a, b) => a - b)
+                    .map(String),
+                )
+              }
+              className={cn(
+                'flex min-h-11 min-w-0 items-center justify-center rounded-control border text-footnote font-semibold transition-colors duration-fast motion-reduce:transition-none',
+                pressed
+                  ? 'border-accent bg-accent text-accent-text hover:bg-accent-hover'
+                  : 'border-separator bg-surface text-text-primary hover:bg-bg-grouped',
+              )}
+            >
+              {ISO_WEEKDAY_SHORT_LABELS[day]}
+            </button>
+          );
+        })}
+      </div>
+      <p id={hintId} className="text-footnote text-text-secondary">
+        {rest.length > 0 ? `Rest days: ${formatWeekdays(rest)}.` : 'No rest days.'}
+      </p>
+      <div aria-live="polite" className="empty:hidden">
+        {error ? (
+          <p
+            id={errorId}
+            className="flex items-start gap-1.5 text-footnote font-medium text-destructive-text"
+          >
+            <CircleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
+            <span>{error}</span>
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A work schedule's fields: the work days, start and end, the break and the grace period. Errors
+ * come under `<errorPath>.<field>` (`value.start` on the Payroll settings page, `schedule.start`
+ * in "Set schedule").
+ */
+export function WorkScheduleFields({
+  draft,
+  onChange,
+  errors,
+  errorPath,
+}: {
+  draft: SettingDraft<'talent.workSchedule'>;
+  onChange: (draft: SettingDraft<'talent.workSchedule'>) => void;
+  errors: FieldErrors;
+  errorPath: string;
+}) {
+  const e = (field: string) => errors[`${errorPath}.${field}`];
+  const parsed = workScheduleSchema.safeParse(scheduleDraftToValue(draft));
+  const set = (field: keyof SettingDraft<'talent.workSchedule'>, value: string | string[]) =>
+    onChange({ ...draft, [field]: value });
+  return (
+    <>
+      <FormSection title="Work days">
+        <WeekdayToggles
+          value={draft.workDays}
+          onChange={(days) => set('workDays', days)}
+          error={e('workDays')}
+        />
+      </FormSection>
+      <FormSection
+        title="Hours"
+        footer={
+          <span aria-live="polite">
+            {parsed.success
+              ? `${formatHours(scheduledMinutes(parsed.data))} of work a day, after the break.`
+              : 'Work after the break runs from 1 to 24 hours a day.'}
+          </span>
+        }
+      >
+        <div className="grid grid-cols-2 divide-x divide-separator">
+          <TextField
+            label="Start"
+            kind="time"
+            value={draft.start}
+            onChange={(value) => set('start', value)}
+            error={e('start')}
+          />
+          <TextField
+            label="End"
+            kind="time"
+            value={draft.end}
+            onChange={(value) => set('end', value)}
+            error={e('end')}
+            hint="At or before the start, it ends the next day."
+          />
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-separator">
+          <TextField
+            label="Break starts"
+            kind="time"
+            value={draft.breakStart}
+            onChange={(value) => set('breakStart', value)}
+            error={e('breakStart')}
+          />
+          <TextField
+            label="Break, in minutes"
+            kind="integer"
+            value={draft.breakMinutes}
+            onChange={(value) => set('breakMinutes', value)}
+            error={e('breakMinutes')}
+            hint={`0 to ${BREAK_MINUTES_MAX}.`}
+          />
+        </div>
+        <TextField
+          label="Grace period, in minutes"
+          kind="integer"
+          value={draft.graceMinutes}
+          onChange={(value) => set('graceMinutes', value)}
+          error={e('graceMinutes')}
+          hint={`0 to ${GRACE_MINUTES_MAX}. How late a time in can be before it counts as late.`}
+        />
+      </FormSection>
+    </>
+  );
+}
+
+function WorkScheduleEditor({ draft, onChange, errors }: EditorProps<'talent.workSchedule'>) {
+  return (
+    <>
+      <p className="px-4 text-footnote text-text-secondary">
+        Applies to every employee without their own schedule, from the version’s date.
+      </p>
+      <WorkScheduleFields draft={draft} onChange={onChange} errors={errors} errorPath="value" />
+    </>
+  );
+}
+
+function TimesheetSettingsEditor({
+  draft,
+  onChange,
+  errors,
+}: EditorProps<'talent.timesheetSettings'>) {
+  return (
+    <>
+      <FormSection title="Offset">
+        <TextField
+          label="Offset ratio"
+          kind="decimal"
+          value={draft.offsetRatio}
+          onChange={(value) => onChange({ ...draft, offsetRatio: value })}
+          error={errors['value.offsetRatio']}
+          hint="Offset hours earned for each hour of claimed extra work, as a decimal, like 1 or 1.5."
+        />
+      </FormSection>
+      <FormSection title="Extra hours" footer="How each timesheet type counts claimed extra hours.">
+        {TIMESHEET_TYPES.map((type) => (
+          <FormField
+            key={type}
+            label={TIMESHEET_TYPE_TITLES[type]}
+            required
+            error={errors[`value.extraHours.${type}`]}
+          >
+            <Select
+              value={draft.extraHours[type]}
+              onChange={(event) => onChange(setIn(draft, `extraHours.${type}`, event.target.value))}
+            >
+              {EXTRA_HOURS_TREATMENTS.map((treatment) => (
+                <option key={treatment} value={treatment}>
+                  {EXTRA_HOURS_TREATMENT_LABELS[treatment]}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        ))}
+      </FormSection>
+    </>
+  );
+}
+
 /** The figures of one setting, for the "Add version" sheet. */
 export function SettingEditor({
   settingKey,
@@ -669,5 +909,9 @@ export function SettingEditor({
           context={allowanceContext}
         />
       );
+    case 'talent.workSchedule':
+      return <WorkScheduleEditor {...(props as EditorProps<typeof settingKey>)} />;
+    case 'talent.timesheetSettings':
+      return <TimesheetSettingsEditor {...(props as EditorProps<typeof settingKey>)} />;
   }
 }

@@ -32,7 +32,7 @@ import {
 // docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10),
 // docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11),
 // docs/TESTING.md#employee-record-tests (My record, step 2.1), the Payroll settings breadcrumb
-// (step 2.3) and
+// (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -71,8 +71,17 @@ const systemAccount = viewer({
 });
 
 // Pulse Core, for every signed-in user with an employee: Home, then Approvals (step 1.9), then
-// Holidays (step 1.10), then Directory and Org chart (step 1.11), then My record (step 2.1).
-const CORE_HREFS = ['/', '/approvals', '/holidays', '/directory', '/org-chart', '/talent/me'];
+// Holidays (step 1.10), then Directory and Org chart (step 1.11), then My record (step 2.1), then
+// Timesheet (step 2.4).
+const CORE_HREFS = [
+  '/',
+  '/approvals',
+  '/holidays',
+  '/directory',
+  '/org-chart',
+  '/talent/me',
+  '/talent/timesheet',
+];
 
 const HR_ADMIN_HREFS = [
   '/admin',
@@ -408,6 +417,70 @@ describe('My record (step 2.1)', () => {
     // Talent stays current on its own pages, /talent/members included.
     expect(activeEntry(talentWriter, '/talent')?.entry.label).toBe('Talent');
     expect(isEntryActive(getNavEntry('/talent'), '/talent/members')).toBe(true);
+  });
+});
+
+describe('Timesheet (step 2.4)', () => {
+  const withEmployee = [
+    newUser,
+    hr,
+    systemAdministrator,
+    viewer({ roles: ['board'] }),
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  ];
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+
+  it('sits in Pulse Core right after My record for every user with an employee', () => {
+    for (const someone of withEmployee) {
+      const core = visibleNavigation(someone)[0];
+      expect(core?.label).toBe('Pulse Core');
+      const hrefs = core?.entries.map((entry) => entry.href) ?? [];
+      expect(hrefs.indexOf('/talent/timesheet')).toBe(hrefs.indexOf('/talent/me') + 1);
+    }
+  });
+
+  it('is never shown to the bootstrap system account', () => {
+    expect(visibleHrefs(systemAccount)).not.toContain('/talent/timesheet');
+    expect(navigationFor(visibleHrefs(systemAccount))).toEqual(visibleNavigation(systemAccount));
+  });
+
+  it('needs no module access or role, and is a Pulse Core entry', () => {
+    const entry = getNavEntry('/talent/timesheet');
+    expect(entry).toMatchObject({ label: 'Timesheet', title: 'Timesheet', employeeOnly: true });
+    expect(entry.module).toBeUndefined();
+    expect(entry.adminArea).toBeUndefined();
+    expect(entry.badge).toBeUndefined();
+    expect(MODULE_ENTRIES.map((candidate) => candidate.href)).not.toContain('/talent/timesheet');
+    expect(visibleHrefs(newUser)).toContain('/talent/timesheet');
+  });
+
+  it('reads "Pulse Core › Timesheet" in the breadcrumb, Talent access or not', () => {
+    for (const someone of [...withEmployee, systemAccount]) {
+      expect(breadcrumbFor(visibleNavigation(someone), '/talent/timesheet')).toEqual({
+        parent: 'Pulse Core',
+        current: 'Timesheet',
+      });
+    }
+  });
+
+  it('is current on /talent/timesheet, and the Talent item is not', () => {
+    expect(activeEntry(talentReader, '/talent/timesheet')?.entry.label).toBe('Timesheet');
+    expect(isEntryActive(getNavEntry('/talent'), '/talent/timesheet')).toBe(false);
+    expect(activeEntry(visibleNavigation(systemAccount), '/talent/timesheet')).toBeNull();
+  });
+
+  it('names another employee’s timesheet "Pulse Talent › Timesheet", supervisors included', () => {
+    const path = '/talent/timesheets/64b7f0c2a1b2c3d4e5f60718';
+    // Talent Read, and a supervisor with no module access (the page decides who may open it).
+    for (const groups of [talentReader, visibleNavigation(newUser), visibleNavigation(hr)]) {
+      expect(breadcrumbFor(groups, path)).toEqual({ parent: 'Pulse Talent', current: 'Timesheet' });
+    }
+    // Talent stays current there for Talent readers; the own timesheet entry isn't.
+    expect(activeEntry(talentReader, path)?.entry.label).toBe('Talent');
+    expect(isEntryActive(getNavEntry('/talent/timesheet'), path)).toBe(false);
+    expect(visibleHrefs(systemAdministrator)).not.toContain('/talent/timesheets');
   });
 });
 

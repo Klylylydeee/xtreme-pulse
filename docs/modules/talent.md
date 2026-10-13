@@ -303,6 +303,146 @@ A separate table on the same timesheet.
 - Leave without pay and unpaid absences are deducted from pay at the daily rate (half the daily rate for a half day).
 - The DTR is derived; never edit it directly. Confirmed holidays are never counted as absences.
 
+### Work schedules and daily time entries (build step 2.4)
+
+Built in step 2.4. Decisions 213–234 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The collections and setting shapes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership). Step 2.4 stores schedules, timesheets and time entries, and computes hours **for display only**. It computes no pay and stores no computed hours. Submission, approval, the DTR, the holidays-changed listener and crediting offset hours come in step 2.7; reimbursements in step 2.5.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 46–61), to be confirmed by HR, the accountant or counsel.
+
+**Work schedules.**
+
+- **A schedule** has:
+  - its work days (ISO weekdays 1 to 7, at least one)
+  - a start and an end time (`HH:MM`; an end at or before the start means the schedule ends the next day)
+  - a break: its start time and its length (0 to 180 minutes), inside the span
+  - a grace period for lates (0 to 60 minutes; used by the DTR in step 2.7)
+
+  Its **scheduled minutes** are the span less the break, from 60 to 1,440.
+- **The company default** is the versioned setting `talent.workSchedule`, added to the payroll settings in the [configuration store](../DATA_MODEL.md#versioned-configuration). `pnpm seed:admin` seeds it once, effective 2000-01-01 (the seed policy date of step 2.3), with the source "Company policy (spec)": Monday to Friday, 08:00 to 17:00, a 60-minute break from 12:00 (*Assumption:* the spec gives only "a 1-hour break"), and a 15-minute grace period. Saturday and Sunday are rest days.
+  - It is edited on the Payroll settings page, in a new **Work schedule** segment, under the step 2.3 rules: Talent Owner **and** HR or the System Administrator, an effective date later than every existing version and at most a year ahead, a required source, and a `create` audit entry on `core.configVersion`.
+  - Unlike `payrollSettings`, a new version may take effect on any day, because each day is evaluated against the schedule in effect on that day.
+- **An employee's own schedule** is an entry in the new insert-only collection `workScheduleAssignments`: the employee, the effective date, a schedule (or none, meaning "back to the company default") and a required reason (up to 300 characters).
+  - The schedule for a day is the latest entry on or before that day (on a tie, the newest). With no entry, the company default in effect that day applies.
+  - Entries are never edited or deleted (`guardWrites`). A correction is a new entry.
+  - The effective date is on or after the date hired and at most a year ahead.
+  - **Who sets it:** Talent Write **and** HR or the System Administrator, never on one's own record. HR may set HR staff's schedules: a schedule isn't pay.
+  - **Who sees it:** the employee (on `/talent/me` and their timesheet), Talent Read, and the employee's `reportingTo` supervisors (on the timesheet). It isn't sensitive.
+  - **Audit:** a `create` entry on `talent.workScheduleAssignment`, labelled `<employee number> · <YYYY-MM-DD>`, in the same transaction.
+
+**Timesheet settings.** The versioned setting `talent.timesheetSettings`, seeded effective 2000-01-01:
+
+- `offsetRatio`: offset hours per hour of claimed extra work, a decimal string (seeded `"1"`; *Assumption:* 1:1)
+- `extraHours`: how each timesheet type treats claimed extra hours, `{ overtime: 'overtime', standard: 'offset' }`. This is the spec's "setting per timesheet type"; the computation reads it, never the type name.
+
+Step 2.7 adds the submission deadline in a later version. It is edited in the same Work schedule segment, under the same rules.
+
+**Timesheets.**
+
+- **One per employee per cut-off**, in the collection `timesheets`: the employee, the period start and end, the cut-off key, the pay date, the **timesheet type**, the date the type was read (`typeReadOn`) and a status. Step 2.4 has one status, `open`; step 2.7 adds the others. The pair (employee, period start) is unique.
+- **The period** for a day is `cutOffFor(day, …)` with the `talent.payrollSettings` version in effect on that day. If a later version takes effect inside that period, the period ends the day before it; the shortened period keeps the pay date of the cut-off it was cut from. A period never starts before the version it uses took effect.
+- **The type at cut-off start.** Core keeps no history of a position's type, so Talent records it when the cut-off starts. The daily job `talent.openTimesheets` (00:05 Asia/Manila, cron `5 0 * * *`) creates the current cut-off's timesheet for every active employee who doesn't have one yet, reading their position's type at that moment. It is idempotent through the unique index, and it runs every day, not only on a cut-off's first day, so a missed run is made up.
+  - A timesheet the job hasn't created yet (a new hire, or a missed run) is created on first use, with the position's type on that day (*Assumption*).
+  - The stored type is never changed. A position change, or a type change on a position, applies from the next timesheet created.
+  - A position record that can't be found is refused with "Your position can't be found. Ask HR to check your employee record."
+- **Open timesheets.** Every timesheet stays `open` in step 2.4.
+
+**Time entries** (collection `timeEntries`).
+
+- **Each entry** has:
+  - the date: the Manila day of its time in
+  - the time in, and the time out (none while the entry is open)
+  - for each of the two, its source: `clock` or `manual`
+  - the activity performed: required, 1 to 500 characters
+  - the client: optional, any live client, picked from Core's client options. An entry keeps its client after the client is retired: the timesheet shows it as "Removed client", and the entry sheet keeps it as an option
+  - the extra-hours mark: none, or a reason (1 to 300 characters) that marks the entry's extra hours as overtime or offset
+- **Project and ticket** pickers show in the entry sheet, disabled, with "Available when Pulse Ops is set up" and "Available when Pulse Desk is set up". No project or ticket field is stored until Phases 4 and 6.
+- **Time in** is one tap with no fields. It creates an open entry with the **server's** current time and the source `clock`. An employee has at most one open entry.
+- **Time out** closes the open entry with the server's current time and the source `clock`. When the entry has no activity yet, Time out opens the entry sheet and asks for it first.
+- **Manual times.** Typing a time, or changing a clocked one, sets that side's source to `manual`. The browser never sends a time as `clock`. Manual times show a "Manual" badge to everyone who sees the timesheet.
+- **Checks**, on the server, in the save's transaction:
+  - the time out is after the time in, and an entry lasts at most 24 hours
+  - neither time is in the future
+  - the date is on or after the date hired, on or before the separation date, and no later than today
+  - the employee's entries never overlap, on any day. They are compared in whole minutes, as the hours are: seconds are dropped on both ends, so an entry clocked out at 17:00:42 and one typed from 17:00 only touch
+  - the entry's timesheet is `open`
+  - every saved entry with a time out has an activity
+  - each form sends back the entry's `version`; a stale save is refused with "Someone else changed this entry. Reload to see it."
+- **Two saves at once.** Each save first touches the employee's existing timesheets for the cut-offs of the entry's day, the day before and the day after. The touch sets `updatedBy` and `updatedAt` and increments `__v`, so it is always a real write. Two saves of the same employee then write the same timesheet: one transaction conflicts and retries with the other's entry visible, so the no-overlap rule holds. The timesheets' write guard allows only that touch. When the cut-off has no timesheet yet, two first saves both insert it and conflict the same way. One case is left open: two saves at once of entries on either side of a cut-off boundary, when neither cut-off has a timesheet yet. The daily job creates each cut-off's timesheet first, so this needs a missed run.
+- **Deleting** an entry is a soft delete (`deletedAt`), after a confirmation ("Delete entry").
+- **Audit:** `create`, `update` and `delete` entries on `talent.timeEntry`, labelled `<employee number> · <YYYY-MM-DD>`, in the same transaction. No notification is sent.
+
+**Who may do what.**
+
+- **The employee** opens their own timesheet, and clocks, adds, edits and deletes their own entries. This is self-service, outside module access ([Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)). The page and its services take no employee id from the request.
+- **Talent Read** opens any employee's timesheet, read-only.
+- **A supervisor** in the employee's `reportingTo` opens that employee's timesheet read-only, whatever their module access, because they approve it in step 2.7.
+- **Nobody edits another person's entries** in step 2.4, HR and the System Administrator included (*Assumption*). Corrections come through "return with remarks" in step 2.7.
+- Anyone else gets the no-access state (HTTP 403). Each Server Action reloads the actor and the service checks again.
+
+**How hours are computed** (pure functions, for display; step 2.7's DTR and step 2.9's payroll build on them).
+
+- **Units.** Everything is in whole minutes; Manila is UTC+8 with no daylight saving. An instant counts from its minute: seconds are dropped on both ends (a clocked 08:00:42 counts as 08:00), here and in the overlap check. Hours show as minutes ÷ 60 rounded half-up to one decimal, and totals are added in minutes before rounding. There is no minimum overtime block (*Assumption*).
+- **The settings for a day:** the schedule in effect that day, the night window (`nightStart`, `nightEnd`) of the `talent.premiumRates` version in effect that day, `talent.timesheetSettings` in effect that day, and `hoursPerDay` from the `talent.payrollSettings` version in effect on the cut-off's start date.
+- **The kind of day:**
+  - a **regular holiday** or a **special day** (special non-working day) when a confirmed, live, **nationwide** holiday falls on it; either may also be **on a rest day**
+  - otherwise a **rest day** when the schedule doesn't list its weekday
+  - otherwise an **ordinary day**
+
+  A special working day is an ordinary day. Draft holidays never count. Local holidays show on the day as information but aren't applied, because no employee has a work location yet (*Assumption*). Two holidays on one date count as one holiday (decision 210): a regular holiday when either is regular, otherwise a special day. Both names show.
+- **An entry belongs to its time-in date** and takes that day's kind, even when it ends after midnight (*Assumption*).
+- **Worked minutes** are the closed entries' minutes, less any overlap with the schedule's break window (*Assumption:* the break is unpaid even when worked through). An open entry counts nothing and shows "No time out".
+- **Extra minutes:**
+  - on an ordinary day: the worked minutes beyond the scheduled minutes, if any. They are the day's **last** worked minutes in time order, so a late start made up at the end of the day earns none (*Assumption*)
+  - on a rest day or a holiday: every worked minute (*Assumption:* for both timesheet types)
+- **Claimed or not.** Extra minutes inside an entry with the extra-hours mark are **claimed**. The rest are **not claimed**: they show as "Not claimed" with the hint "Mark it as overtime (or offset) and give a reason", and count for nothing.
+- **Overtime timesheet** (`extraHours.overtime` is `overtime`). Each day shows its claimed hours by kind, and the cut-off shows each kind's total:
+  - **Ordinary day**: claimed extra minutes on an ordinary day
+  - **Rest day**: claimed minutes on a rest day
+  - **Holiday**: claimed minutes on a holiday, labelled "Regular holiday" or "Special day", with "on a rest day" when it is one
+  - **Night differential**: paid minutes inside the night window, which wraps past midnight. Paid minutes are the scheduled worked minutes plus the claimed extra minutes. They overlap the kinds above, and the card says so. Under the offset treatment the computation counts the scheduled worked minutes only, since claimed minutes become offset, not pay. The Standard timesheet doesn't show it; the DTR uses it from step 2.7
+
+  On a rest day or a holiday the claimed minutes also split into the first `hoursPerDay` hours and those beyond, shown as a sub-line ("8.0 h + 2.0 h beyond 8") for the payroll step. **Total overtime** is ordinary day + rest day + holiday; night differential isn't added in.
+- **Standard timesheet** (`extraHours.standard` is `offset`). Each day's offset is its claimed extra minutes × `offsetRatio`, rounded half-up to the minute. The page shows each day's offset, the cut-off total and the current offset balance, and no overtime or night differential fields. The balance's opening, credit and usage entries come in steps 2.7 and 2.8, so until then it reads "0.0 h", with "+X h this cut-off, credited when HR approves your timesheet".
+
+**Hand-checked cases.** With the seeded schedule (08:00–17:00, break 12:00–13:00), `hoursPerDay` 8, the night window 22:00–06:00 and `offsetRatio` 1 unless a case says otherwise. Each extra-hours entry is marked unless it says "unmarked".
+
+| # | Case | Expected |
+|---|---|---|
+| 1 | Overtime, Friday 2026-09-11, 08:00–19:00 | Worked 10.0 h; ordinary day 2.0 h; night differential 0 |
+| 2 | Case 1, unmarked | Overtime 0; not claimed 2.0 h |
+| 3 | Overtime, Saturday 2026-09-12 (rest day), 09:00–12:00 | Rest day 3.0 h |
+| 4 | Overtime, ordinary day, 09:00–18:00 | Worked 8.0 h; extra 0 |
+| 5 | Overtime (a Driver), ordinary day, 08:00–23:30 | Worked 14.5 h; ordinary day 6.5 h (17:00–23:30); night differential 1.5 h |
+| 6 | Overtime, Sunday 2026-09-13, 20:00 to 02:00 the next day | Rest day 6.0 h (on 2026-09-13); night differential 4.0 h |
+| 7 | Overtime, Monday 2026-11-30 (Bonifacio Day, confirmed regular holiday), 08:00–19:00 | Holiday 10.0 h: 8.0 h + 2.0 h beyond 8 |
+| 8 | Case 7 with the holiday a draft, or local | An ordinary day: ordinary day 2.0 h |
+| 9 | Overtime, Saturday 2026-10-31 with a confirmed special non-working day, 09:00–13:00 | Holiday 3.0 h, "Special day on a rest day" (the break is deducted) |
+| 10 | Standard, Monday 2026-09-14, 07:55 (manual) to 19:30 | Worked 635 min (10.6 h); offset 155 min (2.6 h). With `offsetRatio` "1.5": 233 min (3.9 h) |
+| 11 | Standard, a rest day, 09:00–12:00, unmarked | Offset 0; not claimed 3.0 h |
+| 12 | Two entries, 08:00–12:00 unmarked and 13:00–19:00 marked | Claimed 2.0 h. With the first marked and the second not: not claimed 2.0 h |
+| 13 | An own schedule 10:00–19:00 (break 14:00, 60 minutes) from Wednesday 2026-09-16 | Tuesday 2026-09-15 uses the default. On 2026-09-16, 08:00–19:00 gives extra 2.0 h |
+| 14 | Cut-offs | 2026-09-26 → 2026-09-26 to 2026-10-10, paid 2026-10-15. 2026-02-20 → 2026-02-11 to 2026-02-25, paid 2026-02-28. 2026-02-27 → 2026-02-26 to 2026-03-10, paid 2026-03-15 |
+
+**Screens** (phone first; see [Timesheets on a phone](../DESIGN_SYSTEM.md#layout--components)).
+
+- **`/talent/timesheet`**, the employee's own timesheet. A "Timesheet" entry in the Pulse Core sidebar group, after My record, listed for every user with an employee (never the bootstrap system account). The Talent item isn't current there, and the breadcrumb reads "Pulse Core › Timesheet".
+  - `?cutOff=YYYY-MM-DD` (a period start) picks the cut-off, with previous and next buttons; the default is today's cut-off. A cut-off before the date hired, or after today's, is refused as not found.
+  - The header reads "Cut-off Sep 11 – 25, 2026 · Overtime timesheet" (or "Standard timesheet").
+  - **Today card:** worked against scheduled hours, "Timed in 7:58 AM", and one primary button, Time in or Time out. It shows only on today's cut-off.
+  - **Extra-hours card:** "Overtime by kind" (Overtime) or "Offset" with the balance line (Standard). This is the only part that differs between the two types.
+  - **Segmented control** "Daily entries | Reimbursements". Reimbursements is an empty state until step 2.5.
+  - **Day list:** one row per day of the cut-off, from the date hired (or the cut-off's start) up to today (or the separation date), newest first. Each row shows the times with a "Manual" badge on each manual side, the activity and client, the day's overtime by kind ("OT 2.0 h · Ordinary day") or offset ("Offset 2.6 h"), and "Not claimed" or "No time out" where they apply. Rest days and holidays are labelled, and a run of rest days with no entries folds into one row.
+  - **Day sheet:** the day's entries, "Add entry", and each entry's edit sheet: time in, time out with a "Next day" switch, activity, client, the disabled project and ticket pickers, and the switch "Count extra hours as overtime" (or "as offset") with its required reason.
+  - A sticky footer shows the cut-off's total overtime or offset. There is no Submit button in step 2.4.
+  - **My team.** A user with direct reports also gets a "My team" list on the page, each person linking to their timesheet.
+- **`/talent/timesheets/<employeeId>`** with `?cutOff=`: the same view read-only, titled with the employee's name, for Talent Read or the employee's supervisors. Opened from "Timesheet" in the employee inspector and from My team. Its breadcrumb reads "Pulse Talent › Timesheet". The page loads the view before it renders, with no skeleton, so a refusal is a real HTTP 403 and an unknown employee or cut-off a real 404. Supervisors without Talent Read get only directory fields about the employee: the date hired and status are used on the server and never sent. The day list still starts at the date hired, and the previous cut-off button stops at the cut-off that holds it, so a supervisor can work out the date hired when it falls in a cut-off they open (*Assumption*: acceptable, as the supervisor works with the employee).
+- **The inspector and `/talent/me`** get a Work schedule section: the schedule in effect, a scheduled one and the history. The inspector has "Set schedule" for those who may set it; `/talent/me` is read-only.
+
+**Choices made for step 2.4** (also decisions 213–234):
+
+- Hours are derived when read and never stored, so a holiday change needs no recompute in step 2.4; the DTR listener comes in step 2.7.
+- Leave and offset time off days (step 2.8) need no entry; until then such days show as days with no entry.
+
 ## Leave
 
 Leave is fully integrated with timesheets and payroll: approved paid leave shows on the DTR as paid, and every day not covered becomes a pay deduction.
@@ -472,7 +612,7 @@ Built in step 2.3. Decisions 191–212 in [BUILD_PLAN.md](../BUILD_PLAN.md#decis
 
 **Payroll settings page.** `/talent/payroll-settings` (Talent Read), opened from a "Payroll settings" button on `/talent`. The Talent item in the sidebar stays current, and the breadcrumb reads Pulse Talent › Payroll settings.
 
-- **Layout.** A segmented control switches between Pay schedule, Contributions (SSS, PhilHealth, Pag-IBIG), Withholding tax, Premiums and benefits (premium rates, de minimis limits, 13th month ceiling), Minimum wage and Allowance types. Each setting shows the version in effect ("In effect since <date>", with its source), a scheduled version if there is one, and the history of versions, read-only. A seeded version carries the note "Seeded: check against the current issuance before the first payroll."
+- **Layout.** A segmented control switches between Pay schedule, Contributions (SSS, PhilHealth, Pag-IBIG), Withholding tax, Premiums and benefits (premium rates, de minimis limits, 13th month ceiling), Minimum wage and Allowance types, and from build step 2.4 Work schedule (`talent.workSchedule` and `talent.timesheetSettings`, [Work schedules and daily time entries](#work-schedules-and-daily-time-entries-build-step-24)). Each setting shows the version in effect ("In effect since <date>", with its source), a scheduled version if there is one, and the history of versions, read-only. A seeded version carries the note "Seeded: check against the current issuance before the first payroll."
 - **Adding a version** needs Talent Owner **and** HR or the System Administrator. "Add version" opens a sheet filled in with the version in effect. The SSS and withholding tables are editable grids with rows to add and remove; on a phone a grid scrolls inside its own region, and the page itself never scrolls sideways. The sheet asks for:
   - the effective date: later than every existing version of that setting (it may be in the past, for an issuance published late) and at most one year ahead
   - the source (required, up to 300 characters, for example "SSS Circular No. 2024-006")

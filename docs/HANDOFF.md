@@ -1,6 +1,6 @@
 # Build handoff
 
-**Date:** 2026-10-12 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
+**Date:** 2026-10-13 · **Branch:** `phase-1` · **For:** the next Claude Code session and the project owner
 
 Where the build stands, what's half-done, and what to do next. Facts here were checked against the repo on this date. The specs in [BUILD_PLAN.md](BUILD_PLAN.md), [SECURITY.md](../SECURITY.md) and the ADRs win over this file.
 
@@ -443,7 +443,8 @@ Phase 2 (Pulse Talent) started on 2026-10-12. The user asked for it to be built 
 |---|---|
 | 2.1 Employee record and sensitive fields | **Done: committed as `cd2a5a6` (2026-10-12), not pushed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in) |
 | 2.2 201 file, profile photo, e-signature and certifications | **Done: committed as `58e3971` (2026-10-12), not pushed.** Spec written first (BUILD_PLAN decisions 173–190), built by four agents and reviewed; four small fixes made (see [2.2 review](#22-review-2026-10-12)). Typecheck, lint, `pnpm test` (65 files, 1059 tests) and the production build pass. **Open:** the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in). Assumptions 9–26 in [Assumptions to check](#assumptions-to-check) |
-| 2.3 Payroll settings and seeded configuration | **Built and verified (2026-10-12), not committed.** Spec written first (BUILD_PLAN decisions 191–212), with the seeded rates checked online on 2026-10-12 ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)). Built by three agents and reviewed; one bug fixed and the clock-dependent tests pinned (see [2.3 review](#23-review-2026-10-12)). Typecheck, lint, `pnpm test` (69 files, 1126 tests) and the production build pass. **Open:** the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 27–45 in [Assumptions to check](#assumptions-to-check) |
+| 2.3 Payroll settings and seeded configuration | **Done: committed as `fffefd7` (2026-10-12), not pushed.** Spec written first (BUILD_PLAN decisions 191–212), with the seeded rates checked online on 2026-10-12 ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)). Built by three agents and reviewed; one bug fixed and the clock-dependent tests pinned (see [2.3 review](#23-review-2026-10-12)). Typecheck, lint, `pnpm test` (69 files, 1126 tests) and the production build pass. **Open:** the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in). Assumptions 27–45 in [Assumptions to check](#assumptions-to-check) |
+| 2.4 Work schedules and daily time entries | **Built and verified (2026-10-13), not committed.** Spec written first (BUILD_PLAN decisions 213–234, [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)), built, then reviewed; two bugs fixed (see [2.4 review](#24-review-2026-10-13)). Typecheck, lint, `pnpm test` and the production build pass. **Open:** the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 46–61 in [Assumptions to check](#assumptions-to-check) |
 
 ### 2.1 notes
 
@@ -578,6 +579,48 @@ Not checked: the screens in a browser (no browser tools here), and `pnpm seed:ad
 6. **Allowances.** "Assign allowance" sets an amount (shown "••••", Reveal adds a `reveal` entry in `/admin/audit`) and "End" stops it. The employee sees their own allowances read-only on `/talent/me`.
 7. **Light and dark, and phone width (about 390 px):** every payroll settings view and its "Add version" sheet (the SSS and withholding grids scroll inside their own region), the Compensation section with its badge and allowances, and both sheets fit with no sideways page scroll.
 
+### 2.4 notes
+
+- **Plan.** The planning agent's 20 recommendations were approved as written (the user wants Phase 2 built autonomously). The spec is in [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) and BUILD_PLAN decisions 213–234.
+- **Build order (planned):**
+  1. **In parallel:**
+     - Core: the supervisor pass in `getEmployeeIdentity` and `listDirectReportIdentities` (`packages/core/src/server/employees/identity.ts`), exported, with tests.
+     - Talent pure layer: `packages/talent/src/timesheets/` (schemas, `scheduleOn`, `versionOn`, `computeDay`, `computeTimesheet`, the 14 hand-checked cases), the two new keys in `payroll/schemas.ts`, `seed-data.ts` and `settings.ts`, and the 2.3 tests that assume ten settings.
+  2. **Talent server, one agent** (they share `policy.ts`, `server/index.ts` and `validation.ts`): `server/work-schedules/`, `server/timesheets/` (models, services, the `talent.openTimesheets` job), policy and exports, with tests.
+  3. **In parallel:**
+     - Timesheet UI: `app/(pulse)/talent/timesheet/`, `timesheets/[employeeId]/`, the shared `timesheet-ui/` components, `lib/actions/talent-timesheets.ts`, and `lib/navigation.ts` with its test.
+     - Schedule UI and wiring: the inspector's Work schedule section and Timesheet link, `/talent/me`, `lib/actions/talent.ts`, the Payroll settings Work schedule segment, and `apps/worker/src/talent-jobs.ts` with its test.
+  4. **Verification:** typecheck, lint, Prettier, `pnpm test`, the production build, `pnpm seed:admin` twice, and a review of access, append-only writes, time arithmetic and phone width in light and dark.
+  5. **Docs:** HANDOFF, BUILD_SUMMARY, the step's results in TESTING and CHANGELOG; then commit, not push.
+- **Spec:** [Timesheets & attendance](modules/talent.md#timesheets--attendance), [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24), [Timesheet hours](COMPLIANCE.md#timesheet-hours-build-step-24), [DATA_MODEL.md](DATA_MODEL.md#versioned-configuration), [Exceptions to module access](../SECURITY.md#exceptions-to-module-access), [People data ownership](modules/core.md#people-data-ownership), [Timesheets on a phone](DESIGN_SYSTEM.md#layout--components), [Timesheet and work schedule tests](TESTING.md#timesheet-and-work-schedule-tests).
+
+### 2.4 review (2026-10-13)
+
+An independent review checked the build against decisions 213–234, talent.md, DATA_MODEL.md, SECURITY.md, COMPLIANCE.md, TESTING.md and DESIGN_SYSTEM.md. Confirmed as built:
+
+- **The time arithmetic.** All 14 hand-checked cases were recomputed by hand and each is asserted by its own test. Also checked: Manila day boundaries (UTC+8), an entry past midnight staying on its time-in day, the break deducted wherever entries overlap it (break windows placed on the day before, the day and the day after), the night window wrapping past midnight, the rest-day and holiday split at `hoursPerDay`, claimed against not claimed, offset with ratio "1.5" (232.5 → 233 min, exact BigInt half-up), seconds dropped by flooring both ends, drafts and local holidays not applied, and two holidays on one date (regular when either is).
+- **Writes.** Self-service only: every service reloads the actor and their own employee in the transaction and takes no employee id; another person's entry is "not found", HR and the System Administrator included. Time in and Time out use the server's clock; a source sent by the browser is ignored. Every refusal is in the transaction (overlap including the open entry and the previous night, more than 24 hours, the future, before hire and after separation, the timesheet open, a stale version). Delete is soft with its audit entry.
+- **Reads.** A supervisor without Talent Read gets directory fields only (page props carry `toDirectoryIdentity` fields; the inspector is Talent Read only). An outsider gets 403, also for an unknown id, and a null view 404. The breadcrumb's `openToOthers` names the page only; the service decides access. The type snapshot job is idempotent, the type is immutable and guarded, and first use falls back to that day's type. Schedule assignments are insert-only, never on one's own record, dated from the date hired to a year ahead, audited, and the newest wins a tie. The Work schedule segment's `draftToValue` is convenience only: the action and the service parse the value again. The job is registered with cron `5 0 * * *`.
+
+Fixed in the review:
+
+1. **Overlaps were checked to the millisecond, the hours to the minute** (`packages/talent/src/server/timesheets/service.ts`, `checkEntry`). After Time out at 17:00:42, a typed entry from 17:00 was refused as overlapping, though the hours count them as touching. The check now compares whole minutes, like the computation. Test added.
+2. **The timesheet touch didn't always serialize** (`service.ts`, `touchTimesheets`; `model.ts` guard). It set `updatedBy` and `updatedAt`; when those already held the same values (the same actor within the same millisecond, and always under the tests' frozen clock), MongoDB skipped the no-op write, so two concurrent overlapping saves could both commit. The touch now also increments `__v`, so it is always a real write, and the guard allows that `$inc` only. A concurrency test (two overlapping saves at once, three rounds: exactly one saves) failed before the fix and passes now; a guard test was added.
+
+Also aligned: talent.md, COMPLIANCE.md, DATA_MODEL.md, TESTING.md and DESIGN_SYSTEM.md now describe the build's choices (seconds dropped, the two-holidays rule, night differential under offset counting scheduled minutes only, the shortened period's pay date, the retired client shown as "Removed client", the serialization, newest-first days, and the read-only page loading with no skeleton). New assumptions 59–61.
+
+Not checked: the screens in a browser (no browser tools here), and `pnpm seed:admin` against a real database.
+
+### 2.4 hands-on checks (by the user, signed in)
+
+1. **The seed.** Run `pnpm seed:admin`: it adds `talent.workSchedule` and `talent.timesheetSettings` (one version each, from 2000-01-01); a second run adds nothing.
+2. **The "Done when", on a phone.** As a Driver (Overtime timesheet), open `/talent/timesheet` and add the entries of hand cases 1 (Friday 08:00–19:00, marked: ordinary day 2.0 h) and 5 (08:00–23:30, marked: ordinary day 6.5 h, night differential 1.5 h), and case 7 if 2026-11-30 is a confirmed holiday in the cut-off (holiday 8.0 h + 2.0 h beyond 8). "Overtime by kind" shows each kind. As an office employee (Standard timesheet), add case 10 (07:55 to 19:30, marked): offset 2.6 h, with "Manual" on both times.
+3. **Time in and Time out.** Time in shows "Timed in" with the time; a second tap reads Time out, asks for the activity, then saves; both times show without "Manual". Edit one time: that side shows "Manual".
+4. **A supervisor's read-only view.** As a supervisor with no Talent access, "My team" on `/talent/timesheet` opens the team member's timesheet: no clock, no Add entry, no edit. Another user gets the no-access page.
+5. **Set schedule.** As HR with Talent Write, set an own schedule in the inspector's Work schedule section (it appears in the history, and `/admin/audit` has the `create` entry). HR can't set their own. The employee sees it read-only on `/talent/me`.
+6. **The Work schedule settings tab** on `/talent/payroll-settings`: both settings show, and "Add version" works for a Talent Owner in HR.
+7. **Light and dark, and phone width (about 390 px):** the timesheet page, the day and entry sheets, the Work schedule section and the settings tab fit with no sideways scroll.
+
 ## Assumptions to check
 
 Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Items 27–34 note how far each seeded rate was verified online on 2026-10-12. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
@@ -629,6 +672,22 @@ Things the build assumed that a person still has to confirm or do. Later Phase 2
 | 43 | **Contribution rounding.** PhilHealth: the premium rounded half-up once, the employee's half rounded half-up, the employer the remainder. Pag-IBIG: each share rounded half-up on its own. The agencies' own rounding wasn't checked. *Assumption, to be confirmed by the accountant* | 2.3 | The accountant | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
 | 44 | **The minimum wage warning shows the daily rate rounded down** to the centavo (₱16,421.24 a month shows ₱754.99 against ₱755.00), so it never reads as the minimum itself. The comparison stays exact. Changed in the review | 2.3 | HR | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
 | 45 | **Edge cases left as built:** a monthly salary is refused, not warned, when no pay schedule is on file (only before `pnpm seed:admin` has run). The seed adds a setting's versions only when it has none, so if a run stopped between NCR-26 and NCR-28, a later run wouldn't add NCR-28; HR would add it on the page. A version counts as "Seeded" when its date and source match the seed's exactly | 2.3 | The user | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23) |
+| 46 | **The seeded break is 12:00 to 13:00.** The spec says only "a 1-hour break". The break window is deducted wherever entries overlap it, on any day, even when the employee works through it (unpaid break) | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 47 | **How "beyond the schedule" is measured.** Extra hours on an ordinary day are the worked minutes beyond the scheduled minutes, taken as the day's last minutes. Arriving early counts only through the day's total, and a late start made up at the end of the day earns none (Labor Code Arts. 87–88) | 2.4 | HR, counsel | [Timesheet hours](COMPLIANCE.md#timesheet-hours-build-step-24) |
+| 48 | **Rest-day and holiday work on the Overtime timesheet** counts only when the employee marks it with a reason, as the spec says for the Standard timesheet | 2.4 | HR, counsel | [Timesheet hours](COMPLIANCE.md#timesheet-hours-build-step-24) |
+| 49 | **Local holidays aren't applied** to anyone yet, since no employee has a work location; they show on the day as information. Only confirmed nationwide holidays count | 2.4 | HR | [Holiday calendar](modules/core.md#holiday-calendar) |
+| 50 | **An entry past midnight belongs to the day it started** and takes that day's kind. DOLE practice splits holiday hours by calendar day, so check this before night work on a holiday eve is paid (step 2.9) | 2.4 | HR, the accountant | [Timesheet hours](COMPLIANCE.md#timesheet-hours-build-step-24) |
+| 51 | **No minimum overtime block** and no rounding to 15 or 30 minutes. Hours come from exact minutes and show to 0.1 h | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 52 | **Night differential** uses the `talent.premiumRates` night window and `payrollSettings.hoursPerDay`. It counts paid minutes only and shows on the Overtime timesheet only; the DTR (step 2.7) also counts it for Standard employees' paid night hours | 2.4 | HR, the accountant | [Timesheet hours](COMPLIANCE.md#timesheet-hours-build-step-24) |
+| 53 | **The offset ratio is 1:1** (seeded `talent.timesheetSettings.offsetRatio` `"1"`), and offset minutes are rounded half-up to the minute | 2.4 | HR | [DATA_MODEL.md](DATA_MODEL.md#versioned-configuration) |
+| 54 | **HR can't correct an employee's time entries** in step 2.4. Corrections come through "return with remarks" in step 2.7 | 2.4 | HR | [Exceptions to module access](../SECURITY.md#exceptions-to-module-access) |
+| 55 | **A timesheet created after its cut-off started** (a new hire, or a missed job run) takes the position's type on the day it is created, recorded in `typeReadOn` | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 56 | **The offset balance shows 0.0 h** until the credit and usage entries (step 2.7) and the opening balances (step 2.8) exist | 2.4 | HR | [Offset balance & offset time off](modules/talent.md#offset-balance--offset-time-off) |
+| 57 | **Clock times come from the server's clock.** Manual times have no limit beyond "not in the future", "no overlap", "at most 24 hours" and the employment dates; approvers see them flagged | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 58 | **Supervisors see their direct reports' timesheets read-only from step 2.4**, outside module access, before they approve them in step 2.7. They get only directory fields about the employee | 2.4 | HR, counsel | [Exceptions to module access](../SECURITY.md#exceptions-to-module-access) |
+| 59 | **A supervisor can work out a team member's date hired** when it falls in a cut-off they open: the day list starts at the date hired, the previous cut-off button stops there, and an earlier `?cutOff=` is not found. The date itself is never sent. Accepted, as the supervisor works with the employee | 2.4 | HR, counsel | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 60 | **One concurrency case is left open:** two saves at once (two devices) of overlapping entries on either side of a cut-off boundary, when neither cut-off has a timesheet yet, could both save. The daily job creates each cut-off's timesheet at 00:05, so this needs a missed run as well | 2.4 | The user | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
+| 61 | **Opening one's own past cut-off creates its timesheet** if none exists, with the position's type that day (as in item 55), so browsing back writes timesheets. Another person's view never creates one | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
 
 ## Open items for later steps
 
@@ -695,7 +754,8 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
     - **the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in)**: `pnpm seed:admin` twice on a fresh database, the "Done when" (the internet allowance from the date hired, and the warning with "Save anyway" below ₱755 a day), adding a version, the wage order list, light and dark, phone width
     - **the commit**
 
-    Assumptions 27–45 are in [Assumptions to check](#assumptions-to-check). Before the first real payroll, HR checks every seeded rate against the current issuances.
+    Assumptions 27–45 are in [Assumptions to check](#assumptions-to-check). Before the first real payroll, HR checks every seeded rate against the current issuances. **Committed as `fffefd7`** (2026-10-12), not pushed; the hands-on checks are still open.
+20. **Step 2.4**, "Work schedules and daily time entries". **Spec written** (2026-10-12): decisions 213–234 and [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24). **Built and verified** (2026-10-13), with two review fixes ([2.4 review](#24-review-2026-10-13)), not committed. Next: **the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in)**, then the commit. Assumptions 46–61 are in [Assumptions to check](#assumptions-to-check).
 
 ## 1.11 build (2026-10-12)
 

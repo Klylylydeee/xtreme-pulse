@@ -1,9 +1,9 @@
 'use client';
 
-import { type RefObject, useEffect, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CircleCheck, RotateCw, TriangleAlert } from 'lucide-react';
-import type { EmployeeRecordView } from '@pulse/talent';
+import type { EmployeeRecordView, WorkScheduleSectionView } from '@pulse/talent';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { Button } from '@pulse/ui/components/button';
 import { ErrorState } from '@pulse/ui/components/error-state';
@@ -12,7 +12,7 @@ import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge } from '@/components/org-structure';
-import { getEmployeeRecordAction } from '@/lib/actions/talent';
+import { getEmployeeRecordAction, getWorkScheduleSectionAction } from '@/lib/actions/talent';
 import type { UploadHints } from '@/lib/upload-hints';
 import type { DocumentHandlers } from './employee-documents-sections';
 import {
@@ -20,8 +20,12 @@ import {
   type DocumentSheet,
   DocumentRecordSheet,
 } from './employee-documents-sheets';
-import { EmployeeRecordSections, type RecordSectionKey } from './employee-record-sections';
-import { RecordSectionSheet } from './employee-record-sheets';
+import {
+  EmployeeRecordSections,
+  type RecordSectionKey,
+  WorkScheduleSection,
+} from './employee-record-sections';
+import { RecordSectionSheet, WorkScheduleSheet } from './employee-record-sheets';
 import { PhotoControls } from './photo-controls';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
@@ -37,6 +41,12 @@ import { PhotoControls } from './photo-controls';
 //
 // From step 2.3 the Compensation section opens "Assign allowance" too, and a salary saved with no
 // minimum wage on file for the region shows the save's note under the confirmation.
+//
+// From step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) the
+// Work schedule section loads beside the record through its own Server Action (Talent Read; the
+// service checks again), so a failure there never blanks the record. It has "Set schedule" when
+// the server's `canSet` allows it, and "Timesheet", a link to the read-only timesheet (every
+// inspector viewer has Talent Read).
 
 const LOAD_FAILED = 'This record couldn’t load. Check your connection and try again.';
 
@@ -140,6 +150,47 @@ function useEmployeeRecord(id: string | null, session: number, separated: boolea
   return { state, reload };
 }
 
+const SCHEDULE_LOAD_FAILED =
+  'The work schedule couldn’t load. Check your connection and try again.';
+
+type ScheduleState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'done'; section: WorkScheduleSectionView | null };
+
+/** The Work schedule section (step 2.4), loaded on its own beside the record. */
+function useWorkSchedule(id: string | null, session: number) {
+  const [state, setState] = useState<ScheduleState>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  const key = id ? `${id}:${session}` : null;
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  if (key !== loadedFor) {
+    setLoadedFor(key);
+    setState({ status: 'loading' });
+  }
+
+  useEffect(() => {
+    if (!id) return;
+    let current = true;
+    getWorkScheduleSectionAction(null, { employeeId: id })
+      .then((result) => {
+        if (!current) return;
+        if (!result.ok) {
+          setState({ status: 'error', message: result.formError ?? SCHEDULE_LOAD_FAILED });
+        } else setState({ status: 'done', section: result.data });
+      })
+      .catch(() => {
+        if (current) setState({ status: 'error', message: SCHEDULE_LOAD_FAILED });
+      });
+    return () => {
+      current = false;
+    };
+  }, [id, session, attempt]);
+
+  return { state, reload: () => setAttempt((count) => count + 1) };
+}
+
 /** What the inspector's sheets need from the page: the product picker and the upload limits. */
 export interface InspectorTools {
   brands: BrandOption[];
@@ -148,7 +199,8 @@ export interface InspectorTools {
 
 type OpenSheet =
   | { type: 'section'; section: RecordSectionKey; session: number }
-  | { type: 'document'; sheet: DocumentSheet; session: number };
+  | { type: 'document'; sheet: DocumentSheet; session: number }
+  | { type: 'schedule'; session: number };
 
 /** What the list already knows, for the title while the record loads. */
 export interface EmployeePreview {
@@ -178,6 +230,8 @@ export function EmployeeInspector({
 }) {
   const router = useRouter();
   const { state, reload } = useEmployeeRecord(employeeId, session, separated);
+  const schedule = useWorkSchedule(employeeId, session);
+  const scheduleSection = schedule.state.status === 'done' ? schedule.state.section : null;
   const view = state.status === 'done' ? state.view : null;
   const title = view
     ? `${view.identity.firstName} ${view.identity.lastName}`
@@ -210,6 +264,12 @@ export function EmployeeInspector({
     setSheetOpen(true);
   }
 
+  function openScheduleSheet() {
+    remember();
+    setSheet((previous) => ({ type: 'schedule', session: (previous?.session ?? 0) + 1 }));
+    setSheetOpen(true);
+  }
+
   /**
    * After a change: show `message` (and `note`, such as "No minimum wage on file …"), reload the
    * record and refresh the list behind it.
@@ -217,6 +277,7 @@ export function EmployeeInspector({
   function changed(message: string, note?: string) {
     setNotice({ for: `${employeeId}:${session}`, message, note: note ?? null });
     reload();
+    schedule.reload();
     router.refresh();
   }
 
@@ -250,6 +311,15 @@ export function EmployeeInspector({
             documentHandlers={documentHandlers}
             imageUpload={tools.uploads.image}
             onPhotoChanged={changed}
+            workSchedule={
+              <WorkScheduleBlock
+                state={schedule.state}
+                onRetry={schedule.reload}
+                onSet={openScheduleSheet}
+                employeeId={employeeId}
+                name={title}
+              />
+            }
             notice={notice && notice.for === `${employeeId}:${session}` ? notice : null}
           />
         ) : null}
@@ -257,7 +327,19 @@ export function EmployeeInspector({
       {view && sheet ? (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent aria-describedby={undefined} onCloseAutoFocus={sheetFocus.onCloseAutoFocus}>
-            {sheet.type === 'section' ? (
+            {sheet.type === 'schedule' ? (
+              scheduleSection ? (
+                <WorkScheduleSheet
+                  key={sheet.session}
+                  section={scheduleSection}
+                  view={view}
+                  onSaved={(message) => {
+                    setSheetOpen(false);
+                    changed(message);
+                  }}
+                />
+              ) : null
+            ) : sheet.type === 'section' ? (
               <RecordSectionSheet
                 key={sheet.session}
                 section={sheet.section}
@@ -304,6 +386,7 @@ function RecordBody({
   documentHandlers,
   imageUpload,
   onPhotoChanged,
+  workSchedule,
   notice,
 }: {
   state: RecordState;
@@ -312,6 +395,7 @@ function RecordBody({
   documentHandlers: DocumentHandlers;
   imageUpload: UploadHints['image'];
   onPhotoChanged: (message: string) => void;
+  workSchedule: ReactNode;
   notice: Notice | null;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
@@ -406,6 +490,7 @@ function RecordBody({
         view={view}
         onEdit={onEdit}
         documentHandlers={documentHandlers}
+        workSchedule={workSchedule}
         photoSlot={
           <PhotoControls
             target={{ kind: 'employee', employeeId: view.employeeId }}
@@ -420,5 +505,57 @@ function RecordBody({
         }
       />
     </div>
+  );
+}
+
+/** The Work schedule section, or its skeleton or error while it loads on its own. */
+function WorkScheduleBlock({
+  state,
+  onRetry,
+  onSet,
+  employeeId,
+  name,
+}: {
+  state: ScheduleState;
+  onRetry: () => void;
+  onSet: () => void;
+  employeeId: string;
+  name: string;
+}) {
+  if (state.status === 'loading') {
+    return (
+      <div role="status" className="flex flex-col gap-3 rounded-card bg-surface p-4 shadow-card">
+        <span className="sr-only">Loading the work schedule…</span>
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <ErrorState
+        variant="inline"
+        headingLevel={3}
+        title="Couldn’t load the work schedule"
+        description={state.message}
+        action={
+          <Button variant="tinted" onClick={onRetry}>
+            <RotateCw aria-hidden="true" className="size-4.5" />
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  if (!state.section) return null;
+  return (
+    <WorkScheduleSection
+      section={state.section}
+      onSet={onSet}
+      timesheetHref={`/talent/timesheets/${employeeId}`}
+      timesheetLabel={`Timesheet for ${name}`}
+    />
   );
 }

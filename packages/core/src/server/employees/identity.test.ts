@@ -13,7 +13,9 @@ import {
   getEmployeeIdentity,
   getSensitiveSubject,
   type IdentityActor,
+  listDirectReportIdentities,
   listEmployeeIdentities,
+  toDirectoryIdentity,
 } from './identity';
 import { EmployeeModel } from './model';
 
@@ -310,5 +312,122 @@ describe('reloadActorAccess', () => {
     await expect(
       withTransaction((session) => reloadActorAccess({ id: reader.userId.toHexString() }, session)),
     ).rejects.toBeInstanceOf(ActionError);
+  });
+});
+
+describe('supervisors (build step 2.4)', () => {
+  const DIRECTORY_KEYS = [
+    'department',
+    'email',
+    'employeeId',
+    'employeeNumber',
+    'firstName',
+    'lastName',
+    'middleName',
+    'photoUrl',
+    'position',
+    'reportingTo',
+  ].sort();
+
+  let lead: Person;
+  let otherLead: Person;
+  let report: Person;
+  let sharedReport: Person;
+  let separatedReport: Person;
+  let movedReport: Person;
+  let stranger: Person;
+
+  beforeAll(async () => {
+    lead = await person('Hilda', 'Garcia');
+    otherLead = await person('Ivan', 'Herrera');
+    report = await person('Jose', 'Ilagan', { reportingTo: [lead] });
+    sharedReport = await person('Karen', 'Jimenez', { reportingTo: [otherLead, lead] });
+    separatedReport = await person('Lito', 'Katigbak', { status: 'Resigned', reportingTo: [lead] });
+    movedReport = await person('Mara', 'Lopez', { reportingTo: [lead] });
+    await EmployeeModel.updateOne(
+      { _id: movedReport.employeeId },
+      { $set: { reportingTo: [otherLead.employeeId] } },
+    );
+    stranger = await person('Nilo', 'Mendoza');
+  });
+
+  it('lets a supervisor without module access read an active direct report', async () => {
+    const supervisor = actor(emptyModuleAccess(), lead);
+    const read = await getEmployeeIdentity(supervisor, report.id);
+    expect(read?.employeeId).toBe(report.id);
+    expect(read?.reportingTo).toEqual([{ id: lead.id, name: 'Hilda Garcia' }]);
+    const shared = await getEmployeeIdentity(supervisor, sharedReport.id);
+    expect(shared?.employeeId).toBe(sharedReport.id);
+  });
+
+  it('refuses a non-report, a separated report and a report whose line was removed', async () => {
+    const supervisor = actor(emptyModuleAccess(), lead);
+    for (const target of [stranger, separatedReport, movedReport, otherLead]) {
+      await expect(getEmployeeIdentity(supervisor, target.id)).rejects.toBeInstanceOf(
+        AccessDeniedError,
+      );
+      await expect(
+        getEmployeeIdentity(supervisor, target.id, { separated: true }),
+      ).rejects.toBeInstanceOf(AccessDeniedError);
+    }
+    // A report doesn't read their supervisor, and a missing or malformed id is refused, not null.
+    await expect(
+      getEmployeeIdentity(actor(emptyModuleAccess(), report), lead.id),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(
+      getEmployeeIdentity(supervisor, new Types.ObjectId().toHexString()),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(getEmployeeIdentity(supervisor, 'nope')).rejects.toBeInstanceOf(AccessDeniedError);
+  });
+
+  it('keeps the full identity on the server and cuts it to exactly the directory keys', async () => {
+    const read = await getEmployeeIdentity(actor(emptyModuleAccess(), lead), report.id);
+    expect(read).not.toBeNull();
+    if (!read) return;
+    expect(Object.keys(read).sort()).toEqual(IDENTITY_KEYS);
+    const sent = toDirectoryIdentity(read);
+    expect(Object.keys(sent).sort()).toEqual(DIRECTORY_KEYS);
+    expect(Object.keys(sent.department ?? {}).sort()).toEqual(['code', 'id', 'name']);
+    expect(Object.keys(sent.position ?? {}).sort()).toEqual(['id', 'name']);
+    for (const row of sent.reportingTo) expect(Object.keys(row).sort()).toEqual(['id', 'name']);
+    const json = JSON.stringify(sent);
+    expect(json).not.toContain('2024-01-01');
+    expect(json).not.toContain('Regular');
+    expect(json).not.toContain(PASSWORD_HASH);
+    expect(json).not.toContain(report.userId.toHexString());
+    expect(sent).toMatchObject({
+      employeeId: report.id,
+      employeeNumber: report.employeeNumber,
+      firstName: 'Jose',
+      lastName: 'Ilagan',
+      department: { name: 'Network', code: 'NET' },
+      position: { name: 'Network Specialist' },
+      reportingTo: [{ id: lead.id, name: 'Hilda Garcia' }],
+    });
+  });
+
+  it('lists only the active direct reports, by last name', async () => {
+    const rows = await listDirectReportIdentities(actor(emptyModuleAccess(), lead));
+    expect(rows.map((row) => row.employeeId)).toEqual([report.id, sharedReport.id]);
+    for (const row of rows) expect(Object.keys(row).sort()).toEqual(IDENTITY_KEYS);
+    const others = await listDirectReportIdentities(actor(emptyModuleAccess(), otherLead));
+    expect(others.map((row) => row.employeeId)).toEqual([sharedReport.id, movedReport.id]);
+    expect(await listDirectReportIdentities(actor(emptyModuleAccess(), stranger))).toEqual([]);
+    // Talent Read doesn't widen the list, and an actor without an employee has none.
+    const reader = await listDirectReportIdentities(withTalent('read', lead));
+    expect(reader.map((row) => row.employeeId)).toEqual([report.id, sharedReport.id]);
+    expect(await listDirectReportIdentities(actor(fullModuleAccess()))).toEqual([]);
+  });
+
+  it('leaves Talent Read as it was', async () => {
+    const reader = withTalent('read', lead);
+    expect((await getEmployeeIdentity(reader, stranger.id))?.employeeId).toBe(stranger.id);
+    expect(await getEmployeeIdentity(reader, separatedReport.id)).toBeNull();
+    const asked = await getEmployeeIdentity(reader, separatedReport.id, { separated: true });
+    expect(asked?.employeeId).toBe(separatedReport.id);
+    expect(Object.keys(asked ?? {}).sort()).toEqual(IDENTITY_KEYS);
+    expect(
+      await getEmployeeIdentity(withTalent('read'), new Types.ObjectId().toHexString()),
+    ).toBeNull();
   });
 });

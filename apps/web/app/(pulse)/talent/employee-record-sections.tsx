@@ -2,7 +2,15 @@
 
 import { type ReactNode, useId } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Lock, Plus, ShieldCheck, TriangleAlert } from 'lucide-react';
+import {
+  CalendarClock,
+  Clock,
+  ExternalLink,
+  Lock,
+  Plus,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react';
 import { addCentavos, formatDate, formatPeso, TIMESHEET_TYPE_LABELS } from '@pulse/core';
 import {
   ALLOWANCE_BASIS_LABELS,
@@ -14,6 +22,7 @@ import {
   type CompensationEntryView,
   type CompensationStatus,
   type EmployeeRecordView,
+  formatHours,
   formatMobileNumber,
   formatPagibigMid,
   formatPhilhealthPin,
@@ -26,6 +35,8 @@ import {
   type RevealTarget,
   SEX_LABELS,
   WORK_REGION_LABELS,
+  type WorkScheduleAssignmentView,
+  type WorkScheduleSectionView,
 } from '@pulse/talent';
 import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
@@ -37,6 +48,14 @@ import {
   DocumentsSection,
   SkillsCertificationsSection,
 } from './employee-documents-sections';
+import {
+  formatWeekdays,
+  graceText,
+  restDaysOf,
+  scheduleBreakText,
+  scheduleHoursText,
+  scheduleSummary,
+} from './payroll-settings/payroll-format';
 import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record-ui';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21, SECURITY.md#sensitive-data and
@@ -59,11 +78,13 @@ import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record
 //   Compensation section shows the "Below minimum wage" badge on the current salary (the server's
 //   `belowMinimumWage`, no amount), and the allowances when the view has them (only for a viewer
 //   who may reveal `allowances`), with "Assign allowance" when `can.assignAllowance`.
+// - From step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) a
+//   Work schedule section follows Employment (`WorkScheduleSection`, passed in as `workSchedule`
+//   because it loads on its own): the schedule in effect, the scheduled changes and the history,
+//   with "Set schedule" and "Timesheet" in the inspector. A schedule isn't sensitive.
 
 export type RecordSectionKey =
   'personal' | 'employment' | 'compensation' | 'allowance' | 'governmentIds' | 'bankAccount';
-
-const LATER_STEP = 'Added in a later step';
 
 /** The reveal for a masked value: the reveal Server Action, its answer formatted for display. */
 function revealOf(target: RevealTarget, format: (value: string) => string) {
@@ -121,6 +142,7 @@ export function EmployeeRecordSections({
   onEdit,
   documentHandlers,
   photoSlot,
+  workSchedule,
   showESignature = true,
 }: {
   view: EmployeeRecordView;
@@ -129,6 +151,8 @@ export function EmployeeRecordSections({
   documentHandlers?: DocumentHandlers;
   /** The photo row at the top of Documents (the inspector's photo with Change and Remove). */
   photoSlot?: ReactNode;
+  /** The Work schedule section (step 2.4), after Employment. */
+  workSchedule?: ReactNode;
   /** False on `/talent/me`, which shows the e-signature in its own section. */
   showESignature?: boolean;
 }) {
@@ -236,11 +260,10 @@ export function EmployeeRecordSections({
           {identity.separated || employment.separationRemarks ? (
             <Row term="Separation remarks">{employment.separationRemarks}</Row>
           ) : null}
-          <Row term="Work schedule">
-            <span className="text-text-secondary">{LATER_STEP}</span>
-          </Row>
         </RecordCard>
       </RecordSection>
+
+      {workSchedule}
 
       {view.compensation || view.allowances ? (
         <RecordSection
@@ -556,6 +579,148 @@ function AllowanceHistoryRow({ entry }: { entry: AllowanceAssignmentView }) {
         </p>
       )}
       <p className="px-4 text-footnote break-words text-text-primary">{entry.reason}</p>
+    </li>
+  );
+}
+
+// --- Step 2.4: the work schedule ----------------------------------------------------------------
+
+/**
+ * The Work schedule section (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24):
+ * the schedule in effect and where it comes from (Company default or Own schedule), the scheduled
+ * changes and the history of the employee's own entries. `onSet` shows "Set schedule" (the
+ * inspector, when the server's `canSet` allows it); `timesheetHref` adds the "Timesheet" link
+ * (the inspector, for Talent Read). Read-only without them, as on `/talent/me`.
+ */
+export function WorkScheduleSection({
+  section,
+  onSet,
+  timesheetHref,
+  timesheetLabel,
+}: {
+  section: WorkScheduleSectionView;
+  onSet?: () => void;
+  timesheetHref?: string;
+  /** The link's accessible name, such as "Timesheet for Ana Cruz". */
+  timesheetLabel?: string;
+}) {
+  const { current, asOf, scheduled, history } = section;
+  const { schedule } = current;
+  const rest = restDaysOf(schedule.workDays);
+  const scheduledId = useId();
+  const historyId = useId();
+  const past = history.filter((entry) => entry.effectiveFrom <= asOf);
+  return (
+    <RecordSection
+      title="Work schedule"
+      action={
+        onSet && section.canSet ? (
+          <Button variant="plain" onClick={onSet}>
+            <CalendarClock aria-hidden="true" className="size-4.5" />
+            Set schedule
+          </Button>
+        ) : null
+      }
+    >
+      <RecordCard
+        footer={
+          current.origin === 'company'
+            ? `The company default, in effect since ${formatDate(current.effectiveFrom)}.`
+            : `In effect since ${formatDate(current.effectiveFrom)}.`
+        }
+      >
+        <div className="px-4 py-2.5">
+          <Badge tone={current.origin === 'own' ? 'accent' : 'neutral'}>
+            {current.origin === 'own' ? 'Own schedule' : 'Company default'}
+          </Badge>
+        </div>
+        <Row term="Work days">{formatWeekdays(schedule.workDays)}</Row>
+        <Row term="Rest days">{rest.length > 0 ? formatWeekdays(rest) : 'None'}</Row>
+        <Row term="Hours">
+          <span className="numeric">{scheduleHoursText(schedule)}</span>
+        </Row>
+        <Row term="Break">
+          <span className="numeric">{scheduleBreakText(schedule)}</span>
+        </Row>
+        <Row term="Work a day">
+          <span className="numeric">{formatHours(section.currentScheduledMinutes)}</span>
+        </Row>
+        <Row term="Grace period for lates">
+          <span className="numeric">{graceText(schedule.graceMinutes)}</span>
+        </Row>
+      </RecordCard>
+
+      {scheduled.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <h4 id={scheduledId} className="px-4 text-footnote font-semibold text-text-secondary">
+            Scheduled
+          </h4>
+          <ol
+            aria-labelledby={scheduledId}
+            className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card"
+          >
+            {scheduled.map((entry) => (
+              <ScheduleEntryRow key={entry.id} entry={entry} status="Scheduled" />
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {past.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <h4 id={historyId} className="px-4 text-footnote font-semibold text-text-secondary">
+            Schedule history
+          </h4>
+          <ol
+            aria-labelledby={historyId}
+            className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card"
+          >
+            {past.map((entry, index) => (
+              <ScheduleEntryRow
+                key={entry.id}
+                entry={entry}
+                status={index === 0 ? 'In effect' : 'Superseded'}
+              />
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {timesheetHref ? (
+        <Link
+          href={timesheetHref}
+          className={cn(buttonVariants({ variant: 'tinted' }), 'self-start')}
+          aria-label={timesheetLabel}
+        >
+          <Clock aria-hidden="true" className="size-4.5" />
+          Timesheet
+        </Link>
+      ) : null}
+    </RecordSection>
+  );
+}
+
+function ScheduleEntryRow({
+  entry,
+  status,
+}: {
+  entry: WorkScheduleAssignmentView;
+  status: 'Scheduled' | 'In effect' | 'Superseded';
+}) {
+  return (
+    <li className="flex flex-col gap-1 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="numeric text-subheadline font-semibold">
+          From {formatDate(entry.effectiveFrom)}
+        </span>
+        <Badge tone={status === 'In effect' ? 'accent' : 'neutral'}>{status}</Badge>
+      </div>
+      <p className="numeric text-footnote text-text-secondary">
+        {entry.schedule
+          ? `${scheduleSummary(entry.schedule)} · Break ${scheduleBreakText(entry.schedule)}`
+          : 'Back to the company default'}
+      </p>
+      <p className="text-footnote break-words text-text-primary">{entry.reason}</p>
     </li>
   );
 }

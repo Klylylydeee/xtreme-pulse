@@ -2,7 +2,7 @@
 
 import { type ReactNode, useId, useRef, useState } from 'react';
 import { CircleAlert, RotateCw, TriangleAlert } from 'lucide-react';
-import { businessToday, type FieldErrors, formatPeso } from '@pulse/core';
+import { businessToday, type FieldErrors, formatDate, formatPeso } from '@pulse/core';
 import {
   ACCOUNT_NAME_MAX_LENGTH,
   ADDRESS_MAX_LENGTH,
@@ -24,11 +24,13 @@ import {
   RATE_TYPE_LABELS,
   RATE_TYPES,
   RECORD_CHANGED_ELSEWHERE,
+  SCHEDULE_REASON_MAX_LENGTH,
   SEPARATION_REMARKS_MAX_LENGTH,
   SEX_LABELS,
   SEXES,
   WORK_REGION_LABELS,
   WORK_REGIONS,
+  type WorkScheduleSectionView,
 } from '@pulse/talent';
 import { Button } from '@pulse/ui/components/button';
 import { FormField, FormSection, Input, Select, Switch, Textarea } from '@pulse/ui/components/form';
@@ -48,10 +50,17 @@ import {
   type CompensationSaveResult,
   setBankAccountAction,
   setGovernmentIdsAction,
+  setWorkScheduleAction,
   updateEmploymentAction,
   updatePersonalAction,
 } from '@/lib/actions/talent';
 import type { RecordSectionKey } from './employee-record-sections';
+import {
+  scheduleDraftToValue,
+  type SettingDraft,
+  toDraft,
+} from './payroll-settings/payroll-format';
+import { WorkScheduleFields } from './payroll-settings/value-editors';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decisions 161–165) and
 // docs/DESIGN_SYSTEM.md#layout--components ("Employee record") — each section's Edit sheet. Each
@@ -70,6 +79,9 @@ import type { RecordSectionKey } from './employee-record-sections';
 //   with `allowBelowMinimumWage`. Changing the amount, rate type or effective date clears it. A
 //   save with no minimum wage on file for the region closes the sheet and shows the note. The
 //   "Assign allowance" sheet adds an allowance assignment (set an amount, or end).
+// - Step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24): the
+//   "Set schedule" sheet (`WorkScheduleSheet`) adds an insert-only work schedule entry. It sends
+//   no `version`: entries are never edited.
 
 const SAVE = ['mod', 's'] as const;
 const SAVE_FAILED = 'The changes weren’t saved. Check your connection and try again.';
@@ -768,5 +780,163 @@ function AllowanceFields({
         </FormField>
       </FormSection>
     </>
+  );
+}
+
+// --- Step 2.4: "Set schedule" -------------------------------------------------------------------
+
+type ScheduleChoice = 'company' | 'own';
+
+const SCHEDULE_CHOICES = [
+  { value: 'company', label: 'Company default' },
+  { value: 'own', label: 'Own schedule' },
+] as const satisfies readonly { value: ScheduleChoice; label: string }[];
+
+/**
+ * "Set schedule" (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24,
+ * decision 215): the company default or an own schedule (filled in with the schedule in effect),
+ * the effective date within the range the server sent (the date hired to a year ahead) and the
+ * required reason. Entries are never edited: a correction is a new entry. The service checks who
+ * may set it and the range again. Save is ⌘S or Ctrl+S.
+ */
+export function WorkScheduleSheet({
+  section,
+  view,
+  onSaved,
+}: {
+  section: WorkScheduleSectionView;
+  view: EmployeeRecordView;
+  onSaved: (message: string) => void;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const today = businessToday();
+  const earliest = section.earliestEffectiveFrom ?? view.identity.dateHired;
+  const latest = section.latestEffectiveFrom ?? latestEffectiveDate(today);
+  const [choice, setChoice] = useState<ScheduleChoice>(section.current.origin);
+  const [draft, setDraft] = useState<SettingDraft<'talent.workSchedule'>>(() =>
+    toDraft<'talent.workSchedule'>(section.current.schedule),
+  );
+  const [effectiveFrom, setEffectiveFrom] = useState(today < earliest ? earliest : today);
+  const [reason, setReason] = useState('');
+  const [networkError, setNetworkError] = useState<string | null>(null);
+  const save = useActionSubmit(setWorkScheduleAction, () =>
+    onSaved(choice === 'own' ? 'Schedule set.' : 'Schedule set back to the company default.'),
+  );
+  const errors = save.fieldErrors;
+  const name = `${view.identity.firstName} ${view.identity.lastName}`;
+
+  useShortcut(SAVE, () => submitFormFromShortcut(formRef.current), { scope: formRef });
+
+  async function submit() {
+    setNetworkError(null);
+    try {
+      const ok = await save.run({
+        employeeId: view.employeeId,
+        effectiveFrom,
+        schedule: choice === 'own' ? scheduleDraftToValue(draft) : null,
+        reason,
+      });
+      if (!ok) {
+        requestAnimationFrame(() => {
+          formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+        });
+      }
+    } catch {
+      setNetworkError(SAVE_FAILED);
+    }
+  }
+
+  return (
+    <form
+      ref={formRef}
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+      className="flex min-h-0 flex-1 flex-col"
+      aria-busy={save.pending || undefined}
+    >
+      <SheetHeader title="Set schedule" description={`${name} · ${view.identity.employeeNumber}`} />
+      <SheetBody>
+        <FormAlert message={save.formError ?? networkError ?? errors.schedule} />
+        <FormSection
+          title="Schedule"
+          footer="The company default follows Payroll settings, including later changes."
+        >
+          <div className="px-4 py-3">
+            <SegmentedControl
+              label="Schedule"
+              options={SCHEDULE_CHOICES}
+              value={choice}
+              onValueChange={setChoice}
+              tone="accent"
+              fullWidth
+            />
+          </div>
+        </FormSection>
+        {choice === 'own' ? (
+          <WorkScheduleFields
+            draft={draft}
+            onChange={setDraft}
+            errors={errors}
+            errorPath="schedule"
+          />
+        ) : null}
+        <FormSection
+          title="When"
+          footer="Entries can’t be edited. To correct one, set the schedule again from the same date."
+        >
+          <FormField
+            label="Effective date"
+            required
+            hint={`From ${formatDate(earliest)} to ${formatDate(latest)}. Any day of the week works.`}
+            error={errors.effectiveFrom}
+          >
+            <Input
+              type="date"
+              value={effectiveFrom}
+              onChange={(event) => setEffectiveFrom(event.target.value)}
+              min={earliest}
+              max={latest}
+              required
+              className="numeric sm:max-w-60"
+            />
+          </FormField>
+        </FormSection>
+        <FormSection title="Reason">
+          <FormField
+            label="Reason"
+            required
+            hint="For example “Night shift at the client site from November”."
+            error={errors.reason}
+          >
+            <Textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={SCHEDULE_REASON_MAX_LENGTH}
+              required
+            />
+          </FormField>
+        </FormSection>
+      </SheetBody>
+      <SheetFooter>
+        <SheetClose asChild>
+          <Button variant="secondary" className="pr-3">
+            Cancel
+            <ShortcutHint keys={['escape']} className="hidden sm:inline-flex" />
+          </Button>
+        </SheetClose>
+        <Button
+          type="submit"
+          loading={save.pending}
+          aria-keyshortcuts={ariaKeyShortcuts(SAVE)}
+          className="pr-3"
+        >
+          Set schedule
+          <ShortcutHint keys={SAVE} tone="on-fill" className="hidden sm:inline-flex" />
+        </Button>
+      </SheetFooter>
+    </form>
   );
 }

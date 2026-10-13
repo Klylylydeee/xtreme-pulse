@@ -81,6 +81,18 @@ Pulse must not issue system-generated invoices or keep computerized books until 
 - **When a new wage order takes effect**, HR reviews the employees who fall below it (see [Minimum wage check](modules/talent.md#minimum-wage-check)).
 - **Every year**, HR confirms the holidays against the proclamation, checking each auto-draft's date and type and entering its legal basis (see [Holiday calendar](modules/core.md#holiday-calendar)). From build step 1.10 the auto-draft rules are versioned configuration (`core.holidayRules`); a holiday added or changed by law becomes a new version.
 
+## Timesheet hours (build step 2.4)
+
+Step 2.4 counts hours for display; pay follows in step 2.9 ([Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)). Each rule below is an *Assumption, to be confirmed by HR or counsel* ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check), items 46–61):
+
+- **Overtime is work beyond the day's scheduled hours** (Labor Code Art. 87, work beyond eight hours), counted as the day's last worked minutes. Starting early doesn't count unless the day's total exceeds the schedule, and a late start made up at the end of the day earns none, in line with Art. 88 (undertime isn't offset by overtime).
+- **Every minute on a rest day or a holiday is extra work**, on both timesheet types, and counts only when the employee marks it with a reason. On a rest day or a holiday, the first `hoursPerDay` hours and the hours beyond are kept apart, since premiums differ (the payroll step applies them).
+- **Holidays.** Only confirmed nationwide holidays apply; local holidays don't yet, as no work location is recorded. A special working day is an ordinary day. Two holidays on one date count as one holiday: a regular holiday when either is regular, otherwise a special day (double holiday pay isn't seeded, decision 210).
+- **An entry past midnight** belongs to the day it started. DOLE practice splits holiday hours by calendar day, so check this before night work on a holiday eve is paid.
+- **The break is unpaid** and deducted where entries overlap it, even when the employee works through it.
+- **Night differential** (Labor Code Art. 86) counts paid hours inside the `talent.premiumRates` night window (10:00 PM to 6:00 AM): the scheduled worked minutes plus, on the Overtime timesheet, the claimed extra minutes. For Standard employees it counts the scheduled worked minutes only, since claimed extra minutes become offset hours, not pay; the DTR (step 2.7) uses that figure.
+- **No minimum overtime block** and no rounding to 15 or 30 minutes: hours come from exact minutes. Seconds are dropped from each time in and time out, so a clocked 08:00:42 counts as 08:00.
+
 ## Seeded payroll rates (build step 2.3)
 
 `pnpm seed:admin` seeds these as versioned settings ([Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23)). They were checked on **2026-10-12** against the issuances found online. **Every figure is an *Assumption, to be confirmed by HR or the accountant*,** whatever its verification status. Each version's `source` holds the issuance and the link below.

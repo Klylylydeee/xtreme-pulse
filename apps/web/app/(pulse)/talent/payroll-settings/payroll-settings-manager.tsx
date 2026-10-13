@@ -33,7 +33,8 @@ import type { AllowanceEditorContext } from './value-editors';
 //
 // - A segmented control switches between Pay schedule, Contributions (SSS, PhilHealth, Pag-IBIG),
 //   Withholding tax, Premiums & benefits (premium rates, de minimis limits, the 13th month
-//   ceiling), Minimum wage and Allowance types. It scrolls sideways inside its own strip on a
+//   ceiling), Minimum wage, Allowance types and, from build step 2.4, Work schedule (the company
+//   default schedule and the timesheet settings). It scrolls sideways inside its own strip on a
 //   phone; the page never does.
 // - Each setting shows its version in effect ("In effect since <date> · Source: …"), its scheduled
 //   versions and its history, read-only; a seeded version carries the seeded note.
@@ -318,7 +319,7 @@ export function PayrollSettingsManager({ view }: { view: PayrollSettingsView }) 
         </Link>
         <PageHeader
           title="Payroll settings"
-          description="Pay schedule, contribution tables, tax brackets, premium rates, minimum wages and allowance types. Each change is a new version from its own date."
+          description="Pay schedule, contribution tables, tax brackets, premium rates, minimum wages, allowance types and the work schedule. Each change is a new version from its own date."
         />
       </div>
 

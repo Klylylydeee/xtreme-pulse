@@ -101,6 +101,8 @@ describe('seed data', () => {
       'talent.payrollSettings',
       'talent.allowanceTypes',
       'talent.premiumRates',
+      'talent.workSchedule',
+      'talent.timesheetSettings',
     ] as const) {
       expect(PAYROLL_SEED_VERSIONS[key][0]?.effectiveFrom).toBe('2000-01-01');
     }
@@ -113,6 +115,40 @@ describe('seed data', () => {
         autoAssign: true,
         taxTreatment: 'nonTaxable',
       }),
+    ]);
+  });
+});
+
+describe('the step 2.4 settings', () => {
+  it('makes twelve payroll settings, the work schedule and timesheet settings last', () => {
+    expect(PAYROLL_SETTING_KEYS).toHaveLength(12);
+    expect(PAYROLL_SETTING_KEYS.slice(10)).toEqual([
+      'talent.workSchedule',
+      'talent.timesheetSettings',
+    ]);
+  });
+
+  it('seeds the default schedule and the timesheet settings once, from the spec', () => {
+    expect(PAYROLL_SEED_VERSIONS['talent.workSchedule']).toEqual([
+      {
+        effectiveFrom: '2000-01-01',
+        source: 'Company policy (spec)',
+        value: {
+          workDays: [1, 2, 3, 4, 5],
+          start: '08:00',
+          end: '17:00',
+          breakStart: '12:00',
+          breakMinutes: 60,
+          graceMinutes: 15,
+        },
+      },
+    ]);
+    expect(PAYROLL_SEED_VERSIONS['talent.timesheetSettings']).toEqual([
+      {
+        effectiveFrom: '2000-01-01',
+        source: 'Company policy (spec)',
+        value: { offsetRatio: '1', extraHours: { overtime: 'overtime', standard: 'offset' } },
+      },
     ]);
   });
 });
@@ -273,6 +309,39 @@ describe('adding a version', () => {
       /cut-off start day/,
     );
     await addPayrollSettingsVersion(hrOwner.actor, schedule('2026-11-26'));
+  });
+
+  it('takes a work schedule or timesheet settings version on any day, and checks its value', async () => {
+    const workSchedule = (value: object) => ({
+      key: 'talent.workSchedule' as const,
+      effectiveFrom: '2026-11-04',
+      source: 'Made-up policy change',
+      value,
+    });
+    const seeded = PAYROLL_SEED_VERSIONS['talent.workSchedule'][0]?.value;
+    await expect(
+      addPayrollSettingsVersion(hrOwner.actor, workSchedule({ ...seeded, breakStart: '18:00' })),
+    ).rejects.toMatchObject({ field: 'value.breakStart' });
+    await expect(
+      addPayrollSettingsVersion(hrOwner.actor, workSchedule({ ...seeded, workDays: [] })),
+    ).rejects.toMatchObject({ field: 'value.workDays' });
+    // A Wednesday: not a cut-off start day, unlike the pay schedule.
+    const added = await addPayrollSettingsVersion(
+      hrOwner.actor,
+      workSchedule({ ...seeded, start: '09:00', end: '18:00', breakStart: '13:00' }),
+    );
+    expect(added.effectiveFrom).toBe('2026-11-04');
+
+    const settings = (offsetRatio: string) => ({
+      key: 'talent.timesheetSettings' as const,
+      effectiveFrom: '2026-11-04',
+      source: 'Made-up policy change',
+      value: { offsetRatio, extraHours: { overtime: 'overtime', standard: 'offset' } },
+    });
+    await expect(addPayrollSettingsVersion(hrOwner.actor, settings('0'))).rejects.toMatchObject({
+      field: 'value.offsetRatio',
+    });
+    await addPayrollSettingsVersion(hrOwner.actor, settings('1.5'));
   });
 
   it('refuses removing an allowance type key', async () => {

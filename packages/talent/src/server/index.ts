@@ -89,6 +89,38 @@ export {
   countEmployeesBelowMinimumWage,
   listEmployeesBelowMinimumWage,
 } from './minimum-wage/service';
+// Work schedules and timesheets (build step 2.4): "Set schedule" and the Work schedule section;
+// the own timesheet's clock and entries (self-service, no employee id), the read-only views and
+// My team; the daily `talent.openTimesheets` job for the worker.
+export { WORK_SCHEDULE_SETTING, TIMESHEET_SETTINGS_SETTING } from './payroll-settings/settings';
+export {
+  getWorkScheduleSection,
+  NO_COMPANY_SCHEDULE,
+  setWorkSchedule,
+} from './work-schedules/service';
+export {
+  ACTIVITY_REQUIRED,
+  ALREADY_TIMED_IN,
+  createTimeEntry,
+  deleteTimeEntry,
+  ENTRY_NOT_FOUND,
+  getOwnTimesheetView,
+  getTimesheetView,
+  listMyTeam,
+  NOT_TIMED_IN,
+  TIMESHEET_NOT_OPEN,
+  timeIn,
+  timeOut,
+  type TimesheetViewOptions,
+  updateTimeEntry,
+} from './timesheets/service';
+export { NO_PAY_SCHEDULE, OTHER_POSITION_MISSING, POSITION_MISSING } from './timesheets/periods';
+export {
+  OPEN_TIMESHEETS_JOB,
+  OPEN_TIMESHEETS_SCHEDULE,
+  type OpenTimesheetsResult,
+  runOpenTimesheets,
+} from './timesheets/open-job';
 // File access (build step 2.2): the file route calls this beside registerCoreFileAccess().
 export { registerTalentFileAccess } from './files/registrations';
 
@@ -139,6 +171,16 @@ export {
   TALENT_READ_DENIED,
   TALENT_WRITE_DENIED,
   WAGE_ORDER_LIST_DENIED,
+  // Step 2.4
+  assertCanSetWorkSchedule,
+  assertCanViewTimesheet,
+  canSetWorkSchedule,
+  canViewTimesheet,
+  isSupervisorOf,
+  NO_EMPLOYEE_TIMESHEET,
+  TIMESHEET_DENIED,
+  type TimesheetTarget,
+  WORK_SCHEDULE_SET_DENIED,
 } from './policy';
 
 // The reveals (SECURITY.md#sensitive-data): call before `revealSensitiveField`.

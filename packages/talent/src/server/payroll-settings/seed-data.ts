@@ -14,6 +14,7 @@ import type {
   ThirteenthMonthExemption,
   WithholdingTaxSemiMonthly,
 } from '../../payroll/schemas';
+import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
 
 // Spec: docs/COMPLIANCE.md#seeded-payroll-rates-build-step-23 (decisions 193–196 in
 // docs/BUILD_PLAN.md) — the figures `pnpm seed:admin` seeds, each with its issuance, link and
@@ -294,6 +295,31 @@ export const SEED_ALLOWANCE_TYPES: AllowanceTypes = {
   ],
 };
 
+// --- Work schedule and timesheet settings (build step 2.4) -------------------------------------
+
+/**
+ * The company default schedule (decision 214): Monday to Friday, 08:00 to 17:00, a 60-minute break
+ * from 12:00 and a 15-minute grace period; Saturday and Sunday are rest days. *Assumption, to be
+ * confirmed by HR:* the break is 12:00 to 13:00 (the spec gives only "a 1-hour break").
+ */
+export const SEED_WORK_SCHEDULE: WorkSchedule = {
+  workDays: [1, 2, 3, 4, 5],
+  start: '08:00',
+  end: '17:00',
+  breakStart: '12:00',
+  breakMinutes: 60,
+  graceMinutes: 15,
+};
+
+/**
+ * How each timesheet type treats claimed extra hours, and the offset ratio (decision 216).
+ * *Assumption, to be confirmed by HR:* the 1:1 ratio.
+ */
+export const SEED_TIMESHEET_SETTINGS: TimesheetSettings = {
+  offsetRatio: '1',
+  extraHours: { overtime: 'overtime', standard: 'offset' },
+};
+
 // --- The seeded versions, by key ---------------------------------------------------------------
 
 export const PAYROLL_SEED_VERSIONS: {
@@ -380,6 +406,20 @@ export const PAYROLL_SEED_VERSIONS: {
       value: SEED_ALLOWANCE_TYPES,
       source:
         'Company policy: docs/modules/talent.md#allowances (non-taxable treatment to be confirmed by the accountant)',
+    },
+  ],
+  'talent.workSchedule': [
+    {
+      effectiveFrom: SEED_POLICY_DATE,
+      value: SEED_WORK_SCHEDULE,
+      source: 'Company policy (spec)',
+    },
+  ],
+  'talent.timesheetSettings': [
+    {
+      effectiveFrom: SEED_POLICY_DATE,
+      value: SEED_TIMESHEET_SETTINGS,
+      source: 'Company policy (spec)',
     },
   ],
 };

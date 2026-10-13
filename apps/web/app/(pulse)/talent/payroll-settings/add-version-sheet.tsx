@@ -23,7 +23,13 @@ import {
 import { FormAlert } from '@/components/form-alert';
 import { useActionSubmit } from '@/components/org-structure';
 import { addPayrollSettingsVersionAction } from '@/lib/actions/talent-payroll';
-import { emptyDraft, type SettingDraft, toDraft } from './payroll-format';
+import {
+  draftToValue,
+  emptyDraft,
+  POLICY_SETTINGS,
+  type SettingDraft,
+  toDraft,
+} from './payroll-format';
 import { type AllowanceEditorContext, SettingEditor } from './value-editors';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Adding a version",
@@ -36,6 +42,9 @@ import { type AllowanceEditorContext, SettingEditor } from './value-editors';
 // - Saving (the button, or ⌘S / Ctrl+S) asks for confirmation first, since a version can't be
 //   changed or withdrawn. Errors come back inline: the date, the source, and each figure under
 //   `value.<path>`, on its field or its cell. Nothing here is logged.
+// - Build step 2.4: the work schedule and timesheet settings are company policy, not an
+//   issuance, so their date and source hints say so; a schedule's days and minutes are sent as
+//   numbers (`draftToValue`).
 
 const SAVE = ['mod', 's'] as const;
 const SAVE_FAILED = 'The version wasn’t added. Check your connection and try again.';
@@ -48,6 +57,11 @@ export interface AddedVersion {
 
 function dateHint(setting: PayrollSettingView, draft: SettingDraft): string {
   const latest = formatDate(setting.latestEffectiveFrom);
+  if (POLICY_SETTINGS.has(setting.key)) {
+    return setting.earliestEffectiveFrom
+      ? `From ${formatDate(setting.earliestEffectiveFrom)}, the day after the latest version, to ${latest}. Any day of the week works.`
+      : `Up to ${latest}. Any day of the week works.`;
+  }
   let hint = setting.earliestEffectiveFrom
     ? `From ${formatDate(setting.earliestEffectiveFrom)}, the day after the latest version, to ${latest}. An earlier date is fine for an issuance published late.`
     : `Up to ${latest}. An earlier date is fine for an issuance published late.`;
@@ -60,6 +74,17 @@ function dateHint(setting: PayrollSettingView, draft: SettingDraft): string {
       : ' It must be a cut-off start day of this schedule.';
   }
   return hint;
+}
+
+function sourceHint(key: PayrollSettingKey, inEffect: string | null | undefined): string {
+  if (POLICY_SETTINGS.has(key)) {
+    return inEffect
+      ? `The policy or memo behind the change. The version in effect cites: ${inEffect}`
+      : 'The policy or memo behind the change. For example: HR memo on work hours, October 2026.';
+  }
+  return inEffect
+    ? `The issuance’s name and, if there is one, its link. The version in effect cites: ${inEffect}`
+    : 'The issuance’s name and, if there is one, its link. For example: SSS Circular No. 2024-006.';
 }
 
 export function AddVersionSheet({
@@ -98,7 +123,12 @@ export function AddVersionSheet({
   async function confirm() {
     setNetworkError(null);
     try {
-      const ok = await save.run({ key: setting.key, effectiveFrom, source, value: draft });
+      const ok = await save.run({
+        key: setting.key,
+        effectiveFrom,
+        source,
+        value: draftToValue(setting.key, draft),
+      });
       if (!ok) {
         setConfirming(false);
         focusFirstError();
@@ -170,11 +200,7 @@ export function AddVersionSheet({
             <FormField
               label="Source"
               required
-              hint={
-                sourceLabel
-                  ? `The issuance’s name and, if there is one, its link. The version in effect cites: ${sourceLabel}`
-                  : 'The issuance’s name and, if there is one, its link. For example: SSS Circular No. 2024-006.'
-              }
+              hint={sourceHint(setting.key, sourceLabel)}
               error={errors.source}
             >
               <Input

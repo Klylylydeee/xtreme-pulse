@@ -791,3 +791,73 @@ The former open questions, and the follow-ups they raised, are now answered in t
 210. **Step 2.3:** Double holidays (300%), special working days and the lower wage rates for small employers aren't seeded, because the spec doesn't list them. *Assumption, to be confirmed by HR or the accountant.* ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
 211. **Step 2.3:** The contribution basis isn't decided in step 2.3. *Recommendation for the payroll run step, to be confirmed by the accountant:* PhilHealth on the monthly basic salary, SSS and Pag-IBIG on the month's total taxable compensation. ([Spec](modules/talent.md#payroll-settings-and-allowances-build-step-23))
 212. **Step 2.3:** `pnpm test` adds the payroll settings tests: seeding, each table with hand-checked figures, cut-offs, the minimum wage boundary (the "Done when"), automatic and explicit allowances (the "Done when"), who may add a version, and the wage order list. ([Spec](TESTING.md#payroll-settings-tests))
+213. **Step 2.4:** The step's "Done when" stands: "on a phone, a Driver sees overtime by kind and an office employee sees offset hours, with manual times flagged". Step 2.4 stores schedules, timesheets and time entries, and computes hours for display only. It stores no computed hours and computes no pay. Submission, approval, the DTR, the holidays-changed listener and crediting offset hours are step 2.7. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+214. **Step 2.4:** The company default schedule is the versioned setting `talent.workSchedule`, added to the payroll settings and seeded once from 2000-01-01: Monday to Friday, 08:00–17:00, a 60-minute break from 12:00 and a 15-minute grace period. It is edited in a new Work schedule segment of the Payroll settings page, under the step 2.3 rules, except that a version may take effect on any day. *Assumption, to be confirmed by HR:* the break is 12:00–13:00. ([Spec](DATA_MODEL.md#versioned-configuration))
+215. **Step 2.4:** An employee's own schedule is an entry in the insert-only collection `workScheduleAssignments`: a schedule (or none, for "back to the company default"), an effective date and a required reason. The latest entry on or before a day wins; on a tie, the newest. Talent Write and HR or the System Administrator set it, never on one's own record; HR may set HR staff's. Audit: `create` on `talent.workScheduleAssignment`. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+216. **Step 2.4:** The versioned setting `talent.timesheetSettings` holds `offsetRatio` (seeded `"1"`) and `extraHours` for each timesheet type (seeded `overtime` → overtime and `standard` → offset). This is the spec's "setting per timesheet type": the computation reads it, never the type name. *Assumption, to be confirmed by HR:* the 1:1 ratio. ([Spec](DATA_MODEL.md#versioned-configuration))
+217. **Step 2.4:** Each employee has one timesheet per cut-off (`timesheets`, unique by employee and period start). The period comes from `cutOffFor` with the `payrollSettings` version in effect on the day, and ends early where a later version starts inside it. Its type is stored once and never changed. The only status is `open`; step 2.7 adds the rest. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+218. **Step 2.4:** Core keeps no history of a position's type, so the daily job `talent.openTimesheets` (00:05 Manila, cron `5 0 * * *`) creates the current cut-off's timesheet for each active employee, reading the type when the cut-off starts. It runs every day and is idempotent. A timesheet the job hasn't created yet is created on first use with that day's type, and `typeReadOn` records the day. *Assumption, to be confirmed by HR.* ([Spec](ARCHITECTURE.md#background-jobs))
+219. **Step 2.4:** Time entries (`timeEntries`) hold:
+     - the date: the Manila day of the time in
+     - the time in and the time out, each with a `clock` or `manual` source
+     - a required activity (1–500 characters)
+     - an optional client
+     - an optional extra-hours mark with its reason
+
+     No project or ticket field is stored; the pickers show disabled until Phases 4 and 6. Deleting is a soft delete. Audit: `create`, `update` and `delete` entries on `talent.timeEntry`. No notification is sent. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+220. **Step 2.4:** The clock:
+     - **Time in** is one tap and uses the server's time. An employee has at most one open entry.
+     - **Time out** uses the server's time, and asks for the activity first when there is none.
+     - **Manual times.** A typed or changed time is `manual` and shows a "Manual" badge. The browser never sends a `clock` time.
+     - **Checks.** Entries never overlap, last at most 24 hours, are never in the future, and fall between the date hired and the separation date.
+
+     *Assumption, to be confirmed by HR:* manual times have no other limit. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+221. **Step 2.4:** Who may do what:
+     - **The employee** alone changes their own entries: self-service, with no employee id taken from the request.
+     - **Talent Read** and the employee's `reportingTo` supervisors open the timesheet read-only.
+     - **Nobody** changes another person's entries in step 2.4, HR and the System Administrator included.
+
+     *Assumptions, to be confirmed by HR and counsel:* HR doesn't correct entries until the return of step 2.7, and supervisors see their team's timesheets from step 2.4. ([Spec](../SECURITY.md#exceptions-to-module-access))
+222. **Step 2.4:** Core's `getEmployeeIdentity` also returns an active team member to a supervisor in their `reportingTo`, and `listDirectReportIdentities(actor)` lists the actor's active direct reports. A supervisor without Talent Read is sent only directory fields. ([Spec](modules/core.md#people-data-ownership))
+223. **Step 2.4:** Hours are counted in whole minutes, shown to one decimal rounded half-up, with totals added in minutes first. There is no minimum overtime block. *Assumption, to be confirmed by HR.* ([Spec](COMPLIANCE.md#timesheet-hours-build-step-24))
+224. **Step 2.4:** On an ordinary day, the extra minutes are the worked minutes beyond the scheduled minutes, taken as the day's last worked minutes. On a rest day or a holiday, every worked minute is extra. *Assumption, to be confirmed by HR and counsel:* arriving early counts only through the day's total. ([Spec](COMPLIANCE.md#timesheet-hours-build-step-24))
+225. **Step 2.4:** Extra minutes count only inside entries marked with a reason ("claimed"). The rest show as "Not claimed". Rest-day and holiday work needs the mark on both timesheet types. *Assumption, to be confirmed by HR and counsel.* ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+226. **Step 2.4:** The kind of day:
+     - a **regular holiday** or a **special non-working day**: a confirmed, live, nationwide holiday, either of which may fall on a rest day
+     - otherwise a **rest day**
+     - otherwise an **ordinary day**
+
+     A special working day is an ordinary day. Drafts never count. Local holidays show as information only. *Assumption, to be confirmed by HR:* local holidays wait for a work location. ([Spec](modules/core.md#holiday-calendar))
+227. **Step 2.4:** An entry belongs to its time-in date and takes that day's kind, even when it runs past midnight. *Assumption, to be confirmed by HR and the accountant.* ([Spec](COMPLIANCE.md#timesheet-hours-build-step-24))
+228. **Step 2.4:** The break window is deducted wherever entries overlap it, on any day, even when the employee works through it. *Assumption, to be confirmed by HR.* ([Spec](COMPLIANCE.md#timesheet-hours-build-step-24))
+229. **Step 2.4:** The Overtime timesheet shows claimed hours by kind:
+     - ordinary day
+     - rest day
+     - holiday, with its type and "on a rest day" where it is one
+     - night differential
+
+     Rest-day and holiday hours split into the first `hoursPerDay` hours and those beyond. Night differential counts the paid minutes (scheduled worked minutes plus claimed minutes) inside the `talent.premiumRates` night window. It overlaps the other kinds and isn't added to the total. *Assumption, to be confirmed by HR and the accountant:* night differential shows on the Overtime timesheet only. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+230. **Step 2.4:** The Standard timesheet shows offset = claimed extra minutes × `offsetRatio`, rounded half-up to the minute. It shows each day's offset, the total and the balance, and no overtime fields. The balance reads 0.0 h until steps 2.7 and 2.8 add its entries, with "+X h this cut-off, credited when HR approves your timesheet". *Assumption, to be confirmed by HR.* ([Spec](modules/talent.md#extra-hours-standard-timesheet-offset))
+231. **Step 2.4:** Screens:
+     - **`/talent/timesheet`**, the employee's own: "Timesheet" in the Pulse Core group after My record, for users with an employee only, with the breadcrumb "Pulse Core › Timesheet".
+     - **`/talent/timesheets/<employeeId>`**, read-only, with the breadcrumb "Pulse Talent › Timesheet".
+     - Both take `?cutOff=`.
+     - A My team list for supervisors, and "Timesheet" in the inspector.
+     - A Work schedule section in the inspector and on `/talent/me`.
+
+     There is no Submit button until step 2.7. The Reimbursements segment is an empty state until step 2.5. The reference design's "My work" sidebar group waits for step 2.8. ([Spec](DESIGN_SYSTEM.md#layout--components))
+232. **Step 2.4:** The pure computation (`computeDay`, `computeTimesheet`, `scheduleOn` and `versionOn`) lives in `packages/talent/src/timesheets/`, so steps 2.7 and 2.9 build the DTR and pay on the same code. ([Spec](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24))
+233. **Step 2.4:** The 14 hand-checked cases in talent.md are the computation's tests. Cases 1, 5, 7 and 10 are also checked by hand on a phone. ([Spec](TESTING.md#hand-calculations))
+234. **Step 2.4:** `pnpm test` adds the timesheet and work schedule tests:
+     - the hours computation
+     - cut-offs
+     - work schedule assignments
+     - the type snapshot and the opening job
+     - time entries and the clock
+     - who may see and change a timesheet
+     - the Core supervisor reads
+     - the two new settings
+     - the navigation
+     - the worker wiring
+
+     ([Spec](TESTING.md#timesheet-and-work-schedule-tests))

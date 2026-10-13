@@ -18,6 +18,7 @@ import {
   expiryAlertSettingsSchema,
   governmentIdsSectionSchema,
   personalSectionSchema,
+  setWorkScheduleSchema,
   skillsSectionSchema,
 } from '@pulse/talent';
 import {
@@ -27,10 +28,12 @@ import {
   assignAllowance,
   createCertification,
   getEmployeeRecordView,
+  getWorkScheduleSection,
   removeCertification,
   setBankAccount,
   setGovernmentIds,
   setSkills,
+  setWorkSchedule,
   updateCertification,
   updateEmployeeDocument,
   updateEmployment,
@@ -64,6 +67,11 @@ import { requireModuleAccess, signedInUser } from '@/lib/auth';
 // Step 2.3 (docs/modules/talent.md#payroll-settings-and-allowances-build-step-23, decisions 203–
 // 205): "Add salary change" answers the minimum wage warning instead of saving (the sheet's "Save
 // anyway" sends the form again to confirm it), and "Assign allowance" adds an allowance assignment.
+//
+// Step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24, decision
+// 215): the inspector's Work schedule section loads with Talent Read, and "Set schedule" needs
+// Talent Write; the service checks again HR or the System Administrator, never one's own record,
+// and the effective date range, and writes the audit entry. A schedule isn't sensitive.
 
 const TALENT_READ = 'You don’t have access to Pulse Talent. Ask HR or the System Administrator.';
 const TALENT_WRITE =
@@ -329,5 +337,37 @@ export const updateExpiryAlertSettingsAction = defineAction({
     const result = await updateExpiryAlertSettings(await signedInUser(), input);
     revalidatePath('/talent');
     return result;
+  },
+});
+
+// --- Step 2.4: work schedules -------------------------------------------------------------------
+
+/**
+ * The Work schedule section of the inspector: the schedule in effect, the scheduled ones and the
+ * history, with `canSet` and the "Set schedule" date range. Talent Read here; the service checks
+ * again who may see it. Null when there is no such employee. Any string, as for the record.
+ */
+export const getWorkScheduleSectionAction = defineAction({
+  access: talentReaders,
+  schema: z.object({ employeeId: z.string().max(100) }),
+  handler: async ({ employeeId }) => {
+    if (!OBJECT_ID_PATTERN.test(employeeId)) return null;
+    return getWorkScheduleSection(await signedInUser(), employeeId);
+  },
+});
+
+/**
+ * "Set schedule": the employee's own schedule, or null to go back to the company default, from
+ * its effective date, with a reason. Talent Write here; the service checks HR or the System
+ * Administrator, never one's own record, and the date range again in its transaction. Answers
+ * only the new entry's id.
+ */
+export const setWorkScheduleAction = defineAction({
+  access: talentWriters,
+  schema: setWorkScheduleSchema,
+  handler: async (input) => {
+    const result = await setWorkSchedule(await signedInUser(), input);
+    revalidatePath('/talent');
+    return { id: result.id };
   },
 });

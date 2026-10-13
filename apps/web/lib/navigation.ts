@@ -2,6 +2,7 @@ import {
   Boxes,
   BriefcaseBusiness,
   Building2,
+  CalendarClock,
   CalendarDays,
   ChartColumn,
   Contact,
@@ -136,6 +137,9 @@ export function groupAdminEntries(entries: readonly NavEntry[]): {
 /** The employee's own record (step 2.1): in Pulse Core, though it lives under `/talent`. */
 export const MY_RECORD_HREF = '/talent/me';
 
+/** The employee's own timesheet (step 2.4): in Pulse Core, though it lives under `/talent`. */
+export const OWN_TIMESHEET_HREF = '/talent/timesheet';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -201,6 +205,18 @@ export const CORE_ENTRIES: NavEntry[] = [
     Icon: SquareUserRound,
     employeeOnly: true,
   },
+  {
+    // Step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24,
+    // decision 231): the employee's own timesheet, self-service outside module access
+    // (SECURITY.md#exceptions-to-module-access). Listed after My record for every user with an
+    // employee, never for the bootstrap system account.
+    href: OWN_TIMESHEET_HREF,
+    label: 'Timesheet',
+    title: 'Timesheet',
+    description: 'Your time in and out, daily entries, and overtime or offset hours by cut-off',
+    Icon: CalendarClock,
+    employeeOnly: true,
+  },
 ];
 
 /** The ERP modules, in build order. */
@@ -212,8 +228,9 @@ export const MODULE_ENTRIES: NavEntry[] = [
     description: 'People & Culture',
     Icon: Users,
     module: 'talent',
-    // My record is Pulse Core's, so Talent isn't current there (decision 170).
-    exclude: [MY_RECORD_HREF],
+    // My record and the own timesheet are Pulse Core's, so Talent isn't current there (decisions
+    // 170 and 231).
+    exclude: [MY_RECORD_HREF, OWN_TIMESHEET_HREF],
   },
   {
     href: '/engage',
@@ -397,8 +414,21 @@ export const OTHER_PAGES: { href: string; parent: string; title: string }[] = [
  * docs/modules/talent.md#payroll-settings-and-allowances-build-step-23). The section's entry stays
  * current, and a user who can't see the section reads "No access", as on the section itself.
  */
-export const SECTION_PAGES: { href: string; section: string; title: string }[] = [
+export const SECTION_PAGES: {
+  href: string;
+  section: string;
+  title: string;
+  /**
+   * The page decides who may open it, beyond the section's readers: another employee's timesheet
+   * (step 2.4), which their `reportingTo` supervisors open whatever their module access. The
+   * breadcrumb names it even when the user doesn't see the section; a refusal shows "No access"
+   * through the forbidden page's own title.
+   */
+  openToOthers?: boolean;
+}[] = [
   { href: '/talent/payroll-settings', section: '/talent', title: 'Payroll settings' },
+  // Step 2.4 (decision 231): "Pulse Talent › Timesheet", read-only.
+  { href: '/talent/timesheets', section: '/talent', title: 'Timesheet', openToOthers: true },
 ];
 
 /**
@@ -515,10 +545,20 @@ export function breadcrumbFor(groups: readonly NavGroup[], pathname: string): Br
   const page = OTHER_PAGES.find((candidate) => isEntryActive(candidate, pathname));
   if (page) return { parent: page.parent, current: page.title };
   // The section the path belongs to among all of them. If the user doesn't see it, they can't open
-  // the page: HR on /admin/audit, a new user on /talent. My record is the exception: every
-  // signed-in user may open it, and the system account, which isn't given the entry, sees its
-  // empty state there.
+  // the page: HR on /admin/audit, a new user on /talent. My record and the own timesheet are the
+  // exceptions: every signed-in user may open them, and the system account, which isn't given the
+  // entries, sees their empty state there. So is another employee's timesheet
+  // (`openToOthers`), which a supervisor without Talent Read opens.
   const section = activeEntry(NAV_GROUPS, pathname);
+  const openPage = section
+    ? SECTION_PAGES.find(
+        (candidate) =>
+          candidate.openToOthers &&
+          candidate.section === section.entry.href &&
+          isEntryActive(candidate, pathname),
+      )
+    : undefined;
+  if (section && openPage) return { parent: section.entry.title, current: openPage.title };
   const match = activeEntry(groups, pathname) ?? (section?.entry.employeeOnly ? section : null);
   if (section && section.entry.href !== match?.entry.href) return { current: NO_ACCESS_PAGE_TITLE };
   if (!match) return { current: APP_NAME };

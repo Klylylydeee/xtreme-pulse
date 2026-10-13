@@ -365,16 +365,20 @@ export {
 export { claimLiveDepartment, claimLivePosition } from './org-claims';
 
 // The identity service (docs/modules/core.md#people-data-ownership, build step 2.1): how other
-// modules read Core's employee identity, never the models. Talent Read, or one's own employee.
+// modules read Core's employee identity, never the models. Talent Read, or one's own employee,
+// or from build step 2.4 an active direct report (a page sends them `toDirectoryIdentity` only).
 export {
+  type DirectoryIdentity,
   employeeAuditLabel,
   type EmployeeIdentity,
   getEmployeeIdentity,
   type GetEmployeeIdentityOptions,
   getSensitiveSubject,
   type IdentityActor,
+  listDirectReportIdentities,
   listEmployeeIdentities,
   type ListEmployeeIdentitiesOptions,
+  toDirectoryIdentity,
 } from './employees/identity';
 // The profile photo (docs/modules/core.md#people-data-ownership, build step 2.2): the employee,
 // HR and the System Administrator, never the system account.

@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode, useId } from 'react';
-import { formatPeso } from '@pulse/core';
+import { formatPeso, TIMESHEET_TYPES } from '@pulse/core';
 import {
   ALLOWANCE_BASIS_LABELS,
   ALLOWANCE_TAX_TREATMENT_LABELS,
@@ -9,21 +9,34 @@ import {
   type ContributionAgency,
   CUT_OFF_LABELS,
   DE_MINIMIS_PERIOD_LABELS,
+  EXTRA_HOURS_TREATMENT_LABELS,
+  formatHours,
   type PayrollSettingKey,
   type PayrollSettingValues,
   PREMIUM_RATE_FIELDS,
   PREMIUM_RATE_LABELS,
+  scheduledMinutes,
+  TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
   type WorkRegion,
 } from '@pulse/talent';
 import { cn } from '@pulse/ui';
 import { Badge } from '@/components/org-structure';
-import { ordinal, rateAsPercent } from './payroll-format';
+import {
+  formatWeekdays,
+  graceText,
+  ordinal,
+  rateAsPercent,
+  restDaysOf,
+  scheduleBreakText,
+  scheduleHoursText,
+} from './payroll-format';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 — each setting's
 // figures, read-only. Amounts show in pesos with tabular numerals; rates as percentages. A table
 // sits in its own scrolling region (focusable, so the keyboard can scroll it), so on a phone it
 // scrolls sideways there and the page never does (docs/DESIGN_SYSTEM.md#layout--components).
+// From build step 2.4 the company work schedule and the timesheet settings.
 
 export const AGENCY_LABELS: Record<ContributionAgency, string> = {
   sss: 'SSS',
@@ -399,6 +412,43 @@ function AllowanceTypesValue({ value }: { value: PayrollSettingValues['talent.al
   );
 }
 
+function WorkScheduleValue({ value }: { value: PayrollSettingValues['talent.workSchedule'] }) {
+  const rest = restDaysOf(value.workDays);
+  return (
+    <Facts
+      rows={[
+        { term: 'Work days', value: formatWeekdays(value.workDays) },
+        { term: 'Rest days', value: rest.length > 0 ? formatWeekdays(rest) : 'None' },
+        { term: 'Hours', value: scheduleHoursText(value) },
+        { term: 'Break', value: scheduleBreakText(value) },
+        { term: 'Work a day', value: formatHours(scheduledMinutes(value)) },
+        { term: 'Grace period for lates', value: graceText(value.graceMinutes) },
+      ]}
+    />
+  );
+}
+
+function TimesheetSettingsValue({
+  value,
+}: {
+  value: PayrollSettingValues['talent.timesheetSettings'];
+}) {
+  return (
+    <Facts
+      rows={[
+        {
+          term: 'Offset ratio',
+          value: `${value.offsetRatio} h of offset for each hour of claimed extra work`,
+        },
+        ...TIMESHEET_TYPES.map((type) => ({
+          term: `${TIMESHEET_TYPE_TITLES[type]}, extra hours count as`,
+          value: EXTRA_HOURS_TREATMENT_LABELS[value.extraHours[type]],
+        })),
+      ]}
+    />
+  );
+}
+
 /** One version's figures, read-only. */
 export function SettingValue({
   settingKey,
@@ -436,5 +486,9 @@ export function SettingValue({
       );
     case 'talent.allowanceTypes':
       return <AllowanceTypesValue value={value as PayrollSettingValues[typeof settingKey]} />;
+    case 'talent.workSchedule':
+      return <WorkScheduleValue value={value as PayrollSettingValues[typeof settingKey]} />;
+    case 'talent.timesheetSettings':
+      return <TimesheetSettingsValue value={value as PayrollSettingValues[typeof settingKey]} />;
   }
 }

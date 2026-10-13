@@ -15,7 +15,7 @@ import type { TalentActor } from '../policy';
 const PASSWORD_HASH = 'made-up-hash-that-must-never-leave';
 
 function coreModel(
-  name: 'Department' | 'Position' | 'Employee' | 'User' | 'Brand',
+  name: 'Department' | 'Position' | 'Employee' | 'User' | 'Brand' | 'Client',
 ): Model<unknown> {
   return mongoose.model(name) as Model<unknown>;
 }
@@ -327,4 +327,36 @@ export async function setDateHired(employee: Person, dateHired: string): Promise
 export async function seedPayrollSettings(): Promise<void> {
   const { talentSeedLoaders } = await import('../seed');
   for (const loader of talentSeedLoaders) await loader.run();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.4 helpers (docs/TESTING.md#timesheet-and-work-schedule-tests).
+
+/** Changes a department's position's timesheet type, as Core's position service would. */
+export async function setPositionType(
+  dept: Department,
+  timesheetType: 'overtime' | 'standard',
+): Promise<void> {
+  await coreModel('Position').updateOne({ _id: dept.positionId }, { $set: { timesheetType } });
+}
+
+/** A Core client, as Core's client service would create it. */
+export async function client(name: string): Promise<string> {
+  const created = (await coreModel('Client').create({ name })) as { _id: Types.ObjectId };
+  return created._id.toHexString();
+}
+
+/** Sets an employee's separation date (keeping the status), as Core's user service would. */
+export async function setSeparationDate(
+  employee: Person,
+  separationDate: string | null,
+): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    {
+      $set: {
+        separationDate: separationDate ? new Date(`${separationDate}T00:00:00+08:00`) : null,
+      },
+    },
+  );
 }

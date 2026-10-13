@@ -6,6 +6,18 @@ Notable changes to Xtreme Pulse, newest first. The format follows [Keep a Change
 
 ### Spec changes
 
+- 2026-10-12: Step 2.4 spec (before the build): work schedules and daily time entries ([Work schedules and daily time entries](docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24), decisions 213–234).
+  - **Work schedules.**
+    - The company default is the new versioned setting `talent.workSchedule`, seeded Monday to Friday, 08:00–17:00, a 60-minute break from 12:00, 15 minutes' grace.
+    - Employees' own schedules go in the new insert-only collection `workScheduleAssignments`, set by Talent Write and HR or the System Administrator, never on one's own record.
+  - **Timesheet settings.** The new versioned setting `talent.timesheetSettings`: the offset ratio (1:1) and how each timesheet type treats extra hours.
+  - **Timesheets and time entries.**
+    - New collections `timesheets` (one per employee per cut-off, storing the timesheet type, never changed) and `timeEntries`.
+    - A daily job `talent.openTimesheets` opens each cut-off's timesheets.
+    - Time in and Time out use the server's clock; typed times are flagged "Manual". The activity is required, the client optional, and the project and ticket pickers stay disabled.
+  - **Hours for display.** Overtime by kind (ordinary day, rest day, holiday, night differential) on the Overtime timesheet, and offset hours on the Standard timesheet. They are computed from the schedule, the 2.3 settings and confirmed nationwide holidays, count only hours marked with a reason, and are never stored. Fourteen hand-checked cases ([Timesheet and work schedule tests](docs/TESTING.md#timesheet-and-work-schedule-tests)).
+  - **Access.** The own timesheet is self-service. Talent Read and `reportingTo` supervisors see a timesheet read-only, and Core's identity service gains the supervisor reads ([Exceptions to module access](SECURITY.md#exceptions-to-module-access)). Nobody changes another person's entries in step 2.4.
+  - **Assumptions** for HR, the accountant or counsel: HANDOFF items 46–58 ([Timesheet hours](docs/COMPLIANCE.md#timesheet-hours-build-step-24)).
 - 2026-10-12: Step 2.3 spec (before the build): payroll settings and seeded configuration ([Payroll settings and allowances](docs/modules/talent.md#payroll-settings-and-allowances-build-step-23)).
   - **Ten versioned Talent settings.**
     - The settings: `talent.payrollSettings` (cut-offs, pay days, the 261 factor, the contribution split), `talent.sssContributions`, `talent.philhealthContributions`, `talent.pagibigContributions`, `talent.withholdingTaxSemiMonthly`, `talent.premiumRates`, `talent.deMinimisLimits`, `talent.thirteenthMonthExemption`, `talent.minimumWages` and `talent.allowanceTypes`.

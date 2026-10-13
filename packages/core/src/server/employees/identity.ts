@@ -22,6 +22,11 @@ import { employeePhotoUrl } from './photo';
 //
 // - `listEmployeeIdentities` and `getEmployeeIdentity` need Talent Read, or the actor's own
 //   employee. Without Talent Read the list holds the actor's own identity at most.
+// - Supervisors (build step 2.4, decision 222): `getEmployeeIdentity` also returns an active
+//   employee whose `reportingTo` includes the actor's own employee, whatever the actor's module
+//   access, and `listDirectReportIdentities` lists those employees. The full identity stays on the
+//   server: Talent sends a supervisor without Talent Read only `toDirectoryIdentity`'s fields
+//   (SECURITY.md#exceptions-to-module-access, "Directory fields are an allowlist").
 // - Separated employees come back only when asked (`separated`) and only with Talent Read.
 // - The bootstrap system account has no employee and never appears.
 // - Every result is built field by field, from explicit projections. These reads write no audit
@@ -261,7 +266,9 @@ export async function listEmployeeIdentities(
 /**
  * One employee's identity, or null when there is none, or they are separated and the actor didn't
  * ask (`separated`) or has no Talent Read. Needs Talent Read, or `employeeId` must be the actor's
- * own employee (whom the actor always gets); anyone else gets {@link AccessDeniedError}.
+ * own employee (whom the actor always gets), or an active (not separated) employee whose
+ * `reportingTo` includes the actor's own employee (build step 2.4). Anyone else gets
+ * {@link AccessDeniedError}, also when the employee is missing, so ids can't be probed.
  */
 export async function getEmployeeIdentity(
   actor: IdentityActor,
@@ -270,17 +277,101 @@ export async function getEmployeeIdentity(
 ): Promise<EmployeeIdentity | null> {
   const talentRead = canReadTalent(actor);
   const own = actor.employee !== null && actor.employee.id === employeeId;
-  if (!talentRead && !own) throw new AccessDeniedError(DENIED);
+  // Without Talent Read and the own employee, only the supervisor pass is left.
+  const supervisorOnly = !talentRead && !own;
+  if (supervisorOnly && !actor.employee) throw new AccessDeniedError(DENIED);
   const id = toObjectId(employeeId);
-  if (!id) return null;
+  if (!id) {
+    if (supervisorOnly) throw new AccessDeniedError(DENIED);
+    return null;
+  }
   await connectDb();
   const employee = await EmployeeModel.findById(id, IDENTITY_FIELDS).session(session).lean();
+  if (supervisorOnly && !isActiveDirectReport(employee, actor.employee?.id ?? null)) {
+    throw new AccessDeniedError(DENIED);
+  }
   if (!employee) return null;
   if (!own && isSeparatedStatus(employee.employmentStatus) && !(separated && talentRead)) {
     return null;
   }
   const [identity] = await toIdentities([employee], session);
   return identity ?? null;
+}
+
+/** Whether `employee` is active (not separated) and reports to the supervisor's employee. */
+function isActiveDirectReport(
+  employee: IdentityRecord | null,
+  supervisorEmployeeId: string | null,
+): boolean {
+  if (!employee || !supervisorEmployeeId) return false;
+  if (isSeparatedStatus(employee.employmentStatus)) return false;
+  return employee.reportingTo.some((id) => id.toHexString() === supervisorEmployeeId);
+}
+
+/**
+ * The actor's direct reports: the active (not separated) employees whose `reportingTo` includes
+ * the actor's own employee, by last name then first name, whatever the actor's module access.
+ * Empty for an actor without an employee (the bootstrap system account). The full identity stays
+ * on the server; {@link toDirectoryIdentity} is what a supervisor without Talent Read is sent.
+ */
+export async function listDirectReportIdentities(
+  actor: IdentityActor,
+  { session = null }: { session?: ClientSession | null } = {},
+): Promise<EmployeeIdentity[]> {
+  const own = toObjectId(actor.employee?.id);
+  if (!own) return [];
+  await connectDb();
+  const employees = await EmployeeModel.find({ reportingTo: own }, IDENTITY_FIELDS)
+    .sort(SORT)
+    .session(session)
+    .lean();
+  return toIdentities(
+    employees.filter((employee) => !isSeparatedStatus(employee.employmentStatus)),
+    session,
+  );
+}
+
+/**
+ * An identity cut down to the directory fields (SECURITY.md, "Directory fields are an
+ * allowlist"): what a page may send a supervisor without Talent Read. The date hired, employment
+ * status, separation date, account state, user id and timesheet type are left out.
+ */
+export interface DirectoryIdentity {
+  employeeId: string;
+  employeeNumber: string;
+  firstName: string;
+  middleName: string | null;
+  lastName: string;
+  email: string | null;
+  department: { id: string; name: string; code: string } | null;
+  position: { id: string; name: string } | null;
+  reportingTo: { id: string; name: string }[];
+  photoUrl: string | null;
+}
+
+/** Builds a {@link DirectoryIdentity} field by field from a full identity. */
+export function toDirectoryIdentity(identity: EmployeeIdentity): DirectoryIdentity {
+  return {
+    employeeId: identity.employeeId,
+    employeeNumber: identity.employeeNumber,
+    firstName: identity.firstName,
+    middleName: identity.middleName,
+    lastName: identity.lastName,
+    email: identity.email,
+    department: identity.department
+      ? {
+          id: identity.department.id,
+          name: identity.department.name,
+          code: identity.department.code,
+        }
+      : null,
+    position: identity.position ? { id: identity.position.id, name: identity.position.name } : null,
+    reportingTo: identity.reportingTo.map((supervisor) => ({
+      id: supervisor.id,
+      name: supervisor.name,
+    })),
+    photoUrl: identity.photoUrl,
+  };
 }
 
 /**

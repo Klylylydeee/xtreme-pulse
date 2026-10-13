@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { UserRound } from 'lucide-react';
+import { ActionError } from '@pulse/core';
 import type { CurrentUser } from '@pulse/core/server';
-import { getOwnRecordView, listOwnESignatures } from '@pulse/talent/server';
+import type { WorkScheduleSectionView } from '@pulse/talent';
+import { getOwnRecordView, getWorkScheduleSection, listOwnESignatures } from '@pulse/talent/server';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { EmptyState } from '@pulse/ui/components/empty-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
@@ -10,7 +12,7 @@ import { Skeleton } from '@pulse/ui/components/skeleton';
 import { Badge } from '@/components/org-structure';
 import { requireCurrentUser } from '@/lib/auth';
 import { getUploadHints } from '@/lib/upload-hints';
-import { EmployeeRecordSections } from '../employee-record-sections';
+import { EmployeeRecordSections, WorkScheduleSection } from '../employee-record-sections';
 import { OwnPhotoAndSignature } from './own-photo-signature';
 
 export const metadata: Metadata = { title: 'My record' };
@@ -38,6 +40,11 @@ const DESCRIPTION =
 // with the company default, assigned amounts masked with Reveal (audit-logged by the reveal
 // action). `getOwnRecordView` includes them only when the employee may reveal their own
 // `allowances`; there is no "Assign allowance" here.
+//
+// From step 2.4 (docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) the
+// Work schedule section, read-only: the schedule in effect, the scheduled changes and the
+// history, for the signed-in user's own employee (the id comes from their own record, never the
+// request). When no company schedule is set yet, the section is left out instead of the page.
 export default async function MyRecordPage() {
   const user = await requireCurrentUser();
   return (
@@ -66,6 +73,7 @@ async function MyRecord({ user }: { user: CurrentUser }) {
     );
   }
   const { identity } = view;
+  const workSchedule = await ownWorkSchedule(user, view.employeeId);
   return (
     <div className="flex w-full max-w-2xl flex-col gap-5">
       <div className="flex items-center gap-3">
@@ -97,9 +105,26 @@ async function MyRecord({ user }: { user: CurrentUser }) {
         canUploadSignature={view.can.uploadESignature}
         imageUpload={uploads.image}
       />
-      <EmployeeRecordSections view={view} showESignature={false} />
+      <EmployeeRecordSections
+        view={view}
+        showESignature={false}
+        workSchedule={workSchedule ? <WorkScheduleSection section={workSchedule} /> : null}
+      />
     </div>
   );
+}
+
+/** The employee's own Work schedule section; null when none can be shown (no company schedule). */
+async function ownWorkSchedule(
+  user: CurrentUser,
+  employeeId: string,
+): Promise<WorkScheduleSectionView | null> {
+  try {
+    return await getWorkScheduleSection(user, employeeId);
+  } catch (error) {
+    if (error instanceof ActionError) return null;
+    throw error;
+  }
 }
 
 function MyRecordLoading() {

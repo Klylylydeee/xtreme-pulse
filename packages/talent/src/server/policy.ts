@@ -318,3 +318,66 @@ export function assertCanViewWageOrderList(actor: TalentActor): void {
   if (!canReadEmployeeRecords(actor)) throw new AccessDeniedError(TALENT_READ_DENIED);
   if (!canViewWageOrderList(actor)) throw new AccessDeniedError(WAGE_ORDER_LIST_DENIED);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.4: work schedules and timesheets (SECURITY.md#exceptions-to-module-access, "The own
+// timesheet" and "Supervisors see their team's timesheets"; decisions 215 and 221 in
+// docs/BUILD_PLAN.md).
+//
+// - Setting an employee's own schedule: Talent Write and HR or the System Administrator, never on
+//   one's own record. HR may set HR staff's (a schedule isn't pay).
+// - Seeing a schedule or a timesheet: the employee, Talent Read, or a supervisor in the
+//   employee's `reportingTo` (read-only, whatever their module access).
+// - Changing time entries: the employee alone, on their own employee; nobody changes another
+//   person's entries in step 2.4, HR and the System Administrator included.
+
+export const WORK_SCHEDULE_SET_DENIED =
+  'Only HR and the System Administrator, with Talent Write, set work schedules.';
+export const NO_EMPLOYEE_TIMESHEET =
+  'The system account has no employee record, so it has no timesheet.';
+export const TIMESHEET_DENIED = 'You don’t have access to this timesheet.';
+
+/** Who a timesheet or schedule belongs to, as the viewing rule needs it. */
+export interface TimesheetTarget {
+  employeeId: string;
+  /** The employee's supervisors' employee ids. */
+  reportingTo: readonly { id: string }[];
+}
+
+/** Why `actor` may not set `target`'s work schedule, or null when they may. */
+function workScheduleRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  const refusal = editRefusal(actor, target);
+  if (refusal) return refusal;
+  return isSystemAdministrator(actor) || isHR(actor) ? null : WORK_SCHEDULE_SET_DENIED;
+}
+
+/** True when `actor` may set `target`'s work schedule ("Set schedule"). */
+export function canSetWorkSchedule(actor: TalentActor, target: RecordTarget): boolean {
+  return workScheduleRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may set `target`'s work schedule. */
+export function assertCanSetWorkSchedule(actor: TalentActor, target: RecordTarget): void {
+  const refusal = workScheduleRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+/** True when `actor` is one of `target`'s `reportingTo` supervisors. */
+export function isSupervisorOf(actor: TalentActor, target: TimesheetTarget): boolean {
+  const own = actor.employee?.id;
+  return own !== undefined && target.reportingTo.some((supervisor) => supervisor.id === own);
+}
+
+/** True when `actor` may open `target`'s timesheet and schedule (read-only unless their own). */
+export function canViewTimesheet(actor: TalentActor, target: TimesheetTarget): boolean {
+  return (
+    (actor.employee !== null && actor.employee.id === target.employeeId) ||
+    canReadEmployeeRecords(actor) ||
+    isSupervisorOf(actor, target)
+  );
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may open `target`'s timesheet. */
+export function assertCanViewTimesheet(actor: TalentActor, target: TimesheetTarget): void {
+  if (!canViewTimesheet(actor, target)) throw new AccessDeniedError(TIMESHEET_DENIED);
+}

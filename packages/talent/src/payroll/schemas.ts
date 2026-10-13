@@ -1,16 +1,19 @@
 import { z } from 'zod';
 import { businessDateField, type Ratio, ratio } from '@pulse/core';
 import { WORK_REGIONS } from '../fixed-sets';
+import { timesheetSettingsSchema, workScheduleSchema } from '../timesheets/schemas';
 
 // Spec: docs/DATA_MODEL.md#versioned-configuration ("Payroll settings", build step 2.3) and
 // docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 (decisions 192, 197, 200 and
-// 201 in docs/BUILD_PLAN.md) — the shape and checks of the ten Talent payroll settings. Pure code,
+// 201 in docs/BUILD_PLAN.md) — the shape and checks of the twelve Talent payroll settings (the
+// last two, `talent.workSchedule` and `talent.timesheetSettings`, from build step 2.4, decisions
+// 214 and 216, are declared in ../timesheets/schemas.ts). Pure code,
 // safe in the browser: the "Add version" sheets and the service parse with the same schemas.
 //
 // Every number is a whole number (centavos, days, counts); rates are decimal strings ("0.05"),
 // read exactly with the money helpers (`ratio`). Core's store also refuses any fractional number.
 
-/** The ten payroll setting keys, in the page's order. */
+/** The twelve payroll setting keys, in the page's order (the last two from build step 2.4). */
 export const PAYROLL_SETTING_KEYS = [
   'talent.payrollSettings',
   'talent.sssContributions',
@@ -22,6 +25,8 @@ export const PAYROLL_SETTING_KEYS = [
   'talent.thirteenthMonthExemption',
   'talent.minimumWages',
   'talent.allowanceTypes',
+  'talent.workSchedule',
+  'talent.timesheetSettings',
 ] as const;
 export type PayrollSettingKey = (typeof PAYROLL_SETTING_KEYS)[number];
 
@@ -36,6 +41,8 @@ export const PAYROLL_SETTING_LABELS: Record<PayrollSettingKey, string> = {
   'talent.thirteenthMonthExemption': '13th month ceiling',
   'talent.minimumWages': 'Minimum wage',
   'talent.allowanceTypes': 'Allowance types',
+  'talent.workSchedule': 'Work schedule',
+  'talent.timesheetSettings': 'Timesheet settings',
 };
 
 export function isPayrollSettingKey(value: unknown): value is PayrollSettingKey {
@@ -596,6 +603,8 @@ export const PAYROLL_SETTING_SCHEMAS = {
   'talent.thirteenthMonthExemption': thirteenthMonthExemptionSchema,
   'talent.minimumWages': minimumWagesSchema,
   'talent.allowanceTypes': allowanceTypesSchema,
+  'talent.workSchedule': workScheduleSchema,
+  'talent.timesheetSettings': timesheetSettingsSchema,
 } as const satisfies Record<PayrollSettingKey, z.ZodType>;
 
 /** Each setting's value, by key. */
