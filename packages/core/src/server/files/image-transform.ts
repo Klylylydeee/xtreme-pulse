@@ -6,14 +6,18 @@ import type { UploadType } from './file-types';
 // e-signatures are re-encoded on the server before they are stored. Every image is auto-rotated
 // from its EXIF orientation, and its metadata (EXIF, GPS, XMP, ICC comments) is dropped: sharp
 // writes none unless asked to keep it, and nothing here asks. Other uploads (201 documents,
-// certificate attachments) are stored byte for byte.
+// certificate attachments) are stored byte for byte. From build step 2.5 (decision 247),
+// reimbursement receipts use the `receipt` transform through `saveUpload`'s `transformImages`: a
+// receipt image is re-encoded and a receipt PDF is stored byte for byte.
 
-/** The re-encodings `saveUpload` offers (its `transform` option). */
+/** The re-encodings `saveUpload` offers (its `transform` and `transformImages` options). */
 export const UPLOAD_TRANSFORMS = {
   /** A profile photo: WebP, at most 1024 px on its longer side. */
   photo: { maxPixels: 1024, contentType: 'image/webp' },
   /** An e-signature: PNG, at most 1200 px on its longer side, transparency kept. */
   signature: { maxPixels: 1200, contentType: 'image/png' },
+  /** A reimbursement receipt (build step 2.5): WebP, at most 2000 px on its longer side. */
+  receipt: { maxPixels: 2000, contentType: 'image/webp' },
 } as const satisfies Record<string, { maxPixels: number; contentType: UploadType }>;
 
 export type UploadTransform = keyof typeof UPLOAD_TRANSFORMS;
@@ -26,8 +30,8 @@ const MAX_INPUT_PIXELS = 50_000_000;
 
 /**
  * Re-encodes an uploaded image for `transform`: auto-rotated, metadata stripped, shrunk (never
- * enlarged) to fit the size, as WebP for a photo or PNG (alpha kept) for a signature. Throws
- * {@link ActionError} on `field` when the image can't be read.
+ * enlarged) to fit the size, as WebP for a photo or receipt or PNG (alpha kept) for a signature.
+ * Throws {@link ActionError} on `field` when the image can't be read.
  */
 export async function transformImage(
   bytes: Uint8Array,

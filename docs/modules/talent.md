@@ -305,7 +305,7 @@ A separate table on the same timesheet.
 
 ### Work schedules and daily time entries (build step 2.4)
 
-Built in step 2.4. Decisions 213–234 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The collections and setting shapes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership). Step 2.4 stores schedules, timesheets and time entries, and computes hours **for display only**. It computes no pay and stores no computed hours. Submission, approval, the DTR, the holidays-changed listener and crediting offset hours come in step 2.7; reimbursements in step 2.5.
+Built in step 2.4. Decisions 213–234 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The collections and setting shapes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership). Step 2.4 stores schedules, timesheets and time entries, and computes hours **for display only**. It computes no pay and stores no computed hours. Submission, approval, the DTR, the holidays-changed listener and crediting offset hours come in step 2.7; reimbursements in step 2.5 ([Reimbursements (build step 2.5)](#reimbursements-build-step-25)).
 
 Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 46–61), to be confirmed by HR, the accountant or counsel.
 
@@ -430,7 +430,7 @@ Step 2.7 adds the submission deadline in a later version. It is edited in the sa
   - The header reads "Cut-off Sep 11 – 25, 2026 · Overtime timesheet" (or "Standard timesheet").
   - **Today card:** worked against scheduled hours, "Timed in 7:58 AM", and one primary button, Time in or Time out. It shows only on today's cut-off.
   - **Extra-hours card:** "Overtime by kind" (Overtime) or "Offset" with the balance line (Standard). This is the only part that differs between the two types.
-  - **Segmented control** "Daily entries | Reimbursements". Reimbursements is an empty state until step 2.5.
+  - **Segmented control** "Daily entries | Reimbursements". Reimbursements was an empty state in step 2.4; step 2.5 fills it ([Reimbursements (build step 2.5)](#reimbursements-build-step-25)).
   - **Day list:** one row per day of the cut-off, from the date hired (or the cut-off's start) up to today (or the separation date), newest first. Each row shows the times with a "Manual" badge on each manual side, the activity and client, the day's overtime by kind ("OT 2.0 h · Ordinary day") or offset ("Offset 2.6 h"), and "Not claimed" or "No time out" where they apply. Rest days and holidays are labelled, and a run of rest days with no entries folds into one row.
   - **Day sheet:** the day's entries, "Add entry", and each entry's edit sheet: time in, time out with a "Next day" switch, activity, client, the disabled project and ticket pickers, and the switch "Count extra hours as overtime" (or "as offset") with its required reason.
   - A sticky footer shows the cut-off's total overtime or offset. There is no Submit button in step 2.4.
@@ -442,6 +442,96 @@ Step 2.7 adds the submission deadline in a later version. It is edited in the sa
 
 - Hours are derived when read and never stored, so a holiday change needs no recompute in step 2.4; the DTR listener comes in step 2.7.
 - Leave and offset time off days (step 2.8) need no entry; until then such days show as days with no entry.
+
+### Reimbursements (build step 2.5)
+
+Built in step 2.5. Decisions 235–255 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The collections and the setting's shape are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership). Step 2.5 stores reimbursement lines on the timesheet and checks them. Submission and approval come in step 2.7, payment in step 2.9 (a separate non-taxable line), and Fiscal's postings and petty cash vouchers in Phase 5.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 62–75), to be confirmed by HR, the accountant or counsel.
+
+**Reimbursement settings.** The versioned setting `talent.reimbursementSettings` is added to the payroll settings in the [configuration store](../DATA_MODEL.md#versioned-configuration). It holds:
+
+- `filingWindowPreviousCutOffs`: how many cut-offs before the line's own a receipt may be dated in, from 0 to 6 (seeded 1: "the current or previous cut-off")
+- `types`: the reimbursement types. Each has:
+  - a key, fixed once added and never removed (a type no longer used is marked inactive), and a name
+  - `active`: an inactive type can't be chosen for a new line, or changed to; lines that already have it keep it
+  - `requiresRoute`: pick-up and drop-off are required
+  - `requiresDescription`: a description of the expense is required
+  - `requiresClient`: the client is required
+  - an optional limit: an amount in centavos, either per `line` or per `day`
+
+`pnpm seed:admin` seeds it once, effective 2000-01-01, with the source "Company policy (spec)":
+
+| Type | Pick-up and drop-off | Description | Client | Limit |
+|---|---|---|---|---|
+| Meal (`meal`) | No | No | Optional | None |
+| Transportation (`transportation`) | Required | No | Optional | None |
+| Other (`other`) | No | Required | Optional | None |
+
+*Assumptions:* no limits are seeded, because the spec names none (HR adds them as a new version), and the client is optional on every type, as on time entries. The setting is edited on the Payroll settings page in a new **Reimbursements** segment, under the step 2.3 rules (Talent Owner **and** HR or the System Administrator, an effective date later than every version and at most a year ahead, a required source, a `create` audit entry on `core.configVersion`). A line's type, required fields and limit come from the version in effect on its **receipt date**; the filing window from the version in effect **today**.
+
+**Reimbursement lines** (collection `reimbursements`). Each line has:
+
+- the **receipt date**
+- the **type**
+- the **merchant** (1 to 120 characters)
+- the **merchant TIN**: 9, 12 or 14 digits as typed (dashes and spaces are fine), stored as the canonical 14 digits below and shown as `000-000-000-00000`
+- the **receipt or invoice number** (1 to 40 characters, stored as typed). Under RA 11976 (the EOPT Act) and RR 7-2024 the invoice replaced the official receipt as the primary document, so the field reads "Receipt or invoice number" (*Assumption*)
+- the **amount**: a positive whole number of centavos, typed in pesos
+- the **receipt**: a photo or a PDF, required
+- the **client**: any live client from Core's client options; an existing line keeps a retired client, shown as "Removed client"
+- **pick-up** and **drop-off** (1 to 200 characters each), when the type requires them
+- a **description** (1 to 300 characters), required when the type requires it, optional otherwise
+
+The **project** picker shows in the sheet, disabled, with "Available when Pulse Ops is set up". No project field is stored until Phase 4. The client is for tracking and reporting only: **reimbursements are never billed or charged to the client**, and no service offers them for billing.
+
+**The timesheet a line belongs to.** A line is added on the employee's own timesheet being viewed, and stays on it (`timesheetId` never changes; to move one, delete it and add it again). A receipt dated in the previous cut-off, filed on the current timesheet, is paid with the current one.
+
+**Checks**, on the server, in the save's transaction:
+
+- the line's timesheet is `open`
+- the receipt date is between the start of the cut-off N before the line's timesheet and the earlier of that timesheet's end and today (N is `filingWindowPreviousCutOffs`), on or after the date hired, and not after the separation date
+- **adding** a line also needs its timesheet's cut-off to be today's or one of the N before it, so only the current and previous timesheets take new lines. Editing and deleting need only an open timesheet, so a timesheet returned in step 2.7 can still be fixed (*Assumption*)
+- the type is in the version in effect on the receipt date and active (a stored inactive type is kept on edit), and the type's required fields are filled
+- the merchant TIN is 9, 12 or 14 digits, and the amount is positive
+- the receipt isn't claimed already (below)
+- each form sends back the line's `version`; a stale save is refused with "Someone else changed this reimbursement. Reload to see it."
+
+**No duplicates.** The same merchant TIN and receipt number can never be claimed twice, by anyone, as a reimbursement or (from step 5.11) on a petty cash voucher.
+
+- **The register.** Every claimed receipt has one live entry in the Talent collection `receiptClaims`: the canonical TIN, the receipt key, the claim type (`talent.reimbursement`; `fiscal.pettyCashVoucher` from step 5.11), the claim's id and, for a reimbursement, the employee. A unique index on the TIN and the key among live entries (`deletedAt: null`) makes the check atomic across employees and modules: of two saves of one receipt at once, exactly one saves.
+- **The canonical TIN** is 14 digits: a 9-digit TIN gets the head office branch code `00000`, and a 12-digit TIN's 3-digit branch code is padded to 5 (`001` → `00001`). *Assumptions:* a TIN with no branch code is the head office, and the branch is part of the key, because invoice series are registered per branch.
+- **The receipt key** is the number in capitals, with everything but letters and digits removed and leading zeros dropped (`or-000123` and `OR 123` match). *Assumption.*
+- **When.** A duplicate is rejected when the line is saved, which is stricter than "on submission"; step 2.7's submission checks every line's claim again (*Assumption*). Deleting a line, or changing its TIN or receipt number, releases its claim in the same transaction, so the receipt can be claimed again.
+- **The messages.** The employee's own earlier claim: "You already claimed this receipt on <date> (<type>)." Anyone else's, a voucher included: "This receipt has already been claimed. Each receipt can be claimed once. Ask HR if you think this is wrong." The other claimant is never named to the employee (*Assumption*).
+- **The service.** Talent's `claimReceipt` and `releaseReceiptClaim` run in the caller's transaction, and the TIN and key normalizers are exported, so Pulse Fiscal's petty cash calls the same service in step 5.11 ([Cross-module integration](../ARCHITECTURE.md#cross-module-integration)).
+- **Check a receipt.** Talent Read opens "Check a receipt" on `/talent`: a merchant TIN and a receipt number give the live claim, if any, with the claimant's name and employee number, the receipt date, type and amount, and a link to the timesheet (or "Petty cash voucher" from step 5.11). See [RUNBOOK](../RUNBOOK.md#a-receipt-was-rejected-as-a-duplicate).
+- *Assumption, to be confirmed by the accountant:* the app doesn't check that a receipt is made out to the company, and a ride with no receipt (jeepney, tricycle) can't be claimed.
+
+**Limits.** Over-limit lines are highlighted, never refused, for the employee and the approvers alike. With the limit of the version in effect on the receipt date:
+
+- **per line**: the line's amount is over the limit
+- **per day**: the employee's live lines of that type dated that day, across every timesheet, add up to more than the limit; each of them is flagged
+
+The line shows by how much, for example "₱120.00 over the daily limit".
+
+**The receipt file.** Uploaded with the line and stored in the private [file storage](../ARCHITECTURE.md#file-storage) folder (owner type `talent.reimbursement`). JPEG, PNG and WebP images are re-encoded (WebP, at most 2000 px, auto-rotated, metadata such as GPS stripped); PDFs are stored byte for byte. The upload settings' types and size limit apply. A new file on edit replaces the old one, which is kept but no longer opens. The file opens for whoever may open the timesheet, only through a live line that points at it. Views aren't audit-logged: a receipt isn't [sensitive personal information](../../SECURITY.md#sensitive-data) (*Assumption*: pick-up and drop-off can show a home address, and supervisors see them).
+
+**Who may do what.**
+
+- **The employee** adds, edits and deletes their own lines. This is self-service, outside module access; the services take no employee id from the request. The bootstrap system account has no timesheet.
+- **Talent Read** and the employee's `reportingTo` **supervisors** see the lines and open the receipts, read-only, on `/talent/timesheets/<employeeId>`.
+- **Nobody changes another person's lines**, HR and the System Administrator included. Corrections come through "return with remarks" in step 2.7.
+
+**Serialization and audit.** Each line save touches its timesheet (the step 2.4 touch: `updatedBy` and `__v`), so step 2.7's submission conflicts with a save in flight. Deleting is a soft delete after a confirmation ("Delete reimbursement"). `create`, `update` and `delete` entries on `talent.reimbursement`, labelled `<employee number> · <receipt YYYY-MM-DD>`, are written in the same transaction; the register's writes have no entries of their own, since the line's snapshot holds the TIN and number. No notification is sent.
+
+**Screens** (phone first; see [Timesheets on a phone](../DESIGN_SYSTEM.md#layout--components)).
+
+- **The Reimbursements segment** on `/talent/timesheet` and `/talent/timesheets/<employeeId>` lists the timesheet's lines, grouped by receipt date, newest first. Each row shows the type, the merchant, the client, the amount, a receipt thumbnail (or a PDF icon), and "Over limit" where it applies. With no line: "No reimbursements yet".
+- **"Add reimbursement"** shows on the employee's own open timesheet within the filing window. It opens the reimbursement sheet: the receipt first ("Take a photo or choose a file"), then the type, the date (with "Receipts dated <from> – <to>"), the merchant, the merchant TIN, the receipt or invoice number, the amount, the client (with "For tracking only. Reimbursements are never billed to the client."), the disabled project picker, pick-up and drop-off for a type that requires them, and the description. A duplicate is shown under the receipt or invoice number.
+- **A line** opens the same sheet to edit (own, open timesheet), or a read-only detail with "Open receipt".
+- **The footer** shows "Reimbursements ₱1,234.50 · 3 receipts" while the segment is shown.
+- **Payroll settings** gets the Reimbursements segment; **`/talent`** gets "Check a receipt" for Talent Read.
 
 ## Leave
 

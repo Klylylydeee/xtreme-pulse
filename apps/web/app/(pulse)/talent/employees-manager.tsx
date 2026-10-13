@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Banknote, CircleCheck, Search, Settings, Users } from 'lucide-react';
+import { Banknote, CircleCheck, Receipt, Search, Settings, Users } from 'lucide-react';
 import {
   type DirectoryDepartmentOption,
   EMPLOYMENT_STATUS,
@@ -26,6 +26,7 @@ import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge, plural } from '@/components/org-structure';
 import { PersonAvatar } from '@/components/person-avatar';
+import { CheckReceiptSheet } from './check-receipt-sheet';
 import { ExpiryAlertsSheet } from './employee-documents-sheets';
 import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
 
@@ -37,6 +38,10 @@ import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './
 // (`?department=`) and status (`?status=`), and "Show separated" (`?separated=1`). A row opens the
 // record in the inspector (`?employee=<employeeId>`). No sensitive field, date of birth or civil
 // status is ever in the list.
+//
+// From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the header's "Check a
+// receipt" opens a sheet that finds who claimed a merchant TIN and receipt number. It needs
+// Talent Read, which this page already needs; its action and service check again.
 
 const SEARCH_DELAY_MS = 250;
 const countFormat = new Intl.NumberFormat('en-PH');
@@ -164,6 +169,9 @@ export function EmployeesManager({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSession, setSettingsSession] = useState(0);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const receiptFocus = useReturnFocus();
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptSession, setReceiptSession] = useState(0);
 
   useEffect(() => () => window.clearTimeout(searchTimer.current), []);
 
@@ -220,6 +228,18 @@ export function EmployeesManager({
               <Banknote aria-hidden="true" className="size-4.5" />
               Payroll settings
             </Link>
+            {/* Step 2.5: Talent Read, which this page already needs. */}
+            <Button
+              variant="secondary"
+              onClick={(event) => {
+                receiptFocus.remember(event.currentTarget);
+                setReceiptSession((count) => count + 1);
+                setReceiptOpen(true);
+              }}
+            >
+              <Receipt aria-hidden="true" className="size-4.5" />
+              Check a receipt
+            </Button>
             {expirySettings.canChange ? (
               <Button
                 variant="secondary"
@@ -237,6 +257,11 @@ export function EmployeesManager({
           </>
         }
       />
+      <Sheet open={receiptOpen} onOpenChange={setReceiptOpen}>
+        <SheetContent aria-describedby={undefined} onCloseAutoFocus={receiptFocus.onCloseAutoFocus}>
+          <CheckReceiptSheet key={receiptSession} />
+        </SheetContent>
+      </Sheet>
       {expirySettings.canChange ? (
         <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
           <SheetContent

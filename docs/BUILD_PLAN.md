@@ -272,7 +272,7 @@ When this phase is done, Xtreme Pulse is the company's books instead of Excel. E
    - Done when: signing a delivery receipt posts its equipment cost to the project, and a subcontractor bill appears in the Ops cost view.
 10. **5.10 Bank reconciliation.** Import bank statement files (CSV or Excel) and suggest matches to recorded collections and payments by amount, date and reference. Record bank charges and interest from the statement, and list unmatched lines. A month is marked reconciled only when every line matches. Spec: [Bank accounts and reconciliation](modules/fiscal.md#bank-accounts-and-reconciliation).
     - Done when: a sample statement suggests matches, a bank charge posts from it, and the month is marked reconciled once nothing is unmatched.
-11. **5.11 Petty cash.** Add petty cash funds as data (fund name, custodian, fund amount). Petty cash vouchers (`PCV-YYYY-NNNN`) record the receipt details and photo, and extend the Phase 2 duplicate-receipt service so reimbursements and vouchers are each checked against both, through one uniquely indexed register of claimed receipts. Replenishment totals the vouchers since the last one and goes through the payment flow, so the Managing Director and the Sales Director approve it. Spec: [Petty cash](modules/fiscal.md#petty-cash); [Reimbursements](modules/talent.md#reimbursements); [Payments (disbursements)](modules/fiscal.md#payments-disbursements).
+11. **5.11 Petty cash.** Add petty cash funds as data (fund name, custodian, fund amount). Petty cash vouchers (`PCV-YYYY-NNNN`) record the receipt details and photo, and extend the Phase 2 duplicate-receipt service so reimbursements and vouchers are each checked against both, through one uniquely indexed register of claimed receipts. The register already exists from step 2.5 (Talent's `receiptClaims`, decisions 241–244): the vouchers call Talent's `claimReceipt` and `releaseReceiptClaim` with the claim type `fiscal.pettyCashVoucher`. Replenishment totals the vouchers since the last one and goes through the payment flow, so the Managing Director and the Sales Director approve it. Spec: [Petty cash](modules/fiscal.md#petty-cash); [Reimbursements](modules/talent.md#reimbursements); [Payments (disbursements)](modules/fiscal.md#payments-disbursements).
     - Done when: a PCV using a receipt already claimed as a reimbursement is rejected, and a replenishment waits for both approvals.
 12. **5.12 BIR tax reports.** Produce BIR report data: 2550Q with the summary lists of sales and purchases, 0619-E and 1601-EQ with the QAP, 1604-E, and the SAWT. List Talent's 1601-C, 2316, 1604-C and alphalist read-only via Talent's services, visible per the Sensitive data rules. Export each as PDF and Excel, and in BIR's data file formats where required (get BIR's current file specifications before this step); due dates, rates, ATC codes and forms are versioned configuration. Spec: [BIR tax reports](modules/fiscal.md#bir-tax-reports); [Collections](modules/fiscal.md#collections); [Supplier bills (AP)](modules/fiscal.md#supplier-bills-ap); [Year-end](modules/talent.md#year-end); [Sensitive data](../SECURITY.md#sensitive-data).
     - Done when: a sample quarter's 2550Q and 1601-EQ match the posted VAT and EWT, and each report exports in every required format.
@@ -861,3 +861,70 @@ The former open questions, and the follow-ups they raised, are now answered in t
      - the worker wiring
 
      ([Spec](TESTING.md#timesheet-and-work-schedule-tests))
+235. **Step 2.5:** Reimbursement types and the filing window are one versioned setting, `talent.reimbursementSettings`, in the [configuration store](DATA_MODEL.md#versioned-configuration), like `talent.allowanceTypes`. It holds `filingWindowPreviousCutOffs` (0 to 6) and the types. Each type has:
+     - a fixed key (never removed; an unused type is marked inactive) and a name
+     - `active`
+     - `requiresRoute`, `requiresDescription` and `requiresClient`
+     - an optional limit: `amountCentavos` per `line` or per `day`
+
+     It is edited on Payroll settings in a new Reimbursements segment, under the step 2.3 rules. ([Spec](modules/talent.md#reimbursements-build-step-25))
+236. **Step 2.5:** `pnpm seed:admin` seeds it once, effective 2000-01-01, with the source "Company policy (spec)": a filing window of 1 previous cut-off, and the types meal, transportation (pick-up and drop-off required) and other (a description required). The client is optional on all three, and no limit is seeded. *Assumptions, to be confirmed by HR:* no seeded limits, and an optional client. ([Spec](modules/talent.md#reimbursements-build-step-25))
+237. **Step 2.5:** A line's type, required fields and limit come from the version in effect on the **receipt date**. The filing window comes from the version in effect **today**. ([Spec](modules/talent.md#reimbursements-build-step-25))
+238. **Step 2.5:** Each line is stored in the collection `reimbursements`:
+     - always: the receipt date, the type, the merchant, the merchant TIN, the receipt or invoice number, the amount (centavos) and the receipt file (required)
+     - optional: a client
+     - when the type requires them: pick-up and drop-off, and a description
+
+     Under RA 11976 (the EOPT Act) the invoice replaced the official receipt, so the field reads "Receipt or invoice number". No project field is stored until Phase 4; its picker shows disabled. *Assumption, to be confirmed by the accountant.* ([Spec](modules/talent.md#reimbursements-build-step-25))
+239. **Step 2.5:** A line belongs to the own timesheet it was added on (`timesheetId`, never changed). A receipt from the previous cut-off filed on the current timesheet is paid with the current one. ([Spec](modules/talent.md#reimbursements-build-step-25))
+240. **Step 2.5:** The filing window, with N from the setting:
+     - **The receipt date** falls between the start of the cut-off N before the line's timesheet and the earlier of that timesheet's end and today. It is also on or after the date hired and not after the separation date.
+     - **Adding a line** also needs the timesheet's cut-off to be today's or one of the N before it.
+     - **Editing and deleting** need only an open timesheet, so a timesheet returned in step 2.7 can still be fixed.
+
+     *Assumption, to be confirmed by HR.* ([Spec](modules/talent.md#reimbursements-build-step-25))
+241. **Step 2.5:** No duplicates: claimed receipts are kept in one register, the Talent collection `receiptClaims`. It is uniquely indexed on the canonical merchant TIN and receipt key among live claims (`deletedAt: null`). Fiscal's petty cash vouchers add their claims to the same register in step 5.11, so each claim is checked against both. ([Spec](modules/talent.md#reimbursements-build-step-25))
+242. **Step 2.5:** The duplicate key:
+     - **The canonical merchant TIN** is 14 digits: a 9-digit TIN gets the head office branch `00000`, and a 3-digit branch code is padded to 5 digits.
+     - **The receipt key** is the number in capitals, with everything but letters and digits removed and leading zeros dropped.
+
+     *Assumptions, to be confirmed by the accountant:* a TIN with no branch code is the head office, and the branch is part of the key because invoice series are registered per branch. ([Spec](COMPLIANCE.md#reimbursement-receipts-build-step-25))
+243. **Step 2.5:** A duplicate is rejected when the line is saved, which is stricter than the spec's "on submission"; step 2.7's submission checks every line's claim again. Deleting a line, or changing its TIN or receipt number, releases its claim in the same transaction, so the receipt can be claimed again. *Assumption, to be confirmed by HR.* ([Spec](modules/talent.md#reimbursements-build-step-25))
+244. **Step 2.5:** The register's service belongs to Talent: `claimReceipt` and `releaseReceiptClaim`, which run in the caller's transaction, and the normalizers, exported for Fiscal ([Cross-module integration](ARCHITECTURE.md#cross-module-integration)). When two claims of one receipt are saved at once, exactly one saves. ([Spec](modules/talent.md#reimbursements-build-step-25))
+245. **Step 2.5:** The rejection never names the other claimant: "This receipt has already been claimed. Each receipt can be claimed once. Ask HR if you think this is wrong." The employee's own earlier claim reads "You already claimed this receipt on <date> (<type>)." Talent Read finds the claimant with "Check a receipt" on `/talent`. *Assumption, to be confirmed by HR and counsel.* ([Spec](RUNBOOK.md#a-receipt-was-rejected-as-a-duplicate))
+246. **Step 2.5:** Merchant TINs, receipt numbers, amounts, routes and receipt files aren't sensitive personal information. Nothing is encrypted, the register holds plain keys, and receipt views aren't audit-logged. *Assumption, to be confirmed by HR and counsel:* pick-up and drop-off can show a home address, and supervisors see them. ([Spec](../SECURITY.md#sensitive-data))
+247. **Step 2.5:** Receipt images are re-encoded with a new `receipt` transform: WebP, at most 2000 px, auto-rotated, with metadata such as GPS stripped. PDFs are stored byte for byte: `saveUpload` gets `transformImages`, which re-encodes images only. ([Spec](ARCHITECTURE.md#file-storage))
+248. **Step 2.5:** A receipt file (`talent.reimbursement`) opens for whoever may open the timesheet (the employee, Talent Read or a `reportingTo` supervisor), and only through a live line that points at that file. ([Spec](ARCHITECTURE.md#file-storage))
+249. **Step 2.5:** Who may do what:
+     - **The employee** alone adds, edits and deletes their own lines. This is self-service, with no employee id taken from the request.
+     - **The employee, Talent Read and the `reportingTo` supervisors** read them.
+     - **Nobody** changes another person's lines, HR and the System Administrator included.
+
+     ([Spec](../SECURITY.md#exceptions-to-module-access))
+250. **Step 2.5:** Over-limit lines are highlighted, never refused. A per-line limit compares the line's amount. A per-day limit adds up the employee's live lines of that type on that receipt date across every timesheet, and flags each of them. ([Spec](modules/talent.md#reimbursements-build-step-25))
+251. **Step 2.5:** Each line save touches its timesheet (the step 2.4 touch), so step 2.7's submission conflicts with a save that is still running.
+     - **Audit:** `create`, `update` and `delete` entries on `talent.reimbursement`, labelled `<employee number> · <receipt date>`, in the same transaction. The register writes get no entries of their own.
+     - **Notifications:** none.
+
+     ([Spec](modules/talent.md#reimbursements-build-step-25))
+252. **Step 2.5:** Screens: the Reimbursements segment lists the timesheet's lines, grouped by receipt date and newest first.
+     - Each over-limit line carries an "Over limit" text badge.
+     - "Add reimbursement" opens a full-height sheet whose first field is the receipt.
+     - The sticky footer shows the reimbursement total while the segment is shown.
+     - The client field's footer says it is for tracking only.
+
+     ([Spec](DESIGN_SYSTEM.md#layout--components))
+253. **Step 2.5:** The client is for tracking and reporting only: no service offers reimbursements for billing. ([Spec](modules/talent.md#reimbursements))
+254. **Step 2.5:** The app doesn't check that a receipt is made out to the company. A ride with no receipt (jeepney, tricycle) can't be claimed. *Assumption, to be confirmed by the accountant:* a receipt made out to the company may be needed for the reimbursement to stay non-taxable and deductible. ([Spec](COMPLIANCE.md#reimbursement-receipts-build-step-25))
+255. **Step 2.5:** `pnpm test` adds the reimbursement tests:
+     - the receipt key
+     - the register and the Done when
+     - lines and the filing window
+     - limits
+     - who may see and change lines
+     - the receipt file
+     - "Check a receipt"
+     - the receipt transform
+     - the new setting
+
+     ([Spec](TESTING.md#reimbursement-tests))

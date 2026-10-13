@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, Clock, Info, PenLine, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Clock, Info, PenLine, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { cn } from '@pulse/ui/lib/utils';
 
 // Spec: docs/DESIGN_SYSTEM.md#layout--components ("Timesheets on a phone") — the timesheet's text
 // badges. Each one names its state in words, with an icon beside it, so colour is never the only
-// signal: "Manual" in `warning-text`, "No time out", "Not claimed", and the day's kind.
+// signal: "Manual" in `warning-text`, "No time out", "Not claimed", the day's kind, and (build
+// step 2.5) a reimbursement's "Over limit".
 
 const TONES = {
   /** A manual time, and an entry with no time out. */
@@ -72,6 +73,15 @@ export function DayKindBadge({ children }: { children: ReactNode }) {
   return (
     <TimesheetBadge tone="accent" Icon={CalendarDays}>
       {children}
+    </TimesheetBadge>
+  );
+}
+
+/** "Over limit": a reimbursement line over its type's limit (highlighted, never refused). */
+export function OverLimitBadge() {
+  return (
+    <TimesheetBadge tone="warning" Icon={TriangleAlert}>
+      Over limit
     </TimesheetBadge>
   );
 }

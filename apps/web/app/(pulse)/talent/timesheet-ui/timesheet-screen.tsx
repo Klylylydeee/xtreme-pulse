@@ -3,10 +3,11 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { CalendarDays, ChevronLeft, ChevronRight, Receipt, UsersRound } from 'lucide-react';
-import type { BusinessDate } from '@pulse/core';
+import { CalendarDays, ChevronLeft, ChevronRight, UsersRound } from 'lucide-react';
+import { type BusinessDate, formatPeso } from '@pulse/core';
 import {
   formatHours,
+  type ReimbursementLineView,
   TIMESHEET_TYPE_TITLES,
   type TimeEntryView,
   type TimesheetView,
@@ -17,11 +18,18 @@ import { PageHeader } from '@pulse/ui/components/page-header';
 import { SegmentedControl } from '@pulse/ui/components/segmented-control';
 import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { cn } from '@pulse/ui/lib/utils';
+import type { UploadHint } from '@/lib/upload-hints';
 import { DayList } from './day-list';
 import { DaySheetContent } from './day-sheet';
 import { EntryForm, type EntryFormMode } from './entry-form';
 import { ExtraHoursCard } from './extra-hours-card';
 import { cutOffRangeText } from './format';
+import { ReimbursementList } from './reimbursement-list';
+import {
+  ReimbursementDetail,
+  ReimbursementForm,
+  type ReimbursementFormMode,
+} from './reimbursement-sheet';
 import { TodayCard } from './today-card';
 
 // Spec: docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24 ("Screens")
@@ -29,8 +37,12 @@ import { TodayCard } from './today-card';
 // timesheet types and both pages, built from shared parts. Top to bottom: the title with "Cut-off
 // Sep 11 – 25, 2026 · Overtime timesheet" and the previous and next cut-offs, the Today card (only
 // on today's cut-off), the extra-hours card, "Daily entries | Reimbursements", the day list, My
-// team, and a sticky glass footer with the cut-off's total. No Submit button until step 2.7;
-// Reimbursements is an empty state until step 2.5.
+// team, and a sticky glass footer with the cut-off's total. No Submit button until step 2.7.
+//
+// The Reimbursements segment (build step 2.5, docs/modules/talent.md#reimbursements-build-step-25)
+// lists the lines by receipt date; while it is shown, the footer reads "Reimbursements ₱1,234.50 ·
+// 3 receipts". "Add reimbursement" and the edit sheet follow the server's `canAdd` and `canEdit`;
+// otherwise a line opens read-only with "Open receipt".
 //
 // `view.own` is the employee's own timesheet (clock, add, edit, delete). Anyone else's is
 // read-only: no clock, no Add entry, no edit sheet; the server refuses every change anyway.
@@ -40,7 +52,9 @@ type Segment = 'entries' | 'reimbursements';
 
 type SheetState =
   | { view: 'day'; date: BusinessDate }
-  | { view: 'entry'; mode: EntryFormMode; fromDay: BusinessDate | null };
+  | { view: 'entry'; mode: EntryFormMode; fromDay: BusinessDate | null }
+  | { view: 'reimbursement'; mode: ReimbursementFormMode }
+  | { view: 'reimbursementDetail'; line: ReimbursementLineView };
 
 function CutOffNav({
   previous,
@@ -107,6 +121,25 @@ function MyTeam({ team }: { team: NonNullable<TimesheetView['myTeam']> }) {
   );
 }
 
+function ReimbursementsFooter({ view }: { view: TimesheetView }) {
+  const { totalCentavos, count } = view.reimbursements;
+  return (
+    <div
+      role="region"
+      aria-label="Reimbursements total"
+      className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-10 flex items-center justify-between gap-3 rounded-card glass px-4 py-3 shadow-float"
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="text-footnote text-text-secondary">Reimbursements</span>
+        <span className="text-footnote text-text-secondary numeric">
+          {count === 1 ? '1 receipt' : `${count} receipts`}
+        </span>
+      </span>
+      <span className="text-title-2 numeric">{formatPeso(totalCentavos)}</span>
+    </div>
+  );
+}
+
 function TotalFooter({ view }: { view: TimesheetView }) {
   const { totals } = view;
   const overtime = view.treatment === 'overtime';
@@ -135,7 +168,14 @@ function TotalFooter({ view }: { view: TimesheetView }) {
   );
 }
 
-export function TimesheetScreen({ view }: { view: TimesheetView }) {
+export function TimesheetScreen({
+  view,
+  receiptUpload,
+}: {
+  view: TimesheetView;
+  /** Own timesheet: the receipt field's accepted types and size limit. */
+  receiptUpload?: UploadHint;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -228,19 +268,29 @@ export function TimesheetScreen({ view }: { view: TimesheetView }) {
           />
         )
       ) : (
-        <EmptyState
-          icon={<Receipt strokeWidth={1.75} />}
-          title="No reimbursements"
-          description="Reimbursements aren’t on the timesheet yet. They’re coming in a later update."
+        <ReimbursementList
+          section={view.reimbursements}
+          onAdd={() => setSheet({ view: 'reimbursement', mode: { kind: 'add' } })}
+          onOpen={(line) =>
+            setSheet(
+              view.reimbursements.canEdit
+                ? { view: 'reimbursement', mode: { kind: 'edit', line } }
+                : { view: 'reimbursementDetail', line },
+            )
+          }
         />
       )}
 
       {view.myTeam && view.myTeam.length > 0 ? <MyTeam team={view.myTeam} /> : null}
 
-      <TotalFooter view={view} />
+      {segment === 'reimbursements' ? (
+        <ReimbursementsFooter view={view} />
+      ) : (
+        <TotalFooter view={view} />
+      )}
 
       <Sheet
-        open={sheet !== null && (sheet.view === 'entry' || Boolean(day))}
+        open={sheet !== null && (sheet.view !== 'day' || Boolean(day))}
         onOpenChange={(open) => (open ? undefined : setSheet(null))}
       >
         <SheetContent aria-describedby={undefined}>
@@ -266,6 +316,18 @@ export function TimesheetScreen({ view }: { view: TimesheetView }) {
               onDone={entryDone}
             />
           ) : null}
+          {sheet?.view === 'reimbursement' && view.own && timesheet.id ? (
+            <ReimbursementForm
+              key={sheet.mode.kind === 'edit' ? sheet.mode.line.id : 'add'}
+              mode={sheet.mode}
+              timesheetId={timesheet.id}
+              section={view.reimbursements}
+              clients={view.clients ?? []}
+              receiptUpload={receiptUpload ?? { accept: '', hint: '' }}
+              onDone={() => setSheet(null)}
+            />
+          ) : null}
+          {sheet?.view === 'reimbursementDetail' ? <ReimbursementDetail line={sheet.line} /> : null}
         </SheetContent>
       </Sheet>
     </div>

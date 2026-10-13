@@ -15,6 +15,8 @@ import {
   type PayrollSettingValues,
   PREMIUM_RATE_FIELDS,
   PREMIUM_RATE_LABELS,
+  REIMBURSEMENT_LIMIT_PER_LABELS,
+  type ReimbursementType,
   scheduledMinutes,
   TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
@@ -36,7 +38,8 @@ import {
 // figures, read-only. Amounts show in pesos with tabular numerals; rates as percentages. A table
 // sits in its own scrolling region (focusable, so the keyboard can scroll it), so on a phone it
 // scrolls sideways there and the page never does (docs/DESIGN_SYSTEM.md#layout--components).
-// From build step 2.4 the company work schedule and the timesheet settings.
+// From build step 2.4 the company work schedule and the timesheet settings; from build step 2.5
+// the reimbursement types and the filing window (docs/modules/talent.md#reimbursements-build-step-25).
 
 export const AGENCY_LABELS: Record<ContributionAgency, string> = {
   sss: 'SSS',
@@ -449,6 +452,72 @@ function TimesheetSettingsValue({
   );
 }
 
+/** "Pick-up and drop-off · A description" — what a reimbursement type requires. */
+function reimbursementRequires(type: ReimbursementType): string {
+  const required = [
+    type.requiresRoute ? 'pick-up and drop-off' : null,
+    type.requiresDescription ? 'a description' : null,
+    type.requiresClient ? 'the client' : null,
+  ].filter((item): item is string => item !== null);
+  if (required.length === 0) return 'Nothing else required';
+  const list =
+    required.length === 1
+      ? required[0]
+      : `${required.slice(0, -1).join(', ')} and ${required[required.length - 1]}`;
+  return `Requires ${list}`;
+}
+
+/** "The current cut-off and the previous one", "The current cut-off and the 3 before it". */
+export function filingWindowText(previousCutOffs: number): string {
+  if (previousCutOffs === 0) return 'The current cut-off only';
+  if (previousCutOffs === 1) return 'The current cut-off and the previous one';
+  return `The current cut-off and the ${previousCutOffs} before it`;
+}
+
+function ReimbursementSettingsValue({
+  value,
+}: {
+  value: PayrollSettingValues['talent.reimbursementSettings'];
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <Facts
+        rows={[
+          {
+            term: 'Receipts can be dated in',
+            value: filingWindowText(value.filingWindowPreviousCutOffs),
+          },
+        ]}
+      />
+      {value.types.length === 0 ? (
+        <p className="px-4 text-footnote text-text-secondary">No reimbursement types yet.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
+          {value.types.map((type) => (
+            <li key={type.key} className="flex flex-col gap-1 px-4 py-3">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-subheadline font-semibold">{type.name}</span>
+                {type.active ? null : <Badge>Inactive</Badge>}
+              </span>
+              <span className="text-footnote text-text-secondary">
+                {type.limit ? (
+                  <>
+                    Limit <span className="numeric">{peso(type.limit.amountCentavos)}</span>{' '}
+                    {REIMBURSEMENT_LIMIT_PER_LABELS[type.limit.per]}
+                  </>
+                ) : (
+                  'No limit'
+                )}{' '}
+                · {reimbursementRequires(type)} · Key <span className="font-mono">{type.key}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** One version's figures, read-only. */
 export function SettingValue({
   settingKey,
@@ -490,5 +559,9 @@ export function SettingValue({
       return <WorkScheduleValue value={value as PayrollSettingValues[typeof settingKey]} />;
     case 'talent.timesheetSettings':
       return <TimesheetSettingsValue value={value as PayrollSettingValues[typeof settingKey]} />;
+    case 'talent.reimbursementSettings':
+      return (
+        <ReimbursementSettingsValue value={value as PayrollSettingValues[typeof settingKey]} />
+      );
   }
 }

@@ -15,6 +15,7 @@ import {
   DE_MINIMIS_PERIODS,
   EXTRA_HOURS_TREATMENT_LABELS,
   EXTRA_HOURS_TREATMENTS,
+  FILING_WINDOW_PREVIOUS_CUT_OFFS_MAX,
   formatHours,
   GRACE_MINUTES_MAX,
   BREAK_MINUTES_MAX,
@@ -24,6 +25,10 @@ import {
   type PayrollSettingKey,
   PREMIUM_RATE_FIELDS,
   PREMIUM_RATE_LABELS,
+  REIMBURSEMENT_LIMIT_PER_LABELS,
+  REIMBURSEMENT_LIMIT_PERS,
+  REIMBURSEMENT_TYPE_NAME_MAX_LENGTH,
+  type ReimbursementLimitPer,
   scheduledMinutes,
   TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
@@ -39,6 +44,7 @@ import {
   newDeMinimisItem,
   newMinimumWageRegion,
   newPagibigBracket,
+  newReimbursementType,
   newSssRow,
   newWithholdingBracket,
   rateAsPercent,
@@ -48,7 +54,7 @@ import {
   setIn,
   type SettingDraft,
 } from './payroll-format';
-import { AGENCY_LABELS } from './setting-values';
+import { AGENCY_LABELS, filingWindowText } from './setting-values';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Adding a version")
 // and docs/DATA_MODEL.md#versioned-configuration — the figures of each setting in the "Add
@@ -60,6 +66,11 @@ import { AGENCY_LABELS } from './setting-values';
 // the company work schedule (weekday toggles, start, end, break and grace period) and the
 // timesheet settings (the offset ratio as a decimal, and the extra-hours treatment for each
 // timesheet type). `WorkScheduleFields` is shared with the inspector's "Set schedule" sheet.
+//
+// From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the reimbursement
+// settings: the filing window (0 to 6 previous cut-offs) and the types, edited like the allowance
+// types (a key is fixed once added and a type is never removed, only marked inactive). A limit is
+// typed in pesos, per receipt or per day; "No limit" sends none.
 
 export interface EditorProps<K extends PayrollSettingKey> {
   draft: SettingDraft<K>;
@@ -73,6 +84,12 @@ export interface AllowanceEditorContext {
   lockedCount: number;
   /** The de minimis limits in effect, for a de minimis type. */
   deMinimisOptions: readonly { value: string; label: string }[];
+}
+
+/** What the reimbursement type editor needs to know about the other versions (build step 2.5). */
+export interface ReimbursementEditorContext {
+  /** The first types, from the versions already stored: their keys are fixed, and they stay. */
+  lockedCount: number;
 }
 
 /** An error for a group of fields, such as "The cut-offs overlap on day 11". */
@@ -867,6 +884,186 @@ function TimesheetSettingsEditor({
   );
 }
 
+// --- Build step 2.5: reimbursement settings ---------------------------------------------------
+
+/** The limit select's value for no limit. */
+const NO_LIMIT = 'none';
+
+function ReimbursementSettingsEditor({
+  draft,
+  onChange,
+  errors,
+  context,
+}: EditorProps<'talent.reimbursementSettings'> & { context: ReimbursementEditorContext }) {
+  const setType = (index: number, field: string, value: unknown) =>
+    onChange(setIn(draft, `types.${index}.${field}`, value));
+  const e = (index: number, field: string) => errors[`value.types.${index}.${field}`];
+  const windowText = draft.filingWindowPreviousCutOffs.trim();
+  const windowCount = /^\d$/.test(windowText) ? Number(windowText) : null;
+  const range = `From 0 to ${FILING_WINDOW_PREVIOUS_CUT_OFFS_MAX}.`;
+  return (
+    <>
+      <FormSection
+        title="Filing window"
+        footer="The version in effect today sets the window. Only today’s timesheet and these previous ones take new reimbursements."
+      >
+        <TextField
+          label="Previous cut-offs"
+          kind="integer"
+          value={draft.filingWindowPreviousCutOffs}
+          onChange={(value) => onChange({ ...draft, filingWindowPreviousCutOffs: value })}
+          error={errors['value.filingWindowPreviousCutOffs']}
+          hint={
+            windowCount !== null && windowCount <= FILING_WINDOW_PREVIOUS_CUT_OFFS_MAX
+              ? `${filingWindowText(windowCount)}. ${range}`
+              : `How many cut-offs before the timesheet’s own a receipt may be dated in. ${range}`
+          }
+        />
+      </FormSection>
+      <p className="px-4 text-footnote text-text-secondary">
+        A type’s key never changes and a type is never removed: mark one you no longer use inactive.
+        A line’s type, required fields and limit come from the version in effect on its receipt
+        date.
+      </p>
+      <GroupError message={errors['value.types']} />
+      {draft.types.map((type, index) => {
+        const locked = index < context.lockedCount;
+        const limit = typeof type.limit === 'string' ? null : type.limit;
+        return (
+          <FormSection key={index} title={type.name.trim() || 'New reimbursement type'}>
+            {locked ? (
+              <div className="flex flex-col gap-0.5 px-4 py-3">
+                <span className="text-subheadline font-medium text-text-primary">Key</span>
+                <span className="font-mono text-subheadline">{type.key}</span>
+                <span className="text-footnote text-text-secondary">Fixed once added.</span>
+              </div>
+            ) : (
+              <TextField
+                label="Key"
+                value={type.key}
+                onChange={(value) => setType(index, 'key', value)}
+                error={e(index, 'key')}
+                hint="Letters and digits, starting with a lowercase letter, like parking. Fixed once added."
+              />
+            )}
+            <TextField
+              label="Name"
+              value={type.name}
+              onChange={(value) => setType(index, 'name', value)}
+              error={e(index, 'name')}
+              hint={`Up to ${REIMBURSEMENT_TYPE_NAME_MAX_LENGTH} characters.`}
+            />
+            <FormField
+              label="Limit"
+              required
+              error={e(index, 'limit.per') ?? e(index, 'limit')}
+              hint="A line over the limit is highlighted, never refused."
+            >
+              <Select
+                value={limit ? limit.per : NO_LIMIT}
+                onChange={(event) => {
+                  const per = event.target.value;
+                  setType(
+                    index,
+                    'limit',
+                    per === NO_LIMIT ? '' : { amountCentavos: limit?.amountCentavos ?? '', per },
+                  );
+                }}
+              >
+                <option value={NO_LIMIT}>No limit</option>
+                {REIMBURSEMENT_LIMIT_PERS.map((per) => (
+                  <option key={per} value={per}>
+                    {per === 'line' ? 'An amount per receipt' : 'An amount per day'}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            {limit ? (
+              <TextField
+                label={`Limit, ${REIMBURSEMENT_LIMIT_PER_LABELS[limit.per as ReimbursementLimitPer] ?? 'per receipt'}`}
+                kind="peso"
+                value={limit.amountCentavos}
+                onChange={(value) => setType(index, 'limit.amountCentavos', value)}
+                error={e(index, 'limit.amountCentavos')}
+                hint={
+                  limit.per === 'day'
+                    ? 'Adds up the employee’s lines of this type dated the same day, across every timesheet.'
+                    : 'Compared with each line’s amount.'
+                }
+              />
+            ) : null}
+            <FormField
+              label="Require pick-up and drop-off"
+              layout="inline"
+              error={e(index, 'requiresRoute')}
+            >
+              <Switch
+                checked={type.requiresRoute}
+                onCheckedChange={(checked) => setType(index, 'requiresRoute', checked)}
+              />
+            </FormField>
+            <FormField
+              label="Require a description"
+              layout="inline"
+              error={e(index, 'requiresDescription')}
+            >
+              <Switch
+                checked={type.requiresDescription}
+                onCheckedChange={(checked) => setType(index, 'requiresDescription', checked)}
+              />
+            </FormField>
+            <FormField
+              label="Require the client"
+              layout="inline"
+              error={e(index, 'requiresClient')}
+              hint="For tracking only. Reimbursements are never billed to the client."
+            >
+              <Switch
+                checked={type.requiresClient}
+                onCheckedChange={(checked) => setType(index, 'requiresClient', checked)}
+              />
+            </FormField>
+            <FormField
+              label="Active"
+              layout="inline"
+              error={e(index, 'active')}
+              hint="An inactive type can’t be chosen for a new line. Lines that have it keep it."
+            >
+              <Switch
+                checked={type.active}
+                onCheckedChange={(checked) => setType(index, 'active', checked)}
+              />
+            </FormField>
+            {locked ? null : (
+              <div className="px-2 py-1">
+                <Button
+                  variant="plain"
+                  onClick={() =>
+                    onChange({ ...draft, types: draft.types.filter((_, i) => i !== index) })
+                  }
+                  className="text-destructive-text hover:bg-bg-grouped hover:text-destructive-text"
+                >
+                  <Trash2 aria-hidden="true" className="size-4.5" />
+                  Remove this type
+                </Button>
+              </div>
+            )}
+          </FormSection>
+        );
+      })}
+      <div className="px-1">
+        <Button
+          variant="tinted"
+          onClick={() => onChange({ ...draft, types: [...draft.types, newReimbursementType()] })}
+        >
+          <Plus aria-hidden="true" className="size-4.5" />
+          Add reimbursement type
+        </Button>
+      </div>
+    </>
+  );
+}
+
 /** The figures of one setting, for the "Add version" sheet. */
 export function SettingEditor({
   settingKey,
@@ -874,12 +1071,14 @@ export function SettingEditor({
   onChange,
   errors,
   allowanceContext,
+  reimbursementContext,
 }: {
   settingKey: PayrollSettingKey;
   draft: SettingDraft;
   onChange: (draft: SettingDraft) => void;
   errors: FieldErrors;
   allowanceContext: AllowanceEditorContext;
+  reimbursementContext: ReimbursementEditorContext;
 }) {
   // Each editor gets its own setting's draft: the sheet holds one setting at a time.
   const props = { draft, onChange, errors } as never;
@@ -913,5 +1112,12 @@ export function SettingEditor({
       return <WorkScheduleEditor {...(props as EditorProps<typeof settingKey>)} />;
     case 'talent.timesheetSettings':
       return <TimesheetSettingsEditor {...(props as EditorProps<typeof settingKey>)} />;
+    case 'talent.reimbursementSettings':
+      return (
+        <ReimbursementSettingsEditor
+          {...(props as EditorProps<typeof settingKey>)}
+          context={reimbursementContext}
+        />
+      );
   }
 }

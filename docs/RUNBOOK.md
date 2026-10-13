@@ -83,7 +83,7 @@ On-hand stock is derived from movements, so find the missing or wrong movement a
 
 ### A receipt was rejected as a duplicate
 
-The same merchant TIN and receipt number can't be claimed twice, whether as a reimbursement or on a petty cash voucher. This is working as designed. Check who claimed it first (see [Reimbursements](modules/talent.md#reimbursements)).
+The same merchant TIN and receipt number can't be claimed twice, whether as a reimbursement or on a petty cash voucher. This is working as designed. The employee isn't told who claimed it. To check who claimed it first, someone with Talent Read opens "Check a receipt" on `/talent` and enters the merchant TIN and the receipt or invoice number as printed: dashes, spaces, letter case and leading zeros don't matter, and a TIN with no branch code counts as the head office (`00000`). It shows the claimant, the receipt date, the type, the amount and a link to their timesheet (or, from step 5.11, the petty cash voucher). If the first claim was a mistake, its claimant deletes the line while their timesheet is open, which frees the receipt (see [Reimbursements (build step 2.5)](modules/talent.md#reimbursements-build-step-25)).
 
 ## Background jobs
 

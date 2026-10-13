@@ -7,6 +7,7 @@ import {
   ADD_VERSION_CONFIRMATION,
   PAYROLL_SOURCE_MAX_LENGTH,
   type PayrollSettingKey,
+  type PayrollSettingValues,
   type PayrollSettingView,
 } from '@pulse/talent';
 import { Button } from '@pulse/ui/components/button';
@@ -29,6 +30,7 @@ import {
   POLICY_SETTINGS,
   type SettingDraft,
   toDraft,
+  withEveryReimbursementType,
 } from './payroll-format';
 import { type AllowanceEditorContext, SettingEditor } from './value-editors';
 
@@ -45,6 +47,9 @@ import { type AllowanceEditorContext, SettingEditor } from './value-editors';
 // - Build step 2.4: the work schedule and timesheet settings are company policy, not an
 //   issuance, so their date and source hints say so; a schedule's days and minutes are sent as
 //   numbers (`draftToValue`).
+// - Build step 2.5: the reimbursement settings are company policy too. The sheet starts from the
+//   version in effect plus any type only another version has, so no type key is dropped; those
+//   types' keys are fixed and they can't be removed (the service refuses a dropped key anyway).
 
 const SAVE = ['mod', 's'] as const;
 const SAVE_FAILED = 'The version wasn’t added. Check your connection and try again.';
@@ -76,6 +81,22 @@ function dateHint(setting: PayrollSettingView, draft: SettingDraft): string {
   return hint;
 }
 
+/** The draft the sheet starts from: the version in effect (or the latest), else empty. */
+function startDraft(setting: PayrollSettingView): SettingDraft {
+  const start = setting.inEffect ?? setting.history[0] ?? null;
+  if (!start) return emptyDraft(setting.key);
+  if (setting.key === 'talent.reimbursementSettings') {
+    type Value = PayrollSettingValues['talent.reimbursementSettings'];
+    return toDraft<'talent.reimbursementSettings'>(
+      withEveryReimbursementType(
+        start.value as Value,
+        setting.history.map((version) => version.value as Value),
+      ),
+    );
+  }
+  return toDraft(start.value);
+}
+
 function sourceHint(key: PayrollSettingKey, inEffect: string | null | undefined): string {
   if (POLICY_SETTINGS.has(key)) {
     return inEffect
@@ -99,10 +120,13 @@ export function AddVersionSheet({
   const formRef = useRef<HTMLFormElement>(null);
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [source, setSource] = useState('');
-  const [draft, setDraft] = useState<SettingDraft>(() => {
-    const start = setting.inEffect ?? setting.history[0] ?? null;
-    return start ? toDraft(start.value) : emptyDraft(setting.key);
-  });
+  const [initialDraft] = useState(() => startDraft(setting));
+  const [draft, setDraft] = useState<SettingDraft>(initialDraft);
+  // The reimbursement types the sheet started with: their keys are fixed, and they stay.
+  const reimbursementLockedCount =
+    setting.key === 'talent.reimbursementSettings'
+      ? (initialDraft as SettingDraft<'talent.reimbursementSettings'>).types.length
+      : 0;
   const [confirming, setConfirming] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const save = useActionSubmit(addPayrollSettingsVersionAction, onSaved);
@@ -219,6 +243,7 @@ export function AddVersionSheet({
             onChange={setDraft}
             errors={errors}
             allowanceContext={allowanceContext}
+            reimbursementContext={{ lockedCount: reimbursementLockedCount }}
           />
         </SheetBody>
         <SheetFooter>

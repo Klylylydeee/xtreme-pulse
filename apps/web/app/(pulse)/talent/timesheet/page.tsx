@@ -10,6 +10,7 @@ import { ErrorState } from '@pulse/ui/components/error-state';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { requireCurrentUser } from '@/lib/auth';
 import { firstParam, type SearchParams } from '@/lib/keyset-paging';
+import { getUploadHints } from '@/lib/upload-hints';
 import { TimesheetLoading } from '../timesheet-ui/timesheet-loading';
 import { TimesheetScreen } from '../timesheet-ui/timesheet-screen';
 
@@ -61,8 +62,11 @@ async function OwnTimesheet({
 }) {
   const cutOff = firstParam(await searchParams, 'cutOff') ?? null;
   let view;
+  let uploads;
   try {
-    view = await getOwnTimesheetView(user, { cutOff });
+    // The receipt field names today's accepted types and size limit (every upload type is a
+    // photo or a PDF, so the document hint fits receipts).
+    [view, uploads] = await Promise.all([getOwnTimesheetView(user, { cutOff }), getUploadHints()]);
   } catch (error) {
     if (error instanceof ActionError || error instanceof AccessDeniedError) {
       return (
@@ -75,5 +79,11 @@ async function OwnTimesheet({
     throw error;
   }
   if (!view) notFound();
-  return <TimesheetScreen key={view.timesheet.periodStart} view={view} />;
+  return (
+    <TimesheetScreen
+      key={view.timesheet.periodStart}
+      view={view}
+      receiptUpload={uploads.document}
+    />
+  );
 }

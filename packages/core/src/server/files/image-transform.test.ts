@@ -115,3 +115,98 @@ describe('saveUpload with transform', () => {
     expect(Buffer.compare(await storedBytes(file), input)).toBe(0);
   });
 });
+
+// The `transformImages` option and the `receipt` transform (build step 2.5, decision 247 in
+// docs/BUILD_PLAN.md): a receipt image is re-encoded, a receipt PDF is stored byte for byte.
+function uploadReceipt(
+  bytes: Uint8Array,
+  name: string,
+  accept?: readonly ('application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp')[],
+) {
+  return saveUpload({
+    file: new File([new Uint8Array(bytes)], name),
+    owner: { type: 'test.receipts', id: null },
+    actorId: null,
+    field: 'receipt',
+    transformImages: 'receipt',
+    accept,
+  });
+}
+
+describe('saveUpload with transformImages: receipt', () => {
+  it('stores a receipt image as WebP of at most 2000 px, rotated, with no EXIF or GPS', async () => {
+    const input = await cameraJpeg(4000, 3000);
+    const file = await uploadReceipt(input, 'lunch receipt.jpg');
+    expect(file.contentType).toBe('image/webp');
+    expect(file.originalName).toBe('lunch receipt.webp');
+    const bytes = await storedBytes(file);
+    expect(file.sizeBytes).toBe(bytes.byteLength);
+    const meta = await sharp(bytes).metadata();
+    // Orientation 6 turns the 4000 × 3000 image upright to 3000 × 4000, then shrinks it to fit.
+    expect(meta).toMatchObject({ format: 'webp', width: 1500, height: 2000 });
+    expect(meta.exif).toBeUndefined();
+    expect(meta.xmp).toBeUndefined();
+    expect(meta.orientation).toBeUndefined();
+    const text = bytes.toString('latin1');
+    expect(text).not.toContain('Made-up camera');
+    expect(text).not.toContain('GPS');
+  });
+
+  it('never enlarges a small receipt image', async () => {
+    const input = await sharp({
+      create: { width: 800, height: 600, channels: 3, background: { r: 250, g: 250, b: 250 } },
+    })
+      .png()
+      .toBuffer();
+    const file = await uploadReceipt(input, 'small.png');
+    expect(file.contentType).toBe('image/webp');
+    expect(await sharp(await storedBytes(file)).metadata()).toMatchObject({
+      format: 'webp',
+      width: 800,
+      height: 600,
+    });
+  });
+
+  it('stores a PDF receipt byte for byte', async () => {
+    const pdf = new TextEncoder().encode('%PDF-1.7\n% made-up receipt\n%%EOF\n');
+    const file = await uploadReceipt(pdf, 'receipt.pdf');
+    expect(file.contentType).toBe('application/pdf');
+    expect(file.originalName).toBe('receipt.pdf');
+    expect(file.sizeBytes).toBe(pdf.byteLength);
+    expect(Buffer.compare(await storedBytes(file), Buffer.from(pdf))).toBe(0);
+  });
+
+  it('refuses a type that is not allowed, on the field', async () => {
+    const text = new TextEncoder().encode('not a receipt');
+    await expect(uploadReceipt(text, 'receipt.txt')).rejects.toMatchObject({
+      message: 'Upload a PDF, JPG, PNG or WEBP file.',
+      field: 'receipt',
+    });
+    // `accept` still narrows the upload settings' types.
+    const pdf = new TextEncoder().encode('%PDF-1.7 made-up');
+    await expect(uploadReceipt(pdf, 'receipt.pdf', ['image/jpeg'])).rejects.toMatchObject({
+      message: 'Upload a JPG file.',
+      field: 'receipt',
+    });
+  });
+
+  it('refuses an unreadable image, on the field', async () => {
+    const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6]);
+    const refusal = await uploadReceipt(broken, 'broken.jpg').catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(ActionError);
+    expect(refusal).toMatchObject({ field: 'receipt' });
+  });
+
+  it('refuses transform and transformImages together', async () => {
+    const pdf = new TextEncoder().encode('%PDF-1.7 made-up');
+    await expect(
+      saveUpload({
+        file: new File([pdf], 'receipt.pdf'),
+        owner: { type: 'test.receipts', id: null },
+        actorId: null,
+        transform: 'photo',
+        transformImages: 'receipt',
+      }),
+    ).rejects.toThrow('not both');
+  });
+});

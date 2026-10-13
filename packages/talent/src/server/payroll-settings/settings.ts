@@ -15,8 +15,9 @@ import {
 } from '../../payroll/schemas';
 
 // Spec: docs/DATA_MODEL.md#versioned-configuration ("Payroll settings", build step 2.3; decision
-// 192 in docs/BUILD_PLAN.md) — the twelve Talent payroll settings (the work schedule and timesheet
-// settings from build step 2.4, decisions 214 and 216), declared on Core's versioned
+// 192 in docs/BUILD_PLAN.md) — the thirteen Talent payroll settings (the work schedule and
+// timesheet settings from build step 2.4, decisions 214 and 216; the reimbursement settings from
+// build step 2.5, decision 235), declared on Core's versioned
 // configuration store. Amounts are whole centavos and rates decimal strings.
 
 export const PAYROLL_SETTINGS_SETTING = defineConfigSetting(
@@ -67,6 +68,10 @@ export const TIMESHEET_SETTINGS_SETTING = defineConfigSetting(
   'talent.timesheetSettings',
   PAYROLL_SETTING_SCHEMAS['talent.timesheetSettings'],
 );
+export const REIMBURSEMENT_SETTINGS_SETTING = defineConfigSetting(
+  'talent.reimbursementSettings',
+  PAYROLL_SETTING_SCHEMAS['talent.reimbursementSettings'],
+);
 
 type SettingOf<K extends PayrollSettingKey> = ConfigSetting<(typeof PAYROLL_SETTING_SCHEMAS)[K]>;
 
@@ -84,6 +89,7 @@ export const PAYROLL_SETTINGS: { readonly [K in PayrollSettingKey]: SettingOf<K>
   'talent.allowanceTypes': ALLOWANCE_TYPES_SETTING,
   'talent.workSchedule': WORK_SCHEDULE_SETTING,
   'talent.timesheetSettings': TIMESHEET_SETTINGS_SETTING,
+  'talent.reimbursementSettings': REIMBURSEMENT_SETTINGS_SETTING,
 };
 
 // Every key in the list is declared (a compile-time and a load-time check).
@@ -96,7 +102,9 @@ for (const key of PAYROLL_SETTING_KEYS) {
  * SSS, PhilHealth and Pag-IBIG on the 1st of the contribution month; the withholding table, the
  * de minimis limits and the 13th month ceiling on the pay date; premium rates, minimum wage and
  * allowance types on each day; `payrollSettings` on the cut-off's start date (decision 199); the
- * work schedule and timesheet settings on each day (step 2.4).
+ * work schedule and timesheet settings on each day (step 2.4); the reimbursement settings on a
+ * line's receipt date for its type, required fields and limit, and today for the filing window
+ * (step 2.5).
  */
 export async function payrollSettingVersionOn<K extends PayrollSettingKey>(
   key: K,

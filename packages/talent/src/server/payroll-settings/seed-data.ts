@@ -14,6 +14,7 @@ import type {
   ThirteenthMonthExemption,
   WithholdingTaxSemiMonthly,
 } from '../../payroll/schemas';
+import type { ReimbursementSettings } from '../../reimbursements/schemas';
 import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
 
 // Spec: docs/COMPLIANCE.md#seeded-payroll-rates-build-step-23 (decisions 193–196 in
@@ -23,7 +24,8 @@ import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
 // issuances before the first real payroll. The tests test these figures, not the database.
 //
 // Legal tables take effect on their issuance's own date; company policy (`payrollSettings`,
-// `allowanceTypes`) and the premium rates on 2000-01-01, so they cover every date hired.
+// `allowanceTypes`, `workSchedule`, `timesheetSettings`, `reimbursementSettings`) and the premium
+// rates on 2000-01-01, so they cover every date hired.
 
 export interface SeedVersion<K extends PayrollSettingKey> {
   effectiveFrom: BusinessDate;
@@ -320,6 +322,47 @@ export const SEED_TIMESHEET_SETTINGS: TimesheetSettings = {
   extraHours: { overtime: 'overtime', standard: 'offset' },
 };
 
+// --- Reimbursement settings (build step 2.5) ---------------------------------------------------
+
+/**
+ * The filing window and the reimbursement types (decision 236): a window of 1 previous cut-off
+ * ("the current or previous cut-off"); meal, transportation (pick-up and drop-off required) and
+ * other (a description required). *Assumptions, to be confirmed by HR:* no limits are seeded (the
+ * spec names none; HR adds them as a new version), and the client is optional on every type.
+ */
+export const SEED_REIMBURSEMENT_SETTINGS: ReimbursementSettings = {
+  filingWindowPreviousCutOffs: 1,
+  types: [
+    {
+      key: 'meal',
+      name: 'Meal',
+      active: true,
+      requiresRoute: false,
+      requiresDescription: false,
+      requiresClient: false,
+      limit: null,
+    },
+    {
+      key: 'transportation',
+      name: 'Transportation',
+      active: true,
+      requiresRoute: true,
+      requiresDescription: false,
+      requiresClient: false,
+      limit: null,
+    },
+    {
+      key: 'other',
+      name: 'Other',
+      active: true,
+      requiresRoute: false,
+      requiresDescription: true,
+      requiresClient: false,
+      limit: null,
+    },
+  ],
+};
+
 // --- The seeded versions, by key ---------------------------------------------------------------
 
 export const PAYROLL_SEED_VERSIONS: {
@@ -419,6 +462,13 @@ export const PAYROLL_SEED_VERSIONS: {
     {
       effectiveFrom: SEED_POLICY_DATE,
       value: SEED_TIMESHEET_SETTINGS,
+      source: 'Company policy (spec)',
+    },
+  ],
+  'talent.reimbursementSettings': [
+    {
+      effectiveFrom: SEED_POLICY_DATE,
+      value: SEED_REIMBURSEMENT_SETTINGS,
       source: 'Company policy (spec)',
     },
   ],

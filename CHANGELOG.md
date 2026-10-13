@@ -6,6 +6,14 @@ Notable changes to Xtreme Pulse, newest first. The format follows [Keep a Change
 
 ### Spec changes
 
+- 2026-10-13: Step 2.5 spec (before the build): reimbursements ([Reimbursements (build step 2.5)](docs/modules/talent.md#reimbursements-build-step-25), decisions 235–255).
+  - **Reimbursement settings.** The new versioned setting `talent.reimbursementSettings`: the filing window (1 previous cut-off) and the types, seeded meal, transportation (pick-up and drop-off required) and other (a description required), with no limits. Edited in a new Reimbursements segment on Payroll settings.
+  - **Reimbursement lines.** The new collection `reimbursements` on the employee's own timesheet: the receipt date, type, merchant, merchant TIN, receipt or invoice number, amount in centavos, a required receipt photo or PDF, an optional client (tracking only, never billed), and the route or description where the type needs them. Over-limit lines are highlighted, never refused.
+  - **No duplicate receipts.** The new Talent register `receiptClaims`, uniquely indexed on the canonical 14-digit merchant TIN and the receipt key, rejects a receipt claimed before by anyone, on save. Talent's `claimReceipt` and `releaseReceiptClaim` are the service Fiscal's petty cash calls in step 5.11. "Check a receipt" on `/talent` lets Talent Read find the claimant.
+  - **Files.** Receipt images are re-encoded (WebP, at most 2000 px, GPS stripped); PDFs are stored as they are. A receipt opens for whoever may open the timesheet.
+  - **Access.** Self-service for the employee's own lines; Talent Read and `reportingTo` supervisors read them. Nothing here is sensitive personal information ([Sensitive data](SECURITY.md#sensitive-data)).
+  - **Assumptions** for HR, the accountant or counsel: HANDOFF items 62–75 ([Reimbursement receipts](docs/COMPLIANCE.md#reimbursement-receipts-build-step-25)).
+  - **Built** 2026-10-13 as specified, with the reimbursement tests in `pnpm test` ([Reimbursement tests](docs/TESTING.md#reimbursement-tests)).
 - 2026-10-12: Step 2.4 spec (before the build): work schedules and daily time entries ([Work schedules and daily time entries](docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24), decisions 213–234).
   - **Work schedules.**
     - The company default is the new versioned setting `talent.workSchedule`, seeded Monday to Friday, 08:00–17:00, a 60-minute break from 12:00, 15 minutes' grace.

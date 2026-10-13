@@ -121,6 +121,31 @@ export {
   type OpenTimesheetsResult,
   runOpenTimesheets,
 } from './timesheets/open-job';
+// Reimbursements (build step 2.5): the own timesheet's lines (self-service, no employee id; the
+// segment itself comes on the timesheet view as `reimbursements`), and the register of claimed
+// receipts: `claimReceipt` and `releaseReceiptClaim` run in the caller's transaction and are the
+// service Pulse Fiscal's petty cash vouchers call from step 5.11 (the TIN and key normalizers are
+// in `@pulse/talent`). "Check a receipt" is for Talent Read.
+export {
+  addReimbursement,
+  deleteReimbursement,
+  REIMBURSEMENT_SETTINGS_MISSING,
+  REIMBURSEMENT_TIMESHEET_NOT_FOUND,
+  REIMBURSEMENT_TIMESHEET_NOT_OPEN,
+  updateReimbursement,
+} from './reimbursements/service';
+export {
+  assertReceiptNotClaimed,
+  checkReceipt,
+  claimReceipt,
+  type ClaimReceiptInput,
+  type ReceiptClaim,
+  type ReceiptClaimOptions,
+  type ReceiptKeyParts,
+  receiptKeyPartsOf,
+  releaseReceiptClaim,
+  type ReleaseReceiptClaimInput,
+} from './receipt-claims/service';
 // File access (build step 2.2): the file route calls this beside registerCoreFileAccess().
 export { registerTalentFileAccess } from './files/registrations';
 

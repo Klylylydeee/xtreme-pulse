@@ -62,6 +62,7 @@ import {
 } from '../../timesheets/views';
 import { inputError } from '../input';
 import { PREMIUM_RATES_SETTING, TIMESHEET_SETTINGS_SETTING } from '../payroll-settings/settings';
+import { reimbursementsSectionFor } from '../reimbursements/service';
 import { assertCanViewTimesheet, NO_EMPLOYEE_TIMESHEET, type TalentActor } from '../policy';
 import { auditLabelOf, dayOf, EMPLOYEE_GONE, instantOf } from '../shared';
 import {
@@ -893,6 +894,11 @@ async function buildView(
     previousCutOff: previous?.start ?? null,
     nextCutOff: next?.start ?? null,
     schedule: scheduleOn(scheduleDay, workSchedules, assignments),
+    reimbursements: await reimbursementsSectionFor(identity, timesheet, {
+      own,
+      today,
+      payrollVersions,
+    }),
   };
   if (owner) {
     view.clients = clients.map((client) => ({ id: client.id, name: client.name }));

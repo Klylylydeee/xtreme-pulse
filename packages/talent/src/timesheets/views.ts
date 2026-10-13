@@ -1,5 +1,6 @@
 import type { BusinessDate, TimesheetType } from '@pulse/core';
 import type { CutOffKey } from '../payroll/schemas';
+import type { ReimbursementsSectionView } from '../reimbursements/views';
 import type { DayHours, EntryHours, TimesheetTotals } from './compute';
 import type { ScheduleOnDay } from './schedule';
 import type {
@@ -185,7 +186,9 @@ export interface TimesheetView {
   nextCutOff: BusinessDate | null;
   /** The schedule in effect today (or on the period's last listed day). */
   schedule: ScheduleOnDay | null;
-  /** Own timesheet only: the entry sheet's client options. */
+  /** The Reimbursements segment (build step 2.5): the timesheet's lines, read-only unless own. */
+  reimbursements: ReimbursementsSectionView;
+  /** Own timesheet only: the entry and reimbursement sheets' client options. */
   clients?: TimesheetClientOption[];
   /** Own timesheet with direct reports only. */
   myTeam?: TeamMemberLink[];

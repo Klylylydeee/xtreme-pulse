@@ -20,17 +20,21 @@ import {
   SEED_ALLOWANCE_TYPES,
   SEED_PAYROLL_SETTINGS,
   SEED_PREMIUM_RATES,
+  SEED_REIMBURSEMENT_SETTINGS,
   SEED_THIRTEENTH_MONTH_EXEMPTION,
 } from './seed-data';
 import { addPayrollSettingsVersion, getPayrollSettingsView } from './service';
 import {
   PAYROLL_SETTINGS,
   PREMIUM_RATES_SETTING,
+  REIMBURSEMENT_SETTINGS_SETTING,
   THIRTEENTH_MONTH_EXEMPTION_SETTING,
 } from './settings';
 
 // The payroll settings tests: seeding and adding a version (docs/TESTING.md#payroll-settings-tests,
-// build step 2.3, decisions 196–198 in docs/BUILD_PLAN.md). Made-up people only.
+// build step 2.3, decisions 196–198 in docs/BUILD_PLAN.md; the step 2.4 settings, and from step
+// 2.5 `talent.reimbursementSettings`, decisions 235 and 236, docs/TESTING.md#reimbursement-tests).
+// Made-up people only.
 
 let NET: Department;
 let HRD: Department;
@@ -103,6 +107,7 @@ describe('seed data', () => {
       'talent.premiumRates',
       'talent.workSchedule',
       'talent.timesheetSettings',
+      'talent.reimbursementSettings',
     ] as const) {
       expect(PAYROLL_SEED_VERSIONS[key][0]?.effectiveFrom).toBe('2000-01-01');
     }
@@ -120,11 +125,12 @@ describe('seed data', () => {
 });
 
 describe('the step 2.4 settings', () => {
-  it('makes twelve payroll settings, the work schedule and timesheet settings last', () => {
-    expect(PAYROLL_SETTING_KEYS).toHaveLength(12);
+  it('makes thirteen payroll settings: the work schedule and timesheet settings, then the reimbursement settings, last', () => {
+    expect(PAYROLL_SETTING_KEYS).toHaveLength(13);
     expect(PAYROLL_SETTING_KEYS.slice(10)).toEqual([
       'talent.workSchedule',
       'talent.timesheetSettings',
+      'talent.reimbursementSettings',
     ]);
   });
 
@@ -150,6 +156,50 @@ describe('the step 2.4 settings', () => {
         value: { offsetRatio: '1', extraHours: { overtime: 'overtime', standard: 'offset' } },
       },
     ]);
+  });
+});
+
+describe('the step 2.5 setting', () => {
+  it('seeds the reimbursement settings once, from the spec', () => {
+    expect(PAYROLL_SEED_VERSIONS['talent.reimbursementSettings']).toEqual([
+      {
+        effectiveFrom: '2000-01-01',
+        source: 'Company policy (spec)',
+        value: SEED_REIMBURSEMENT_SETTINGS,
+      },
+    ]);
+    expect(SEED_REIMBURSEMENT_SETTINGS).toEqual({
+      filingWindowPreviousCutOffs: 1,
+      types: [
+        {
+          key: 'meal',
+          name: 'Meal',
+          active: true,
+          requiresRoute: false,
+          requiresDescription: false,
+          requiresClient: false,
+          limit: null,
+        },
+        {
+          key: 'transportation',
+          name: 'Transportation',
+          active: true,
+          requiresRoute: true,
+          requiresDescription: false,
+          requiresClient: false,
+          limit: null,
+        },
+        {
+          key: 'other',
+          name: 'Other',
+          active: true,
+          requiresRoute: false,
+          requiresDescription: true,
+          requiresClient: false,
+          limit: null,
+        },
+      ],
+    });
   });
 });
 
@@ -181,6 +231,10 @@ describe('seeding', () => {
       for (const version of versions) expect(version.source, key).toBeTruthy();
     }
     expect(await countAudit()).toBe(auditBefore);
+    const reimbursements = await listConfigVersions(REIMBURSEMENT_SETTINGS_SETTING);
+    expect(reimbursements.map((v) => [v.effectiveFrom, v.source, v.value])).toEqual([
+      ['2000-01-01', 'Company policy (spec)', SEED_REIMBURSEMENT_SETTINGS],
+    ]);
   });
 });
 
@@ -359,5 +413,54 @@ describe('adding a version', () => {
       source: 'Made-up policy change',
       value: { types: SEED_ALLOWANCE_TYPES.types.map((type) => ({ ...type, active: false })) },
     });
+  });
+
+  it('refuses removing a reimbursement type key, takes a new limit, and checks the value', async () => {
+    const reimbursements = (value: object) => ({
+      key: 'talent.reimbursementSettings' as const,
+      effectiveFrom: '2026-11-04',
+      source: 'Made-up policy change',
+      value,
+    });
+    await expect(
+      addPayrollSettingsVersion(
+        hrOwner.actor,
+        reimbursements({
+          ...SEED_REIMBURSEMENT_SETTINGS,
+          types: SEED_REIMBURSEMENT_SETTINGS.types.filter((type) => type.key !== 'other'),
+        }),
+      ),
+    ).rejects.toThrow(/never removed: keep other/);
+    await expect(
+      addPayrollSettingsVersion(
+        hrOwner.actor,
+        reimbursements({ ...SEED_REIMBURSEMENT_SETTINGS, filingWindowPreviousCutOffs: 7 }),
+      ),
+    ).rejects.toMatchObject({ field: 'value.filingWindowPreviousCutOffs' });
+    await expect(
+      addPayrollSettingsVersion(netOwner.actor, reimbursements({ ...SEED_REIMBURSEMENT_SETTINGS })),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    // A Wednesday is fine; a meal limit of ₱500.00 a day, and "other" marked inactive.
+    const added = await addPayrollSettingsVersion(
+      hrOwner.actor,
+      reimbursements({
+        ...SEED_REIMBURSEMENT_SETTINGS,
+        types: SEED_REIMBURSEMENT_SETTINGS.types.map((type) =>
+          type.key === 'meal'
+            ? { ...type, limit: { amountCentavos: 50000, per: 'day' } }
+            : type.key === 'other'
+              ? { ...type, active: false }
+              : type,
+        ),
+      }),
+    );
+    expect(added.effectiveFrom).toBe('2026-11-04');
+    const versions = await listConfigVersions(REIMBURSEMENT_SETTINGS_SETTING);
+    expect(versions[0]?.value.types[0]?.limit).toEqual({ amountCentavos: 50000, per: 'day' });
+    const entries = (await auditEntries('core.configVersion')).filter(
+      (entry) => entry.record.id.toHexString() === added.id,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.record.label).toBe('talent.reimbursementSettings from 2026-11-04');
   });
 });

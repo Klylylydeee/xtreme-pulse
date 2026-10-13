@@ -7,6 +7,7 @@ import {
   minutesOfClockTime,
   type PayrollSettingKey,
   type PayrollSettingValues,
+  type ReimbursementSettings,
   type WorkSchedule,
 } from '@pulse/talent';
 
@@ -21,6 +22,10 @@ import {
 // draft's work days and minutes are typed as text; `draftToValue` turns them into numbers before
 // the sheet sends the version (text that isn't digits stays text, so the schema names the field).
 // The schedule helpers below are shared with the employee record's Work schedule section.
+//
+// From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the Reimbursements
+// view holds `talent.reimbursementSettings`: company policy, like the work schedule. A type's
+// limit draft is '' for no limit, or its amount in pesos and per receipt or per day.
 
 export type PayrollView =
   | 'schedule'
@@ -29,7 +34,8 @@ export type PayrollView =
   | 'benefits'
   | 'minimumWage'
   | 'allowances'
-  | 'workSchedule';
+  | 'workSchedule'
+  | 'reimbursements';
 
 /** The segmented control's views, in order, with the settings each shows. */
 export const PAYROLL_VIEWS: readonly {
@@ -60,12 +66,15 @@ export const PAYROLL_VIEWS: readonly {
     label: 'Work schedule',
     keys: ['talent.workSchedule', 'talent.timesheetSettings'],
   },
+  // Build step 2.5: the reimbursement types and the filing window.
+  { value: 'reimbursements', label: 'Reimbursements', keys: ['talent.reimbursementSettings'] },
 ];
 
 /** The settings that are company policy, not a government issuance. */
 export const POLICY_SETTINGS: ReadonlySet<PayrollSettingKey> = new Set([
   'talent.workSchedule',
   'talent.timesheetSettings',
+  'talent.reimbursementSettings',
 ]);
 
 /** The settings whose figures are a table, which get the wider "Add version" sheet. */
@@ -205,6 +214,8 @@ export function emptyDraft<K extends PayrollSettingKey>(key: K): SettingDraft<K>
       offsetRatio: '',
       extraHours: { overtime: 'overtime', standard: 'offset' },
     },
+    // Build step 2.5: the Reimbursements segment.
+    'talent.reimbursementSettings': { filingWindowPreviousCutOffs: '', types: [] },
   };
   return empty[key] as SettingDraft<K>;
 }
@@ -247,6 +258,40 @@ export function newAllowanceType(): SettingDraft<'talent.allowanceTypes'>['types
     autoAssign: false,
     active: true,
   };
+}
+
+export function newReimbursementType(): SettingDraft<'talent.reimbursementSettings'>['types'][number] {
+  return {
+    key: '',
+    name: '',
+    active: true,
+    requiresRoute: false,
+    requiresDescription: false,
+    requiresClient: false,
+    // No limit: a limit's draft is '' for none, or its amount (pesos) and what it counts.
+    limit: '',
+  };
+}
+
+/**
+ * The reimbursement settings "Add version" starts from (build step 2.5): the version in effect,
+ * plus any type of another version (a scheduled one) that it lacks, newest first, since no
+ * version's type may be dropped.
+ */
+export function withEveryReimbursementType(
+  start: ReimbursementSettings,
+  versions: readonly ReimbursementSettings[],
+): ReimbursementSettings {
+  const types = [...start.types];
+  const keys = new Set(types.map((type) => type.key));
+  for (const version of versions) {
+    for (const type of version.types) {
+      if (keys.has(type.key)) continue;
+      keys.add(type.key);
+      types.push(type);
+    }
+  }
+  return { ...start, types };
 }
 
 /** Reads `path` ("employee.regularCentavos") from a draft row. */
@@ -301,12 +346,33 @@ export function scheduleDraftToValue(draft: SettingDraft<'talent.workSchedule'>)
 }
 
 /**
+ * A reimbursement settings draft as the schema takes it (build step 2.5): the filing window as a
+ * number, and each type's limit as null (none) or its amount as typed, in pesos, with what it
+ * counts. The Server Action converts the amount with `parsePesos`.
+ */
+export function reimbursementDraftToValue(
+  draft: SettingDraft<'talent.reimbursementSettings'>,
+): unknown {
+  return {
+    filingWindowPreviousCutOffs: wholeNumber(draft.filingWindowPreviousCutOffs),
+    types: draft.types.map((type) => ({
+      ...type,
+      limit: typeof type.limit === 'string' ? null : type.limit,
+    })),
+  };
+}
+
+/**
  * The sheet's draft as the Server Action takes it. Amounts stay as typed (the action converts
- * them with `parsePesos`); a work schedule's days and minutes become numbers here.
+ * them with `parsePesos`); a work schedule's days and minutes, and the reimbursement filing
+ * window, become numbers here.
  */
 export function draftToValue(key: PayrollSettingKey, draft: SettingDraft): unknown {
   if (key === 'talent.workSchedule') {
     return scheduleDraftToValue(draft as SettingDraft<'talent.workSchedule'>);
+  }
+  if (key === 'talent.reimbursementSettings') {
+    return reimbursementDraftToValue(draft as SettingDraft<'talent.reimbursementSettings'>);
   }
   return draft;
 }

@@ -31,7 +31,8 @@ import { currentFileUploadSettings } from './settings';
 // - An upload's type is read from its content and checked, with its size, against the
 //   `core.fileUploads` setting.
 // - Profile photos and e-signatures pass `transform` and are re-encoded with sharp
-//   (./image-transform.ts); every other upload is stored byte for byte.
+//   (./image-transform.ts). Reimbursement receipts pass `transformImages`: an image is re-encoded
+//   and any other allowed type (a PDF) is stored as is. Every other upload is stored byte for byte.
 // - Files open only through the file route (`/files/<id>`), which runs `authorizeFileAccess`.
 //
 // Saving a file is a side effect: call these outside `withTransaction` (the callback can run more
@@ -244,6 +245,13 @@ export interface SaveUploadInput {
    * such as EXIF and GPS. Images only. Without it the file is stored byte for byte.
    */
   transform?: UploadTransform;
+  /**
+   * Re-encode the upload with this transform when it is an image (JPEG, PNG or WebP), and store
+   * any other allowed type, such as a PDF, byte for byte (build step 2.5: `receipt` for
+   * reimbursement receipts). Unlike `transform`, it doesn't narrow the allowed types to images.
+   * Pass at most one of `transform` and `transformImages`.
+   */
+  transformImages?: UploadTransform;
 }
 
 /**
@@ -260,10 +268,16 @@ export async function saveUpload({
   accept,
   field = 'file',
   transform,
+  transformImages,
 }: SaveUploadInput): Promise<StoredFile> {
   assertOwner(owner);
-  if (transform !== undefined && !Object.hasOwn(UPLOAD_TRANSFORMS, transform)) {
-    throw new Error(`Unknown upload transform ${String(transform)}.`);
+  for (const option of [transform, transformImages]) {
+    if (option !== undefined && !Object.hasOwn(UPLOAD_TRANSFORMS, option)) {
+      throw new Error(`Unknown upload transform ${String(option)}.`);
+    }
+  }
+  if (transform !== undefined && transformImages !== undefined) {
+    throw new Error('Pass either transform or transformImages to saveUpload, not both.');
   }
   await connectDb();
   const settings = await currentFileUploadSettings();
@@ -298,8 +312,11 @@ export async function saveUpload({
   let content = bytes;
   let contentType = type;
   let originalName = sanitizeFileName(file.name, `file.${UPLOAD_TYPES[type].extension}`);
-  if (transform) {
-    ({ bytes: content, contentType } = await transformImage(bytes, transform, field));
+  // `transform` already limited `allowed` to images; `transformImages` re-encodes images only.
+  const imageTransform =
+    transform ?? (transformImages && TRANSFORMABLE_TYPES.includes(type) ? transformImages : null);
+  if (imageTransform) {
+    ({ bytes: content, contentType } = await transformImage(bytes, imageTransform, field));
     originalName = withExtension(originalName, UPLOAD_TYPES[contentType].extension);
   }
   const storageKey = await writeContent(content);

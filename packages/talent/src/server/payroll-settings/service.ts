@@ -22,6 +22,7 @@ import {
   type PayrollSettingValues,
   removedAllowanceTypeKeys,
 } from '../../payroll/schemas';
+import { removedReimbursementTypeKeys } from '../../reimbursements/schemas';
 import type {
   PayrollSettingsView,
   PayrollSettingVersionView,
@@ -49,8 +50,9 @@ import { PAYROLL_SETTINGS, payrollSettingVersionOn } from './settings';
 //   the transaction against the stored access. The effective date is later than every existing
 //   version of that setting (a past date is allowed) and at most a year ahead; a
 //   `payrollSettings` version starts on a cut-off start day of its own schedule; the source is
-//   required. An allowance type key is never removed. The `create` entry on `core.configVersion`
-//   (module `core`, labelled `<key> from <date>`) is written in the same transaction.
+//   required. An allowance type key is never removed, nor (from step 2.5) a reimbursement type
+//   key. The `create` entry on `core.configVersion` (module `core`, labelled `<key> from <date>`)
+//   is written in the same transaction.
 // - Versions are never changed or withdrawn: a wrong one is replaced by a newer one.
 
 type AnySetting = ConfigSetting<(typeof PAYROLL_SETTING_SCHEMAS)[PayrollSettingKey]>;
@@ -186,6 +188,21 @@ async function checkNewVersion(
       if (missing.length > 0) {
         throw new ActionError(
           `No de minimis limit ${missing.join(', ')} is in effect on ${formatDate(effectiveFrom)}.`,
+          { field: 'value' },
+        );
+      }
+    }
+  }
+  if (key === 'talent.reimbursementSettings') {
+    const next = value as PayrollSettingValues['talent.reimbursementSettings'];
+    for (const version of versions) {
+      const removed = removedReimbursementTypeKeys(
+        version.value as PayrollSettingValues['talent.reimbursementSettings'],
+        next,
+      );
+      if (removed.length > 0) {
+        throw new ActionError(
+          `Reimbursement types are never removed: keep ${removed.join(', ')} and mark it inactive instead.`,
           { field: 'value' },
         );
       }

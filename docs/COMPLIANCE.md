@@ -67,7 +67,7 @@ The offset arrangement for Standard-timesheet positions (extra hours become offs
 | Creditable tax withheld by clients: track client 2307s, SAWT | [Collections](modules/fiscal.md#collections) |
 | Invoices follow the BIR-registered series and show the required seller details | [Sales invoices (AR)](modules/fiscal.md#sales-invoices-ar) |
 | Books of accounts: general journal, general ledger, sales, purchase, cash receipts and cash disbursements journals | [Financial reports and books](modules/fiscal.md#financial-reports-and-books) |
-| Reimbursements backed by a receipt with merchant TIN and OR number, never claimed twice | [Reimbursements](modules/talent.md#reimbursements) |
+| Reimbursements backed by a receipt or invoice with merchant TIN and number, never claimed twice | [Reimbursements](modules/talent.md#reimbursements), [Reimbursement receipts](#reimbursement-receipts-build-step-25) |
 
 ### CAS/CBA registration
 
@@ -92,6 +92,17 @@ Step 2.4 counts hours for display; pay follows in step 2.9 ([Work schedules and 
 - **The break is unpaid** and deducted where entries overlap it, even when the employee works through it.
 - **Night differential** (Labor Code Art. 86) counts paid hours inside the `talent.premiumRates` night window (10:00 PM to 6:00 AM): the scheduled worked minutes plus, on the Overtime timesheet, the claimed extra minutes. For Standard employees it counts the scheduled worked minutes only, since claimed extra minutes become offset hours, not pay; the DTR (step 2.7) uses that figure.
 - **No minimum overtime block** and no rounding to 15 or 30 minutes: hours come from exact minutes. Seconds are dropped from each time in and time out, so a clocked 08:00:42 counts as 08:00.
+
+## Reimbursement receipts (build step 2.5)
+
+Step 2.5 records reimbursement lines with their receipts; payment as a separate non-taxable line follows in step 2.9 ([Reimbursements](modules/talent.md#reimbursements-build-step-25)). Each rule below is an *Assumption, to be confirmed by the accountant* ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check), items 62–65 and 73):
+
+- **Invoices count as receipts.** Under RA 11976 (the Ease of Paying Taxes Act) and RR 7-2024, the invoice replaced the official receipt as the primary document from April 2024. The field reads "Receipt or invoice number" and takes either.
+- **The merchant TIN includes the branch code.** BIR requires the seller's TIN with its branch code on an invoice, and invoice series are registered per branch. A TIN typed without a branch code counts as the head office (`00000`); a 3-digit branch code is padded to 5 digits.
+- **The receipt number matches** ignoring case, separators and leading zeros.
+- **The receipt isn't checked for the buyer.** The app doesn't check that it is made out to the company's name or TIN, though that may be needed for the reimbursement to be a deductible business expense and to stay non-taxable to the employee (substantiated expenses of the employer).
+- **No receipt, no claim.** Every type needs a receipt with a merchant TIN and number, so a ride with no receipt (jeepney, tricycle) can't be claimed.
+- **Retention** of receipt images is an open question, with the other payroll and accounting records ([Open questions](#open-questions)).
 
 ## Seeded payroll rates (build step 2.3)
 

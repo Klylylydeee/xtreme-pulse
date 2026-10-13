@@ -27,7 +27,7 @@ From [AGENTS.md](../AGENTS.md#how-to-work):
 
 ## Branches and commits
 
-`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`), step 1.10 (`5f283bb`) step 1.11 (`2d2d3ca`) and step 2.1 (`cd2a5a6`) are committed but **not pushed** (`phase-1` is 5 commits ahead). Phase 2 continues on `phase-1`: step 2.2 is built and verified in the working tree, spec and code, and not committed (2026-10-12). No pull request is open yet. `phase-0` is not pushed.
+`phase-1` is pushed up to step 1.8 (2026-10-08): `origin/phase-1` exists and is its upstream. The sidebar grouping (`89296fb`), step 1.9 (`42e64f1`), step 1.10 (`5f283bb`) step 1.11 (`2d2d3ca`), step 2.1 (`cd2a5a6`), step 2.2 (`58e3971`), step 2.3 (`fffefd7`), step 2.4 (`1e1cb41`) and step 2.5 (2026-10-13) are committed but **not pushed**. Phase 2 continues on `phase-1`. No pull request is open yet. `phase-0` is not pushed.
 
 | Branch | Commit | What |
 |---|---|---|
@@ -444,7 +444,8 @@ Phase 2 (Pulse Talent) started on 2026-10-12. The user asked for it to be built 
 | 2.1 Employee record and sensitive fields | **Done: committed as `cd2a5a6` (2026-10-12), not pushed.** Built per BUILD_PLAN decisions 154–172, then reviewed with a focus on sensitive data; three small fixes made (see [2.1 review](#21-review-2026-10-12)). Typecheck, lint, Prettier, `pnpm test` (57 files, 976 tests) and the production build pass. **Open:** the user's [hands-on checks](#21-hands-on-checks-by-the-user-signed-in) |
 | 2.2 201 file, profile photo, e-signature and certifications | **Done: committed as `58e3971` (2026-10-12), not pushed.** Spec written first (BUILD_PLAN decisions 173–190), built by four agents and reviewed; four small fixes made (see [2.2 review](#22-review-2026-10-12)). Typecheck, lint, `pnpm test` (65 files, 1059 tests) and the production build pass. **Open:** the user's [hands-on checks](#22-hands-on-checks-by-the-user-signed-in). Assumptions 9–26 in [Assumptions to check](#assumptions-to-check) |
 | 2.3 Payroll settings and seeded configuration | **Done: committed as `fffefd7` (2026-10-12), not pushed.** Spec written first (BUILD_PLAN decisions 191–212), with the seeded rates checked online on 2026-10-12 ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)). Built by three agents and reviewed; one bug fixed and the clock-dependent tests pinned (see [2.3 review](#23-review-2026-10-12)). Typecheck, lint, `pnpm test` (69 files, 1126 tests) and the production build pass. **Open:** the user's [hands-on checks](#23-hands-on-checks-by-the-user-signed-in). Assumptions 27–45 in [Assumptions to check](#assumptions-to-check) |
-| 2.4 Work schedules and daily time entries | **Built and verified (2026-10-13), not committed.** Spec written first (BUILD_PLAN decisions 213–234, [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)), built, then reviewed; two bugs fixed (see [2.4 review](#24-review-2026-10-13)). Typecheck, lint, `pnpm test` and the production build pass. **Open:** the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in), then the commit. Assumptions 46–61 in [Assumptions to check](#assumptions-to-check) |
+| 2.4 Work schedules and daily time entries | **Done: committed as `1e1cb41` (2026-10-13), not pushed.** Spec written first (BUILD_PLAN decisions 213–234, [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24)), built, then reviewed; two bugs fixed (see [2.4 review](#24-review-2026-10-13)). Typecheck, lint, `pnpm test` and the production build pass. **Open:** the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in). Assumptions 46–61 in [Assumptions to check](#assumptions-to-check) |
+| 2.5 Reimbursements | **Done: committed (2026-10-13), not pushed.** The planning agent's 19 recommendations were approved as written. Spec written first (BUILD_PLAN decisions 235–255, [Reimbursements (build step 2.5)](modules/talent.md#reimbursements-build-step-25)), built, then reviewed (see [2.5 review](#25-review-2026-10-13)). Typecheck, lint, Prettier and `pnpm test` pass. **Open:** the user's [hands-on checks](#25-hands-on-checks-by-the-user-signed-in). See [2.5 notes](#25-notes). Assumptions 62–75 in [Assumptions to check](#assumptions-to-check) |
 
 ### 2.1 notes
 
@@ -621,6 +622,45 @@ Not checked: the screens in a browser (no browser tools here), and `pnpm seed:ad
 6. **The Work schedule settings tab** on `/talent/payroll-settings`: both settings show, and "Add version" works for a Talent Owner in HR.
 7. **Light and dark, and phone width (about 390 px):** the timesheet page, the day and entry sheets, the Work schedule section and the settings tab fit with no sideways scroll.
 
+### 2.5 notes
+
+- **Plan.** The planning agent's 19 recommendations were approved as written (the user wants Phase 2 built autonomously). The spec is in [Reimbursements (build step 2.5)](modules/talent.md#reimbursements-build-step-25) and BUILD_PLAN decisions 235–255.
+- **Done when:** a second claim with the same merchant TIN and receipt number is rejected, even from another employee.
+- **Build order (planned):**
+  1. **In parallel:**
+     - Core: the `receipt` transform (`packages/core/src/server/files/image-transform.ts`) and `saveUpload`'s `transformImages` (`stored-files.ts`), with tests.
+     - Talent pure layer: `packages/talent/src/reimbursements/` (the setting and input schemas, the receipt key, limits, views), the new key in `payroll/schemas.ts`, `seed-data.ts` and `settings.ts`, the 2.3 and 2.4 tests that count the settings, and the exports.
+  2. **Talent server, one agent** (they share `policy.ts`, `server/index.ts` and `timesheets/`): `server/receipt-claims/`, `server/reimbursements/`, the timesheet view's reimbursements, the `talent.reimbursement` file registration, the fixtures, and tests.
+  3. **In parallel:**
+     - Timesheet UI: `timesheet-ui/` (the Reimbursements segment, list, sheet and footer), the two timesheet pages, and `lib/actions/talent-reimbursements.ts`.
+     - Settings and lookup UI: the Payroll settings Reimbursements segment, "Check a receipt" on `/talent`, and `lib/actions/talent-receipts.ts`.
+  4. **Verification:** typecheck, lint, Prettier, `pnpm test`, the production build, `pnpm seed:admin` twice, and a review of the duplicate check's atomicity, access, the filing window, money as integers, and phone width in light and dark.
+  5. **Docs:** HANDOFF, BUILD_SUMMARY, the step's results in TESTING and CHANGELOG; then commit, not push.
+- **Spec:** [Reimbursements](modules/talent.md#reimbursements-build-step-25), [DATA_MODEL.md](DATA_MODEL.md#collection-ownership), [Sensitive data](../SECURITY.md#sensitive-data), [Exceptions to module access](../SECURITY.md#exceptions-to-module-access), [File storage](ARCHITECTURE.md#file-storage), [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25), [Timesheets on a phone](DESIGN_SYSTEM.md#layout--components), [Reimbursement tests](TESTING.md#reimbursement-tests).
+
+### 2.5 review (2026-10-13)
+
+An independent review checked the build against decisions 235–255, talent.md, SECURITY.md, DATA_MODEL.md, TESTING.md and DESIGN_SYSTEM.md. Typecheck, lint, Prettier (the 53 changed files) and `pnpm test` (75 files, 1297 tests) pass. Confirmed as built:
+
+- **The register and the Done when.** `receiptClaims` has a unique partial index on the canonical TIN and the receipt key among live claims. `claimReceipt` and `releaseReceiptClaim` refuse to run outside the caller's transaction, and the write guard allows only the release. Of two saves of one receipt at once, the loser's transaction retries on the write conflict and is then refused (or is refused on the duplicate key), without naming anyone. Deleting a line, or changing its TIN or number, releases the claim in the same transaction.
+- **Writes.** Self-service only: the actions need a signed-in user and take no employee id; the services reload the actor and their own employee in the transaction, so another person's line is "not found", HR and the System Administrator included. Every check runs once before the receipt file is saved and again in the transaction (the timesheet open, the filing window from today's version, the type and its required fields from the receipt date's version, a live client, the duplicate, the `version`). Each save touches the timesheet and writes its `create`, `update` or `delete` entry on `talent.reimbursement` in the same transaction.
+- **Money.** Amounts and limits are whole centavos end to end: the actions read pesos with `parsePesos`, the schemas and the model refuse anything but safe positive integers, and the per-day sums are integer.
+- **Reads and files.** The segment comes on the timesheet view after its access check; the filing window and the types go to the own timesheet only. The `talent.reimbursement` file check needs a live line pointing at that file and the timesheet view rule. Nothing sensitive is logged, and no other module's collections are written. The Payroll settings Reimbursements editor sends the shape `reimbursementSettingsSchema` takes (limits under `amountCentavos`, converted by the action) and keeps every stored type key.
+
+Fixed in the review: three comment lines over the 100-character width (`payroll-settings/service.ts`, `files/registrations.ts`, Core's `files/image-transform.ts`). No code change.
+
+Not checked: the screens in a browser (no browser tools here), the production build, and `pnpm seed:admin` against a real database.
+
+### 2.5 hands-on checks (by the user, signed in)
+
+1. **The seed.** Run `pnpm seed:admin`: it adds `talent.reimbursementSettings` (one version from 2000-01-01); a second run adds nothing.
+2. **The "Done when".** As employee A, add a reimbursement on `/talent/timesheet` with a receipt photo. As employee B, add one with the same merchant TIN (typed differently, or as 9 digits) and the same receipt number: it is refused with "This receipt has already been claimed…", without A's name. A's own second try reads "You already claimed this receipt on <date> (<type>)."
+3. **Freeing a receipt.** Delete A's line: B can now claim it. `/admin/audit` has the `create` and `delete` entries.
+4. **Required fields and the window.** Transportation needs pick-up and drop-off, other a description, every line a receipt; a receipt dated before the previous cut-off or after today is refused.
+5. **Limits.** Add a per-day meal limit as a new version on Payroll settings › Reimbursements; two meal lines on one day over it both show "Over limit" and still save.
+6. **Read-only views.** A supervisor and Talent Read see the lines and open the receipt on `/talent/timesheets/<employeeId>`; anyone else can't open the receipt's URL. "Check a receipt" on `/talent` finds the claimant.
+7. **Light and dark, and phone width (about 390 px):** the Reimbursements segment and its footer, the reimbursement sheet (a phone offers the camera), "Check a receipt" and the settings segment fit with no sideways scroll.
+
 ## Assumptions to check
 
 Things the build assumed that a person still has to confirm or do. Later Phase 2 steps add to this list. Items 27–34 note how far each seeded rate was verified online on 2026-10-12. Nothing here blocks the build. Check each item before HR enters real employee data, or before go-live where it says so.
@@ -689,6 +729,29 @@ Things the build assumed that a person still has to confirm or do. Later Phase 2
 | 60 | **One concurrency case is left open:** two saves at once (two devices) of overlapping entries on either side of a cut-off boundary, when neither cut-off has a timesheet yet, could both save. The daily job creates each cut-off's timesheet at 00:05, so this needs a missed run as well | 2.4 | The user | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
 | 61 | **Opening one's own past cut-off creates its timesheet** if none exists, with the position's type that day (as in item 55), so browsing back writes timesheets. Another person's view never creates one | 2.4 | HR | [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24) |
 
+| 62 | **A merchant TIN with no branch code is the head office** (`00000`), and the branch code is part of the duplicate key, because invoice series are registered per branch | 2.5 | Accountant | [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25) |
+| 63 | **Receipt numbers match ignoring case, separators and leading zeros** (`or-000123` and `OR 123` are the same receipt). The separators go first, then the leading zeros of each run of digits at the start or after a letter, keeping one digit: `SI-0042` is `SI42` and `0000` is `0`, but `2026-0001` is `20260001` (a zero after a digit is kept, even across a dash) | 2.5 | Accountant | [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25) |
+| 64 | **Invoices count as receipts** under RA 11976 (EOPT Act) and RR 7-2024; the field reads "Receipt or invoice number" | 2.5 | Accountant | [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25) |
+| 65 | **The app doesn't check that a receipt is made out to the company**, though that may be needed for the reimbursement to stay non-taxable and deductible | 2.5 | Accountant | [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25) |
+| 66 | **No limits are seeded** for meal, transportation or other; HR adds them as a new `talent.reimbursementSettings` version | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 67 | **The filing window counts from the line's timesheet**, one previous cut-off by default. Until step 2.7 adds statuses, every timesheet stays open, so lines on older timesheets can still be edited | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 68 | **A duplicate is rejected when the line is saved**, not only on submission; step 2.7 checks again at submission | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 69 | **Deleting a line frees its receipt** for anyone to claim, as does changing its TIN or number | 2.5 | HR, accountant | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 70 | **The client is optional on every seeded type** (a type can require it) | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 71 | **Receipts and routes aren't sensitive personal information**: not encrypted. Pick-up and drop-off can show a home address, and supervisors see them | 2.5 | HR, counsel | [Sensitive data](../SECURITY.md#sensitive-data) |
+| 72 | **Receipt views aren't audit-logged**; receipt photos are re-encoded with GPS and other metadata stripped | 2.5 | HR, counsel | [File storage](ARCHITECTURE.md#file-storage) |
+| 73 | **A ride with no receipt** (jeepney, tricycle) can't be claimed: every type needs a receipt, a merchant TIN and a number | 2.5 | HR, accountant | [Reimbursement receipts](COMPLIANCE.md#reimbursement-receipts-build-step-25) |
+| 74 | **The other claimant is never named** to an employee whose receipt is rejected; Talent Read finds them with "Check a receipt" | 2.5 | HR, counsel | [RUNBOOK](RUNBOOK.md#a-receipt-was-rejected-as-a-duplicate) |
+| 75 | **Pick-up and drop-off are kept only when the type requires the route.** On any other type they are stored empty, even if typed; the description is kept whenever it is given | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 76 | **The filing window and the type list go to the employee's own timesheet only.** Talent Read and supervisors see the lines read-only without the window, because the window starts at the date hired (as in item 59) | 2.5 | HR, counsel | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 77 | **A receipt file can be left unused.** The file is saved before the save's transaction (the checks run once before it). When a save is refused after that, for example when another employee claims the same receipt at the same moment, the file stays in storage but never opens, since no live line points at it | 2.5 | The project owner | [File storage](ARCHITECTURE.md#file-storage) |
+| 78 | **"Add version" on Reimbursements keeps every stored type.** The sheet starts from the version in effect plus any type only a scheduled version has, since the service refuses a version that drops a key of any stored version. Those types' keys are fixed and they can't be removed in the sheet. The allowance types sheet still starts from the version in effect alone | 2.5 | The user | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 79 | **The reimbursement settings are company policy**, so the "Add version" sheet's date and source hints are the policy ones (any day of the week; "the policy or memo behind the change"), as for the work schedule. The seeded version still shows the shared "Seeded: check against the current issuance" note | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 80 | **"Check a receipt" is a header button and sheet on `/talent`**, for everyone who can open the page (Talent Read). The result names the canonical TIN and receipt key it is for, plus the claimed-on date, and clears when a field is edited | 2.5 | The user | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+| 81 | **The receipt field has no camera-only button.** It is one native file field with no `capture` attribute, as DESIGN_SYSTEM says, so a phone offers the camera and the files in one picker | 2.5 | The user | [Timesheets on a phone](DESIGN_SYSTEM.md#layout--components) |
+| 82 | **"Open receipt" on a PDF downloads it** (the file route serves only images inline, and its sandboxed CSP would block a browser's PDF viewer), so a phone opens it in its own viewer; a photo opens in a new tab | 2.5 | The user | [File storage](ARCHITECTURE.md#file-storage) |
+| 83 | **The reimbursement sheet's fields follow today's types.** Which fields are required (pick-up and drop-off, description, client) comes from the version in effect today; the server checks the version in effect on the receipt date. A receipt date in a cut-off before a new version could show the newer rules until the save says otherwise. The add sheet's date starts at the window's last day | 2.5 | HR | [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
+
 ## Open items for later steps
 
 | Item | When |
@@ -755,7 +818,8 @@ The real `xtreme-pulse` database has base data but **0 users**. The user should 
     - **the commit**
 
     Assumptions 27–45 are in [Assumptions to check](#assumptions-to-check). Before the first real payroll, HR checks every seeded rate against the current issuances. **Committed as `fffefd7`** (2026-10-12), not pushed; the hands-on checks are still open.
-20. **Step 2.4**, "Work schedules and daily time entries". **Spec written** (2026-10-12): decisions 213–234 and [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24). **Built and verified** (2026-10-13), with two review fixes ([2.4 review](#24-review-2026-10-13)), not committed. Next: **the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in)**, then the commit. Assumptions 46–61 are in [Assumptions to check](#assumptions-to-check).
+20. **Step 2.4**, "Work schedules and daily time entries". **Spec written** (2026-10-12): decisions 213–234 and [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24). **Built and verified** (2026-10-13), with two review fixes ([2.4 review](#24-review-2026-10-13)), and **committed as `1e1cb41`**, not pushed. Still open: **the user's [hands-on checks](#24-hands-on-checks-by-the-user-signed-in)**. Assumptions 46–61 are in [Assumptions to check](#assumptions-to-check).
+21. **Step 2.5**, "Reimbursements". **Spec written** (2026-10-13): decisions 235–255 and [Reimbursements (build step 2.5)](modules/talent.md#reimbursements-build-step-25). **Built and verified** (2026-10-13), reviewed with no code fixes needed ([2.5 review](#25-review-2026-10-13)), and **committed**, not pushed. Still open: **the user's [hands-on checks](#25-hands-on-checks-by-the-user-signed-in)**. Assumptions 62–75 are in [Assumptions to check](#assumptions-to-check).
 
 ## 1.11 build (2026-10-12)
 
