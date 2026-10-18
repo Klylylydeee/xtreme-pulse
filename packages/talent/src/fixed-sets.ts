@@ -129,3 +129,55 @@ export type SignaturePurpose = (typeof SIGNATURE_PURPOSES)[number];
 /** A certification's status in the read services (decision 184). */
 export const CERTIFICATION_STATUSES = ['current', 'expiring', 'expired'] as const;
 export type CertificationStatus = (typeof CERTIFICATION_STATUSES)[number];
+
+// Step 2.6 (docs/DATA_MODEL.md#collection-ownership, "Onboarding and change requests"; decisions
+// 269 and 272 in docs/BUILD_PLAN.md).
+
+/**
+ * `changeRequests.section`: the part of the employee's own record one change request covers. The
+ * on-screen Personal section holds both `contact` and `personal`.
+ */
+export const CHANGE_REQUEST_SECTIONS = [
+  'contact',
+  'skills',
+  'personal',
+  'governmentIds',
+  'bankAccount',
+] as const;
+export type ChangeRequestSection = (typeof CHANGE_REQUEST_SECTIONS)[number];
+export const CHANGE_REQUEST_SECTION_LABELS: Record<ChangeRequestSection, string> = {
+  contact: 'Contact details',
+  skills: 'Skills',
+  personal: 'Personal details',
+  governmentIds: 'Government IDs',
+  bankAccount: 'Payroll bank account',
+};
+
+/**
+ * `changeRequests.status`. `pending` → `approved` (applied), `returned` or `rejected`; a returned
+ * request is sent again (back to `pending`) or `cancelled`. Approved, rejected and cancelled are
+ * final.
+ */
+export const CHANGE_REQUEST_STATUSES = [
+  'pending',
+  'returned',
+  'approved',
+  'rejected',
+  'cancelled',
+] as const;
+export type ChangeRequestStatus = (typeof CHANGE_REQUEST_STATUSES)[number];
+export const CHANGE_REQUEST_STATUS_LABELS: Record<ChangeRequestStatus, string> = {
+  pending: 'Waiting for approval',
+  returned: 'Returned',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+};
+/** The open statuses: at most one open request per employee per section. */
+export const OPEN_CHANGE_REQUEST_STATUSES = [
+  'pending',
+  'returned',
+] as const satisfies readonly ChangeRequestStatus[];
+export function isOpenChangeRequestStatus(status: ChangeRequestStatus): boolean {
+  return (OPEN_CHANGE_REQUEST_STATUSES as readonly ChangeRequestStatus[]).includes(status);
+}

@@ -213,7 +213,10 @@ describe('seeding', () => {
       actorId: null,
     });
     const auditBefore = await countAudit();
-    expect(talentSeedLoaders.map((loader) => loader.name)).toEqual([...PAYROLL_SETTING_KEYS]);
+    expect(talentSeedLoaders.map((loader) => loader.name)).toEqual([
+      ...PAYROLL_SETTING_KEYS,
+      'talent.onboardingSettings',
+    ]);
 
     const first = await runSeed();
     expect(first['talent.minimumWages']).toEqual({ added: 2, skipped: 0 });

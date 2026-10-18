@@ -13,6 +13,8 @@ import {
   TRANSFORMABLE_TYPES,
 } from '@pulse/core/server';
 import type { SignaturePurpose } from '../../fixed-sets';
+import { assertOnboardingGate } from '../../onboarding/gates';
+import { eSignatureItemState } from '../../onboarding/status';
 import {
   E_SIGNATURE_TYPE,
   type ESignatureStatusView,
@@ -35,9 +37,11 @@ import { type ESignatureRecord, ESignatureModel, SignatureApplicationModel } fro
 // - Apply: `applyESignature` signs as the actor only, in the caller's transaction. It reads the
 //   actor's employee from the database (never from the request), pins the current version and its
 //   file in a `signatureApplications` row, audits a `create` on `talent.signatureApplication`
-//   (`<employee number> · <what was signed>`), and returns the stamp, or null when the actor has no
-//   employee or no signature. Applications, signatures and their files are never changed or
-//   deleted, so a signed record keeps its version after a replacement.
+//   (`<employee number> · <what was signed>`), and returns the stamp, or null for the system
+//   account (no employee). From step 2.6 an employee with no signature is refused by the onboarding
+//   gate (OnboardingGateError), which rolls back the caller's transaction. Applications,
+//   signatures and their files are never changed or deleted, so a signed record keeps its version
+//   after a replacement.
 // - The image opens for the owner (every version) and the System Administrator only.
 
 const UPLOAD_CHANGED =
@@ -201,8 +205,10 @@ export interface ApplyESignatureInput {
 /**
  * Applies the actor's own current e-signature to `target`, in the caller's transaction, and
  * returns the stamp `{ applicationId, signatureId, version }`, or null when the actor has no
- * employee (the system account) or no signature on file. Takes no employee id: the actor's
- * employee is read from the database. One `create` entry on `talent.signatureApplication`.
+ * employee (the system account, exempt from the gate). An employee with no signature on file is
+ * refused with `OnboardingGateError` ("Complete this onboarding item first: E-signature…"),
+ * which rolls back the caller's transaction. Takes no employee id: the actor's employee is read
+ * from the database. One `create` entry on `talent.signatureApplication`.
  */
 export async function applyESignature({
   actor,
@@ -217,6 +223,12 @@ export async function applyESignature({
   if (!current.employee) return null;
   const employeeId = new Types.ObjectId(current.employee.id);
   const signature = await currentSignature(employeeId, session);
+  // The onboarding gate (step 2.6, decision 264): an employee with no signature is refused, naming
+  // the item. It throws in the caller's transaction, so the signed decision rolls back; it writes
+  // nothing. Only the system account (no employee, above) still signs nothing.
+  assertOnboardingGate('applyESignature', {
+    states: { eSignature: eSignatureItemState(signature !== null) },
+  });
   if (!signature) return null;
 
   const actorId = new Types.ObjectId(current.id);

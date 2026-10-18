@@ -1,6 +1,7 @@
 import { type ClientSession, Types } from 'mongoose';
 import { connectDb, withTransaction } from '@pulse/db';
-import { ActionError, type BusinessDate, businessToday, now } from '@pulse/core';
+import type { z } from 'zod';
+import { AccessDeniedError, ActionError, type BusinessDate, businessToday, now } from '@pulse/core';
 import {
   type EmployeeIdentity,
   getEmployeeIdentity,
@@ -31,6 +32,7 @@ import {
   type CertificationView,
   type CertifiedEmployeeCount,
 } from '../../views';
+import { creatorNames } from '../documents/service';
 import { EmployeeRecordModel } from '../employee-records/model';
 import { expiryLeadDaysOn } from '../expiry-alerts/settings';
 import { inputError } from '../input';
@@ -369,6 +371,11 @@ export async function buildCertificationsSection(
     expiryLeadDaysOn(today),
   ]);
   const showAttachment = canOpenCertificationAttachment(viewer, employeeId);
+  const creators = await creatorNames(
+    viewer,
+    employeeId,
+    records.flatMap((record) => (record.createdBy ? [record.createdBy] : [])),
+  );
   return records.map((record) => {
     const expiryDate = dayOrNull(record.expiryDate);
     return {
@@ -382,6 +389,7 @@ export async function buildCertificationsSection(
       expiry: expiryStateOf(expiryDate, today, certificationLeadDays),
       attachmentUrl:
         showAttachment && record.attachmentFileId ? fileUrlOf(record.attachmentFileId) : null,
+      addedByName: record.createdBy ? (creators.get(record.createdBy.toHexString()) ?? null) : null,
       version: record.version,
     };
   });
@@ -541,4 +549,81 @@ export async function countCertifiedEmployeesByBrand(
     counts.push({ brandId: id, count: holders.get(id)?.size ?? 0 });
   }
   return counts;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.6: the employee adds their own certifications (docs/modules/talent.md#onboarding-
+// checklist-and-change-requests-build-step-26; decision 268 in docs/BUILD_PLAN.md). Self-service:
+// no module access, no employee id taken. Editing needs Talent Write and removing Talent Owner,
+// never on one's own record, as before.
+
+const NO_EMPLOYEE_CERTIFICATIONS =
+  'The system account has no employee record, so it has no certifications.';
+
+/** What the own "Add certification" sheet sends: step 2.2's fields without the employee. */
+export type OwnCertificationInput = Omit<z.input<typeof certificationCreateSchema>, 'employeeId'>;
+
+/**
+ * Adds a certification to the signed-in user's own record, with an optional attachment (form field
+ * `attachment`) and step 2.2's checks. Takes no employee id. One `create` entry; it shows "Added by
+ * <name>".
+ */
+export async function addOwnCertification(
+  actor: TalentActor,
+  input: OwnCertificationInput,
+  attachment?: File | null,
+): Promise<{ certificationId: string; version: number }> {
+  if (!actor.employee) throw new AccessDeniedError(NO_EMPLOYEE_CERTIFICATIONS);
+  const ownEmployeeId = actor.employee.id;
+  const parsed = certificationCreateSchema.safeParse({ ...input, employeeId: ownEmployeeId });
+  if (!parsed.success) throw inputError(parsed.error.issues);
+  const values = parsed.data;
+  await connectDb();
+  await assertLiveProduct(values.brandId);
+
+  const certificationId = new Types.ObjectId();
+  const file = sentFile(attachment);
+  const attachmentFileId = file ? await saveAttachment(actor, certificationId, file) : null;
+
+  await withTransaction(async (session) => {
+    const current = await reloadActorAccess({ id: actor.id }, session);
+    if (!current.employee || current.employee.id !== ownEmployeeId) {
+      throw new AccessDeniedError(NO_EMPLOYEE_CERTIFICATIONS);
+    }
+    const identity = await getEmployeeIdentity(current, ownEmployeeId, { session });
+    if (!identity) throw new ActionError(EMPLOYEE_GONE);
+    const actorId = new Types.ObjectId(current.id);
+    const certification = new CertificationModel({
+      _id: certificationId,
+      employeeId: new Types.ObjectId(identity.employeeId),
+      name: values.name,
+      issuer: values.issuer,
+      brandId: objectIdOf(values.brandId),
+      licenseNumber: values.licenseNumber,
+      issueDate: instantOf(values.issueDate),
+      expiryDate: instantOrNull(values.expiryDate),
+      attachmentFileId,
+      version: 1,
+      createdBy: actorId,
+      updatedBy: actorId,
+    });
+    await certification.save({ session });
+    await recordAudit(
+      {
+        actorId: current.id,
+        actorEmail: current.email,
+        module: 'talent',
+        action: 'create',
+        record: {
+          type: CERTIFICATION_TYPE,
+          id: certificationId,
+          label: certificationLabel(identity.employeeNumber, values.name),
+        },
+        before: null,
+        after: snapshotForAudit(CertificationModel, certification),
+      },
+      { session },
+    );
+  });
+  return { certificationId: certificationId.toHexString(), version: 1 };
 }

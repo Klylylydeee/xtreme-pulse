@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
+  ListChecks,
   UsersRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,7 +28,10 @@ import {
   listConfirmedHolidays,
   oldestApprovalWaitingSubmittedAt,
 } from '@pulse/core/server';
+import { getOwnOnboardingReminder } from '@pulse/talent/server';
+import { cn } from '@pulse/ui';
 import { Avatar } from '@pulse/ui/components/avatar';
+import { buttonVariants } from '@pulse/ui/components/button';
 import { IconTile } from '@pulse/ui/components/icon-tile';
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import {
@@ -37,6 +41,8 @@ import {
   UPCOMING_HOLIDAY_LIMIT,
   upcomingHolidayWindow,
 } from '@/lib/home';
+import { ONBOARDING_HREF } from '@/lib/navigation';
+import { onboardingDoneText, onboardingFraction } from '@/lib/onboarding';
 
 // Spec: docs/modules/core.md#home and docs/DESIGN_SYSTEM.md (Home tiles), decisions 149 and 150
 // in docs/BUILD_PLAN.md — the Home tiles. Each is its own server component in its own Suspense
@@ -312,5 +318,53 @@ export async function YourTeamTile({ user }: { user: CurrentUser }) {
         </>
       )}
     </HomeTile>
+  );
+}
+
+// --- Onboarding (step 2.6) ------------------------------------------------------------------------
+
+/**
+ * "Finish setting up your profile" (docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26,
+ * docs/DESIGN_SYSTEM.md#feedback--motion): a card under the hero, above the access card, while any
+ * of the user's own onboarding items is To do. An icon tile, the title, a progress bar with "5 of 8
+ * done" as text, and "Continue" to `/talent/onboarding`. It reads the signed-in user's own checklist
+ * only, and shows nothing when it can't be read: a reminder never blocks Home.
+ */
+export async function OnboardingCard({ user }: { user: CurrentUser }) {
+  const result = await load(() => getOwnOnboardingReminder(user));
+  if (!result.ok || !result.data?.showReminder) return null;
+  const reminder = result.data;
+  return (
+    <section
+      aria-labelledby="home-onboarding-title"
+      className="flex flex-col gap-4 rounded-card bg-surface p-4 shadow-card sm:flex-row sm:items-center md:p-5"
+    >
+      <div className="flex min-w-0 flex-1 items-start gap-4">
+        <IconTile className="size-11 rounded-xl [&_svg]:size-5">
+          <ListChecks strokeWidth={1.75} />
+        </IconTile>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <h2 id="home-onboarding-title" className="text-headline">
+            Finish setting up your profile
+          </h2>
+          <div aria-hidden="true" className="h-2 overflow-hidden rounded-full bg-bg-grouped">
+            <div
+              className="h-full rounded-full bg-accent"
+              style={{ width: `${Math.round(onboardingFraction(reminder) * 100)}%` }}
+            />
+          </div>
+          <p className="numeric text-subheadline text-text-secondary">
+            {onboardingDoneText(reminder)}
+          </p>
+        </div>
+      </div>
+      <Link
+        href={ONBOARDING_HREF}
+        className={cn(buttonVariants({ variant: 'tinted' }), 'shrink-0 self-start sm:self-center')}
+      >
+        Continue
+        <ChevronRight aria-hidden="true" strokeWidth={1.75} className="size-4.5" />
+      </Link>
+    </section>
   );
 }

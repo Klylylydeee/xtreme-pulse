@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useId } from 'react';
+import { Children, type ReactNode, useId } from 'react';
 import { PencilLine } from 'lucide-react';
 import { formatDate } from '@pulse/core';
 import { cn } from '@pulse/ui';
@@ -34,6 +34,17 @@ export function RecordSection({
       {children}
     </section>
   );
+}
+
+/**
+ * A section header's actions side by side (an Edit and, from step 2.6, a "Mark verified" or
+ * "Request change"); renders nothing when every child is empty.
+ */
+export function SectionActions({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children);
+  if (items.length === 0) return null;
+  if (items.length === 1) return <>{items}</>;
+  return <div className="flex flex-wrap items-center justify-end gap-x-1">{items}</div>;
 }
 
 /** An inset grouped card of rows (each its own term and value), with optional footer help. */

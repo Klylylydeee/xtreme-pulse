@@ -11,8 +11,10 @@ import {
   Clock,
   CornerUpLeft,
   History,
+  Info,
   RotateCw,
   ShieldCheck,
+  TriangleAlert,
 } from 'lucide-react';
 import {
   APPROVAL_CHANGED_ELSEWHERE,
@@ -42,7 +44,11 @@ import {
 } from '@pulse/ui/components/shortcut-hint';
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import { FormAlert } from '@/components/form-alert';
-import { decideApprovalAction, getApprovalAction } from '@/lib/actions/approvals';
+import {
+  type ApprovalInspectorDetail,
+  decideApprovalAction,
+  getApprovalAction,
+} from '@/lib/actions/approvals';
 
 // Spec: docs/modules/core.md#approvals-list — the inspector (a full-height sheet on a phone) for
 // one request: where it stands, a link to the record, the decision form when the request waits for
@@ -51,7 +57,10 @@ import { decideApprovalAction, getApprovalAction } from '@/lib/actions/approvals
 // service decides what the user may do (`allowedDecisions`); a decision it refuses (someone else
 // settled the step, or the request changed since it loaded) shows the message and reloads. From
 // step 2.2 the requester shows with their photo, and each approve decision says whether it was
-// signed with an e-signature (its version, as text; the image is never shown here).
+// signed with an e-signature (its version, as text; the image is never shown here). From step 2.6
+// (decision 264) a viewer with no e-signature sees "Approving needs your e-signature. Upload it in
+// My record." above the buttons and a disabled Approve, while Return and Reject stay; a change
+// request adds "Approving applies the change to <name>'s record" (the server builds both lines).
 
 const APPROVE = ['mod', 'enter'] as const;
 const LOAD_FAILED = 'The request couldn’t load. Check your connection and try again.';
@@ -65,7 +74,7 @@ export type ApprovalDetailState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'gone' }
-  | { status: 'done'; detail: ApprovalDetail; refreshing: boolean };
+  | { status: 'done'; detail: ApprovalInspectorDetail; refreshing: boolean };
 
 /**
  * Loads request `id` for the inspector, again whenever `session` changes (a new open) or `reload`
@@ -449,7 +458,7 @@ function DecisionForm({
   onDecided,
   onRefused,
 }: {
-  detail: ApprovalDetail;
+  detail: ApprovalInspectorDetail;
   onDecided: (decision: ApprovalDecision) => void;
   onRefused: (message: string) => void;
 }) {
@@ -461,9 +470,12 @@ function DecisionForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
+  const gateId = useId();
 
   const allowed = detail.allowedDecisions;
-  const canApprove = allowed.includes('approve');
+  // Step 2.6: with no e-signature on file, Approve shows disabled under the gate notice.
+  const gate = detail.approveGate;
+  const canApprove = allowed.includes('approve') && gate === null;
   const length = remarks.trim().length;
   const over = length > APPROVAL_REMARKS_MAX_LENGTH;
   const required = decisionNeedsRemarks(mode);
@@ -574,6 +586,29 @@ function DecisionForm({
         </FormField>
       </FormSection>
 
+      {mode === 'approve' && detail.changeRequestNotice ? (
+        <p className="flex items-start gap-2 px-4 text-footnote text-text-secondary">
+          <Info aria-hidden="true" className="mt-px size-4 shrink-0" />
+          <span>{detail.changeRequestNotice}</span>
+        </p>
+      ) : null}
+      {mode === 'approve' && gate && allowed.includes('approve') ? (
+        <p
+          id={gateId}
+          className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium text-warning-text shadow-card"
+        >
+          <TriangleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
+          <span>
+            {gate.notice}{' '}
+            <Link
+              href={gate.href}
+              className="font-semibold text-accent underline-offset-2 hover:underline"
+            >
+              Open My record
+            </Link>
+          </span>
+        </p>
+      ) : null}
       {mode === 'approve' ? (
         <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:justify-start">
           {canApprove ? (
@@ -585,6 +620,10 @@ function DecisionForm({
             >
               {APPROVAL_DECISION_LABELS.approve}
               <ShortcutHint keys={APPROVE} tone="on-fill" className="hidden sm:inline-flex" />
+            </Button>
+          ) : gate && allowed.includes('approve') ? (
+            <Button type="button" disabled aria-describedby={gateId}>
+              {APPROVAL_DECISION_LABELS.approve}
             </Button>
           ) : null}
           {allowed.includes('return') ? (

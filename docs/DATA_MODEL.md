@@ -32,7 +32,7 @@ Each module owns its collections, and no module writes to another module's colle
 | Module | Owns |
 |---|---|
 | Core | User accounts (`users`), employee identity (`employees`), departments (`departments`), positions (`positions`), allowed email domains (`allowedEmailDomains`), employee number counters (`employeeNumberCounters`), document number counters (`documentNumberCounters`), versioned configuration (`configVersions`), stored file records (`storedFiles`, the metadata of every uploaded and generated file; see [File storage](ARCHITECTURE.md#file-storage)), the field encryption key vault (`encryptionKeys`, in MongoDB's key vault format, so without the base fields; see [ADR 0005](adr/0005-field-level-encryption.md)), company settings (`companySettings`), clients (`clients`) with sites (`clientSites`) and contacts (`clientContacts`), products (`brands`), catalog items (`catalogItems`), suppliers (`suppliers`), holidays (`holidays`), approval requests (`approvalRequests`), notifications (`notifications`), audit log (`auditLogs`) |
-| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents (`employeeDocuments`, build step 2.2), e-signatures (`eSignatures`) and their uses (`signatureApplications`, build step 2.2), certifications (`certifications`, build step 2.2), work schedules (the company default as the versioned setting `talent.workSchedule`, and employees' own schedules in `workScheduleAssignments`, build step 2.4), timesheets (`timesheets`, one per employee per cut-off, and their time entries in `timeEntries`, build step 2.4; their reimbursement lines in `reimbursements`, build step 2.5), leave and offset entries and requests, payroll settings and allowance types (versioned configuration, build step 2.3), allowance assignments (`allowanceAssignments`, build step 2.3), payroll runs and payslips, remittances, HR documents, due-process cases, onboarding checklists, change requests, the register of claimed receipts (`receiptClaims`, build step 2.5; Fiscal's petty cash vouchers claim through it from step 5.11) |
+| Talent | Employee records (`employeeRecords`, from build step 2.1: personal, employment, government IDs, bank account), compensation history (`compensationEntries`, build step 2.1), 201 documents (`employeeDocuments`, build step 2.2), e-signatures (`eSignatures`) and their uses (`signatureApplications`, build step 2.2), certifications (`certifications`, build step 2.2), work schedules (the company default as the versioned setting `talent.workSchedule`, and employees' own schedules in `workScheduleAssignments`, build step 2.4), timesheets (`timesheets`, one per employee per cut-off, and their time entries in `timeEntries`, build step 2.4; their reimbursement lines in `reimbursements`, build step 2.5), leave and offset entries and requests, payroll settings and allowance types (versioned configuration, build step 2.3), allowance assignments (`allowanceAssignments`, build step 2.3), payroll runs and payslips, remittances, HR documents, due-process cases, onboarding (derived, never stored, build step 2.6: its required documents as the versioned setting `talent.onboardingSettings`, and its verifications and "No supervisor" confirmation on `employeeRecords`), change requests (`changeRequests`, build step 2.6), the register of claimed receipts (`receiptClaims`, build step 2.5; Fiscal's petty cash vouchers claim through it from step 5.11) |
 | Engage | Deals and deal teams, deal registrations, pre-sale site surveys, BOQs, quotations, sales quotas and assignments, Engage settings (stages, business lines, lost reasons, payment term templates) |
 | Ops | Projects and project teams, project site surveys, billing milestones, assignments (the calendar), daily site reports, checklist templates and results, rollout sites, acceptance records, manual subcontractor cost rows |
 | Supply | Purchase requests, purchase orders (`purchaseOrders`), receiving records, stock movements, serial items (`serialItems`), stock locations, delivery receipts, RMAs |
@@ -153,6 +153,7 @@ The spec calls for versioning for:
 | Salary and allowance history, work schedules | [Compensation](modules/talent.md#compensation), [Work schedule](modules/talent.md#work-schedule) |
 | Holiday auto-draft rules (`core.holidayRules`, build step 1.10) | [Holiday calendar](modules/core.md#holiday-calendar) |
 | Expiry alert lead days (`talent.expiryAlerts`: `documentLeadDays`, `certificationLeadDays`, 1 to 180, default 30; build step 2.2) | [Documents, photo, e-signature and certifications](modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22) |
+| Onboarding required documents (`talent.onboardingSettings`: `requiredDocumentTypes`, unique types from `DOCUMENT_201_TYPES` other than `employmentContract`, `regularizationEvaluation` and `other`, possibly empty; build step 2.6). Seeded by `pnpm seed:admin` from 2000-01-01 with `governmentIdCopy` and `nbiClearance`, source "Company policy (spec)". A new version takes effect today in Manila, at most one per day | [Onboarding checklist and change requests](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26) |
 | Payroll settings (build step 2.3): the ten `talent.*` settings below, plus `talent.workSchedule` and `talent.timesheetSettings` from build step 2.4, and `talent.reimbursementSettings` from build step 2.5 (thirteen in all) | [Payroll settings and allowances](modules/talent.md#payroll-settings-and-allowances-build-step-23), [Work schedules and daily time entries](modules/talent.md#work-schedules-and-daily-time-entries-build-step-24), [Reimbursements](modules/talent.md#reimbursements-build-step-25) |
 
 **Payroll settings** (build step 2.3). Each is declared with `defineConfigSetting` in `packages/talent`. Every number is a whole number (centavos, days, counts); rates are decimal strings of up to 6 digits before and after the point (`"0.05"`, `"1.30"`), read exactly with `ratio`. A cut-off that doesn't wrap and ends on day 28 runs to the month's last day.
@@ -185,6 +186,24 @@ The spec calls for versioning for:
 
 Computed hours (worked, extra, overtime by kind, night differential, offset) are derived when read and never stored.
 
+**Onboarding and change requests** (build step 2.6, [Onboarding checklist and change requests](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26)). The checklist's item states are derived when read and never stored.
+
+- **`employeeRecords` additions**, each absent or null on records saved before step 2.6:
+  - `governmentIdsVerification` and `bankAccountVerification`: null (not verified) or a subdocument with no `_id`, `{ verifiedAt, verifiedBy }` (a user id). Cleared by the employee's own entry to that group; set by a verifier's save, an approved change request or "Mark verified"
+  - `noSupervisorConfirmation`: null or `{ confirmedAt, confirmedBy }`. Counts only while `reportingTo` has no active supervisor
+- **`changeRequests`.** Base fields, no soft delete, never deleted:
+  - `employeeId` and `requesterUserId`, fixed once set
+  - `section` (`CHANGE_REQUEST_SECTIONS`: `contact`, `skills`, `personal`, `governmentIds`, `bankAccount`), fixed once set
+  - `changedFields`: the field names that change, at least one, all of that section
+  - `proposed`: a subdocument with no `_id`, holding only the changed fields, in the employee record's shapes: `presentAddress`, `permanentAddress`, `mobileNumber`, `personalEmail`, `emergencyContact`; `skills`; `dateOfBirth`, `sex`, `civilStatus`, `nationality`; `tin`, `sss`, `philhealth`, `pagibig` (each a `sensitiveField()`), `rdoCode`; `bank`, `accountNumber` (a `sensitiveField()`), `accountName`. A field cleared is stored as null (a sensitive one can't be cleared, as on the record)
+  - `previous`: the same shape, set once on approval with the values replaced (sensitive values copied as their stored ciphertext)
+  - `note` (up to 500 characters, or null)
+  - `status` (`CHANGE_REQUEST_STATUSES`: `pending`, `returned`, `approved`, `rejected`, `cancelled`); `approved`, `rejected` and `cancelled` are final
+  - `approvalRequestId` (the current Core approval request), `decidedBy` and `decidedAt` (null until settled), `remarks` (the approver's, or null)
+  - `version`, raised by every save
+  - Indexes: `{ employeeId, createdAt: -1 }`, and a partial unique index on `{ employeeId, section }` where `status` is `pending` or `returned`, so a section has at most one open request
+  - The collection has the `$jsonSchema` validator for its sensitive paths. Written only by Talent's change request service and its approval hook
+
 The seeded values, with their sources, are in [Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23).
 
 Who checks these against official issuances, and when, is in [Keeping rates current](COMPLIANCE.md#keeping-rates-current).
@@ -203,6 +222,7 @@ These values are always computed from their source records and never edited dire
 | Daily Time Record | Approved timesheets, schedules, leave, offset time off, confirmed holidays | [Daily Time Record (DTR)](modules/talent.md#daily-time-record-dtr) |
 | Account status | Employment status, with the separation date (`employees.separationDate`) that a separated status (Resigned, Terminated, Retired) requires. The one exception is the bootstrap system account (`isSystemAccount`), which has no employment status: it is active unless `systemAccountDisabled` is set | [Account status](../SECURITY.md#account-status), [Bootstrap System Administrator account](modules/core.md#bootstrap-system-administrator-account) |
 | Org chart | `reportingTo` | [Org chart](modules/core.md#org-chart) |
+| Onboarding checklist and its progress (build step 2.6) | The employee record, its verifications, 201 documents, e-signatures, compensation entries, the profile photo, account and module access facts from Core, and `talent.onboardingSettings` | [Onboarding checklist and change requests](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26) |
 | Delivery status | Accepted quotation, POs, receipts and signed delivery receipts | [Delivery receipts](modules/supply.md#delivery-receipts) |
 
 ## Locked and append-only records
@@ -220,6 +240,7 @@ Some records can't be edited once they reach a certain state. Corrections go thr
 - 201 documents (`employeeDocuments`, build step 2.2): never deleted. They are archived with a reason, and the file never changes; a renewal is a new document
 - E-signatures and their uses (`eSignatures`, `signatureApplications`, build step 2.2): insert-only. A replaced signature is a new version, so a signed record keeps the version it was signed with
 - Work schedule assignments (`workScheduleAssignments`, build step 2.4): insert-only. A correction is a new entry; the latest one on or before a day wins
+- Change requests (`changeRequests`, build step 2.6): never deleted. An approved, rejected or cancelled request is final; a returned one is edited and sent again as a new approval request linked to the old one
 - Timesheet types (`timesheets.timesheetType`, build step 2.4): stored when the timesheet is created and never changed, so later position changes never alter a past timesheet ([Timesheet types](modules/talent.md#timesheet-types))
 
 ## Retention

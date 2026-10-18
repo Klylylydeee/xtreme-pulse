@@ -3,7 +3,16 @@
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Banknote, CircleCheck, Receipt, Search, Settings, Users } from 'lucide-react';
+import {
+  Banknote,
+  CalendarClock,
+  CircleCheck,
+  FileCheck,
+  Receipt,
+  Search,
+  Settings,
+  Users,
+} from 'lucide-react';
 import {
   type DirectoryDepartmentOption,
   EMPLOYMENT_STATUS,
@@ -11,7 +20,12 @@ import {
   type EmploymentStatus,
   formatDate,
 } from '@pulse/core';
-import type { EmployeeListRow, ExpiryAlertSettingsView } from '@pulse/talent';
+import type {
+  EmployeeListRow,
+  ExpiryAlertSettingsView,
+  OnboardingSettingsView,
+} from '@pulse/talent';
+import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
 import {
   createDataTableColumns,
@@ -20,6 +34,7 @@ import {
 } from '@pulse/ui/components/data-table';
 import { EmptyState } from '@pulse/ui/components/empty-state';
 import { Input, Select, Switch } from '@pulse/ui/components/form';
+import { Popover, PopoverContent, PopoverTrigger } from '@pulse/ui/components/popover';
 import { InspectorLayout } from '@pulse/ui/components/inspector-panel';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
@@ -29,6 +44,7 @@ import { PersonAvatar } from '@/components/person-avatar';
 import { CheckReceiptSheet } from './check-receipt-sheet';
 import { ExpiryAlertsSheet } from './employee-documents-sheets';
 import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
+import { OnboardingDocumentsSheet } from './onboarding-section';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
 // list: stat tiles counting active employees by employment status, then a data table on a desktop
@@ -42,6 +58,21 @@ import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './
 // From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the header's "Check a
 // receipt" opens a sheet that finds who claimed a merchant TIN and receipt number. It needs
 // Talent Read, which this page already needs; its action and service check again.
+//
+// From build step 2.6 (docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26,
+// decisions 259 and 274): for HR and the System Administrator only (the server sends
+// `onboardingCounts` only to them), two tiles counting incomplete onboarding and details to verify,
+// and the filter "Onboarding: Incomplete | To verify" (`?onboarding=`). Other Talent Read users get
+// neither, since "To verify" would say who has IDs or a bank account on file. Settings (Talent
+// Owner) now offers "Expiry alerts" and "Required onboarding documents".
+
+const ONBOARDING_FILTER_LABELS: Record<OnboardingFilter, string> = {
+  incomplete: 'Incomplete',
+  verify: 'To verify',
+};
+
+type OnboardingFilter = 'incomplete' | 'verify';
+type SettingsSheet = 'expiry' | 'onboarding';
 
 const SEARCH_DELAY_MS = 250;
 const countFormat = new Intl.NumberFormat('en-PH');
@@ -141,6 +172,9 @@ export function EmployeesManager({
   showSeparated,
   tools,
   expirySettings,
+  onboardingSettings,
+  onboarding,
+  onboardingCounts,
 }: {
   rows: EmployeeListRow[];
   stats: { status: EmploymentStatus; count: number }[];
@@ -153,6 +187,12 @@ export function EmployeesManager({
   tools: InspectorTools;
   /** The expiry alert lead days; the Settings button shows when `canChange` (Talent Owner). */
   expirySettings: ExpiryAlertSettingsView;
+  /** Step 2.6: the required onboarding documents; changed from Settings when `canChange`. */
+  onboardingSettings: OnboardingSettingsView;
+  /** Step 2.6: the onboarding filter in effect, for HR and the System Administrator only. */
+  onboarding: OnboardingFilter | null;
+  /** Step 2.6: the onboarding tiles; null for anyone but HR and the System Administrator. */
+  onboardingCounts: { incomplete: number; toVerify: number } | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -167,6 +207,11 @@ export function EmployeesManager({
   const statsId = useId();
   const settingsFocus = useReturnFocus();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [settingsSheet, setSettingsSheet] = useState<SettingsSheet>('expiry');
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const onboardingFilterId = useId();
+  const onboardingStatsId = useId();
   const [settingsSession, setSettingsSession] = useState(0);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const receiptFocus = useReturnFocus();
@@ -175,7 +220,17 @@ export function EmployeesManager({
 
   useEffect(() => () => window.clearTimeout(searchTimer.current), []);
 
-  const filtered = search !== '' || departmentId !== null || status !== null;
+  const filtered = search !== '' || departmentId !== null || status !== null || onboarding !== null;
+  const canChangeSettings = expirySettings.canChange || onboardingSettings.canChange;
+
+  function openSettings(sheet: SettingsSheet) {
+    settingsFocus.remember(settingsButton.current);
+    setSettingsMenuOpen(false);
+    setSettingsSheet(sheet);
+    setSettingsNotice(null);
+    setSettingsSession((count) => count + 1);
+    setSettingsOpen(true);
+  }
   const knownDepartment =
     departmentId === null || departments.some((department) => department.id === departmentId);
   const statusOptions = showSeparated ? EMPLOYMENT_STATUSES : ACTIVE_STATUSES;
@@ -206,7 +261,7 @@ export function EmployeesManager({
   function clearFilters() {
     window.clearTimeout(searchTimer.current);
     setQuery('');
-    setParams({ q: null, department: null, status: null });
+    setParams({ q: null, department: null, status: null, onboarding: null });
   }
 
   const previewRow = inspector.employeeId
@@ -240,19 +295,39 @@ export function EmployeesManager({
               <Receipt aria-hidden="true" className="size-4.5" />
               Check a receipt
             </Button>
-            {expirySettings.canChange ? (
-              <Button
-                variant="secondary"
-                onClick={(event) => {
-                  settingsFocus.remember(event.currentTarget);
-                  setSettingsNotice(null);
-                  setSettingsSession((count) => count + 1);
-                  setSettingsOpen(true);
-                }}
-              >
-                <Settings aria-hidden="true" className="size-4.5" />
-                Settings
-              </Button>
+            {canChangeSettings ? (
+              <Popover open={settingsMenuOpen} onOpenChange={setSettingsMenuOpen}>
+                <PopoverTrigger asChild>
+                  <Button ref={settingsButton} variant="secondary">
+                    <Settings aria-hidden="true" className="size-4.5" />
+                    Settings
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-1.5" aria-label="Settings">
+                  <div className="flex flex-col">
+                    {expirySettings.canChange ? (
+                      <Button
+                        variant="plain"
+                        className="justify-start text-text-primary"
+                        onClick={() => openSettings('expiry')}
+                      >
+                        <CalendarClock aria-hidden="true" className="size-4.5" />
+                        Expiry alerts
+                      </Button>
+                    ) : null}
+                    {onboardingSettings.canChange ? (
+                      <Button
+                        variant="plain"
+                        className="justify-start text-text-primary"
+                        onClick={() => openSettings('onboarding')}
+                      >
+                        <FileCheck aria-hidden="true" className="size-4.5" />
+                        Required onboarding documents
+                      </Button>
+                    ) : null}
+                  </div>
+                </PopoverContent>
+              </Popover>
             ) : null}
           </>
         }
@@ -262,21 +337,33 @@ export function EmployeesManager({
           <CheckReceiptSheet key={receiptSession} />
         </SheetContent>
       </Sheet>
-      {expirySettings.canChange ? (
+      {canChangeSettings ? (
         <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
           <SheetContent
             aria-describedby={undefined}
             onCloseAutoFocus={settingsFocus.onCloseAutoFocus}
           >
-            <ExpiryAlertsSheet
-              key={settingsSession}
-              settings={expirySettings}
-              onSaved={(message) => {
-                setSettingsOpen(false);
-                setSettingsNotice(message);
-                router.refresh();
-              }}
-            />
+            {settingsSheet === 'onboarding' ? (
+              <OnboardingDocumentsSheet
+                key={settingsSession}
+                settings={onboardingSettings}
+                onSaved={(message) => {
+                  setSettingsOpen(false);
+                  setSettingsNotice(message);
+                  router.refresh();
+                }}
+              />
+            ) : (
+              <ExpiryAlertsSheet
+                key={settingsSession}
+                settings={expirySettings}
+                onSaved={(message) => {
+                  setSettingsOpen(false);
+                  setSettingsNotice(message);
+                  router.refresh();
+                }}
+              />
+            )}
           </SheetContent>
         </Sheet>
       ) : null}
@@ -307,6 +394,46 @@ export function EmployeesManager({
           ))}
         </ul>
       </section>
+
+      {onboardingCounts ? (
+        <section aria-labelledby={onboardingStatsId} className="flex flex-col gap-2">
+          <h2
+            id={onboardingStatsId}
+            className="px-1 text-footnote font-semibold text-text-secondary"
+          >
+            Onboarding
+          </h2>
+          <ul className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            {(
+              [
+                ['incomplete', 'Incomplete', onboardingCounts.incomplete],
+                ['verify', 'To verify', onboardingCounts.toVerify],
+              ] as const
+            ).map(([filter, label, count]) => (
+              <li key={filter} className="flex min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setParams({ onboarding: onboarding === filter ? null : filter })}
+                  aria-pressed={onboarding === filter}
+                  aria-label={`${label}: ${countFormat.format(count)}. ${
+                    onboarding === filter ? 'Show everyone' : 'Show only these employees'
+                  }`}
+                  className={cn(
+                    'flex min-w-0 flex-1 flex-col gap-1 rounded-card bg-surface p-4 text-left shadow-card md:p-5',
+                    'hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+                    onboarding === filter && 'ring-2 ring-accent',
+                  )}
+                >
+                  <span className="text-subheadline font-semibold text-text-secondary">
+                    {label}
+                  </span>
+                  <span className="numeric text-display">{countFormat.format(count)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
@@ -388,6 +515,30 @@ export function EmployeesManager({
               ))}
             </Select>
           </div>
+          {onboardingCounts ? (
+            <div className="flex w-full flex-col gap-1.5 sm:w-44">
+              <label
+                htmlFor={onboardingFilterId}
+                className="text-footnote font-semibold text-text-secondary"
+              >
+                Onboarding
+              </label>
+              <Select
+                id={onboardingFilterId}
+                value={onboarding ?? ''}
+                onChange={(event) => setParams({ onboarding: event.target.value || null })}
+                disabled={filtering}
+                aria-busy={filtering || undefined}
+              >
+                <option value="">Everyone</option>
+                {(Object.keys(ONBOARDING_FILTER_LABELS) as OnboardingFilter[]).map((option) => (
+                  <option key={option} value={option}>
+                    {ONBOARDING_FILTER_LABELS[option]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
           <div className="flex min-h-11 items-center gap-3 sm:ml-auto" aria-busy={filtering}>
             <label htmlFor={separatedId} className="text-subheadline font-medium text-text-primary">
               Show separated

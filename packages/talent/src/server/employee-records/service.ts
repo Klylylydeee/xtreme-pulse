@@ -7,21 +7,30 @@ import {
   EMPLOYMENT_STATUS,
   EMPLOYMENT_STATUSES,
   initialsOf,
+  now,
   startOfBusinessDate,
   toBusinessDate,
 } from '@pulse/core';
 import {
   canChangeEmployeePhoto,
   type EmployeeIdentity,
+  employeeOnboardingFacts,
   encryptSensitive,
   getEmployeeIdentity,
   listEmployeeIdentities,
-  recordAudit,
+  type ReloadedActor,
   reloadActorAccess,
   sensitiveLastFour,
-  snapshotForAudit,
-  snapshotsForAudit,
+  userNames,
 } from '@pulse/core/server';
+import {
+  type MarkVerifiedInput,
+  markVerifiedSchema,
+  type NoSupervisorConfirmationInput,
+  noSupervisorConfirmationSchema,
+  type VerificationGroup,
+} from '../../onboarding/inputs';
+import { ONBOARDING_REQUIRED_FIELDS, onboardingFilledFields } from '../../onboarding/status';
 import { isContractEndDateMissing, probationEndDate } from '../../derived';
 import { DEFAULT_WORK_REGION } from '../../fixed-sets';
 import {
@@ -56,7 +65,9 @@ import { getESignatureStatus } from '../e-signatures/service';
 import {
   assertCanChangeBirthAndCivilStatus,
   assertCanChangeSensitiveDetails,
+  assertCanConfirmNoSupervisor,
   assertCanEditEmployeeRecord,
+  assertCanVerifySensitiveDetails,
   assertCanReadEmployeeRecords,
   canChangeBirthAndCivilStatus,
   canChangeSensitiveDetails,
@@ -68,7 +79,9 @@ import {
   canRemoveCertifications,
   canSeeAllowances,
   canSeeBirthAndCivilStatus,
+  canSeeOnboardingOverview,
   canSeeSensitiveSection,
+  canVerifySensitiveDetails,
   type RecordTarget,
   type TalentActor,
 } from '../policy';
@@ -77,7 +90,10 @@ import {
   EMPLOYEE_RECORD_SENSITIVE_SELECT,
   type EmployeeRecordDocument,
   EmployeeRecordModel,
+  type Verification,
 } from './model';
+import { type OnboardingFilter, onboardingOverview } from '../onboarding/service';
+import { loadRecordForWrite, writeEmployeeRecord } from './write';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21, SECURITY.md#sensitive-data and
 // docs/DATA_MODEL.md#collection-ownership (decisions 155–170 in docs/BUILD_PLAN.md).
@@ -120,6 +136,11 @@ export interface ListEmployeeRecordsOptions {
   status?: EmploymentStatus | null;
   /** "Show separated". */
   separated?: boolean;
+  /**
+   * Step 2.6: `?onboarding=incomplete|verify`, for HR and the System Administrator only (ignored
+   * for anyone else, who gets neither the filter nor the tiles).
+   */
+  onboarding?: OnboardingFilter | null;
 }
 
 /**
@@ -152,14 +173,33 @@ async function filledInSet(
  */
 export async function listEmployeeRecords(
   actor: TalentActor,
-  { q, departmentId, status, separated = false }: ListEmployeeRecordsOptions = {},
+  {
+    q,
+    departmentId,
+    status,
+    separated = false,
+    onboarding = null,
+  }: ListEmployeeRecordsOptions = {},
 ): Promise<EmployeeList> {
   assertCanReadEmployeeRecords(actor);
   await connectDb();
-  const [identities, everyone] = await Promise.all([
+  const [listed, everyone] = await Promise.all([
     listEmployeeIdentities(actor, { q, departmentId, status, separated }),
     listEmployeeIdentities(actor),
   ]);
+  // Step 2.6: the onboarding filter and tiles, for HR and the System Administrator only.
+  const overview = canSeeOnboardingOverview(actor)
+    ? await onboardingOverview([
+        ...new Set([...listed, ...everyone].map((identity) => identity.employeeId)),
+      ])
+    : null;
+  const identities =
+    overview && onboarding
+      ? listed.filter((identity) => {
+          const entry = overview.get(identity.employeeId);
+          return onboarding === 'incomplete' ? entry?.incomplete : entry?.toVerify;
+        })
+      : listed;
   const filled = await filledInSet(actor, identities);
 
   const rows = identities.map((identity): EmployeeListRow => ({
@@ -189,7 +229,15 @@ export async function listEmployeeRecords(
     status: s,
     count: counts.get(s) ?? 0,
   }));
-  return { rows, stats };
+  const list: EmployeeList = { rows, stats };
+  if (overview) {
+    const active = everyone.map((identity) => overview.get(identity.employeeId));
+    list.onboarding = {
+      incomplete: active.filter((entry) => entry?.incomplete).length,
+      toVerify: active.filter((entry) => entry?.toVerify).length,
+    };
+  }
+  return list;
 }
 
 async function maskedDigits(
@@ -255,6 +303,20 @@ async function buildView(
     buildCertificationsSection(viewer, identity.employeeId, today),
   ]);
   const own = viewer.employee !== null && viewer.employee.id === identity.employeeId;
+  const canVerify = canVerifySensitiveDetails(viewer, target);
+  const verifiers = await userNames(
+    [
+      showIds ? record?.governmentIdsVerification?.verifiedBy : null,
+      showBank ? record?.bankAccountVerification?.verifiedBy : null,
+    ].flatMap((id) => (id ? [id] : [])),
+  );
+  const verificationView = (verification: Verification | null | undefined) =>
+    verification
+      ? {
+          verifiedAt: verification.verifiedAt,
+          verifiedByName: verifiers.get(verification.verifiedBy.toHexString()) ?? 'Unknown user',
+        }
+      : null;
   const view: EmployeeRecordView = {
     employeeId: identity.employeeId,
     identity,
@@ -292,6 +354,17 @@ async function buildView(
       editSkills: !readOnly && canEditSkills(viewer, target),
       // Only the owner uploads, on /talent/me (the read-only own view).
       uploadESignature: readOnly && own,
+      // Step 2.6: a verifier, once the group is complete and not yet verified (decision 265).
+      markGovernmentIdsVerified:
+        !readOnly &&
+        canVerify &&
+        isVerificationGroupComplete(record, 'governmentIds') &&
+        !record?.governmentIdsVerification,
+      markBankAccountVerified:
+        !readOnly &&
+        canVerify &&
+        isVerificationGroupComplete(record, 'bankAccount') &&
+        !record?.bankAccountVerification,
     },
     editInUsersHref:
       !readOnly && canManageEmployeeAccount(viewer)
@@ -325,6 +398,7 @@ async function buildView(
       sss: await masked('sss'),
       philhealth: await masked('philhealth'),
       pagibig: await masked('pagibig'),
+      verification: verificationView(record?.governmentIdsVerification),
     };
   }
   if (showBank) {
@@ -335,6 +409,7 @@ async function buildView(
         ? await maskedDigits(bank?.accountNumber, recordId, BANK_ACCOUNT_NUMBER_FIELD)
         : null,
       accountName: bank?.accountName ?? null,
+      verification: verificationView(record?.bankAccountVerification),
     };
   }
   if (!showIds || !showBank || !showSalary) view.restrictedNotice = RESTRICTED_SECTIONS_NOTICE;
@@ -382,11 +457,22 @@ type SectionCheck = (actor: TalentActor, target: RecordTarget) => void;
 interface SectionSave {
   employeeId: string;
   version: number;
-  /** The fields to set, as dotted paths; sensitive values already encrypted. */
-  changes: Record<string, unknown>;
+  /**
+   * The fields to set, as dotted paths; sensitive values already encrypted. A function builds them
+   * in the transaction, from the actor and the stored record as they are then.
+   */
+  changes:
+    | Record<string, unknown>
+    | ((
+        current: ReloadedActor,
+        existing: EmployeeRecordDocument | null,
+      ) => Record<string, unknown>);
   check: SectionCheck;
   /** Checks against the stored record, in the transaction, throwing ActionError. */
-  validate?: (existing: EmployeeRecordDocument | null) => void;
+  validate?: (
+    existing: EmployeeRecordDocument | null,
+    session: ClientSession,
+  ) => void | Promise<void>;
 }
 
 function isDuplicateKey(error: unknown): boolean {
@@ -398,8 +484,9 @@ async function preCheck(
   actor: TalentActor,
   employeeId: string,
   check: SectionCheck,
+  gate: SectionCheck = assertCanEditEmployeeRecord,
 ): Promise<EmployeeIdentity> {
-  assertCanEditEmployeeRecord(actor, { employeeId, departmentCode: null });
+  gate(actor, { employeeId, departmentCode: null });
   const identity = await getEmployeeIdentity(actor, employeeId, { separated: true });
   if (!identity) throw new ActionError(EMPLOYEE_GONE);
   check(actor, targetOf(identity));
@@ -419,62 +506,22 @@ async function saveSection(actor: TalentActor, save: SectionSave): Promise<{ ver
       if (!identity) throw new ActionError(EMPLOYEE_GONE);
       save.check(current, targetOf(identity));
 
-      const existing = (await EmployeeRecordModel.findOne({ employeeId: identity.employeeId })
-        .select(EMPLOYEE_RECORD_SENSITIVE_SELECT)
-        .session(session)
-        .lean()) as EmployeeRecordDocument | null;
+      const existing = await loadRecordForWrite(identity.employeeId, session);
       if ((existing?.version ?? 0) !== save.version) {
         throw new ActionError(RECORD_CHANGED_ELSEWHERE);
       }
-      save.validate?.(existing);
-
-      const label = recordLabel(identity);
-      if (!existing) {
-        const record = new EmployeeRecordModel({
-          employeeId: identity.employeeId,
-          version: 1,
-          createdBy: current.id,
-          updatedBy: current.id,
-        });
-        record.set(save.changes);
-        await record.save({ session });
-        await recordAudit(
-          {
-            actorId: current.id,
-            actorEmail: current.email,
-            module: 'talent',
-            action: 'create',
-            record: { type: EMPLOYEE_RECORD_TYPE, id: record._id, label },
-            before: null,
-            after: snapshotForAudit(EmployeeRecordModel, record),
-          },
-          { session },
-        );
-        return { version: 1 };
-      }
-
-      const updated = (await EmployeeRecordModel.findOneAndUpdate(
-        { _id: existing._id, version: existing.version },
-        { $set: { ...save.changes, updatedBy: current.id }, $inc: { version: 1 } },
-        { session, returnDocument: 'after', runValidators: true },
-      )
-        .select(EMPLOYEE_RECORD_SENSITIVE_SELECT)
-        .lean()) as EmployeeRecordDocument | null;
-      if (!updated) throw new ActionError(RECORD_CHANGED_ELSEWHERE);
-      const { before, after } = snapshotsForAudit(EmployeeRecordModel, existing, updated);
-      await recordAudit(
-        {
-          actorId: current.id,
-          actorEmail: current.email,
-          module: 'talent',
-          action: 'update',
-          record: { type: EMPLOYEE_RECORD_TYPE, id: existing._id, label },
-          before,
-          after,
-        },
-        { session },
-      );
-      return { version: updated.version };
+      await save.validate?.(existing, session);
+      const changes =
+        typeof save.changes === 'function' ? save.changes(current, existing) : save.changes;
+      const { version } = await writeEmployeeRecord({
+        actor: current,
+        employeeId: identity.employeeId,
+        label: recordLabel(identity),
+        existing,
+        changes,
+        session,
+      });
+      return { version };
     });
   } catch (error) {
     // Two first saves at once: the unique `employeeId` index refused the second insert.
@@ -555,6 +602,11 @@ export async function updateEmployment(
 
 const sensitiveCheck: SectionCheck = (who, target) => assertCanChangeSensitiveDetails(who, target);
 
+/** A group's verification by `actor`, now (step 2.6). */
+function verificationBy(actor: { id: string }): Verification {
+  return { verifiedAt: now(), verifiedBy: new Types.ObjectId(actor.id) };
+}
+
 /**
  * Saves the Government IDs: Talent Write and HR or the System Administrator; for an HR-department
  * employee, Talent Write and the System Administrator or a Board member. Never one's own. An
@@ -577,7 +629,8 @@ export async function setGovernmentIds(
   return saveSection(actor, {
     employeeId: values.employeeId,
     version: values.version,
-    changes,
+    // A verifier's save verifies the group (decision 266): they may change it, so may verify it.
+    changes: (current) => ({ ...changes, governmentIdsVerification: verificationBy(current) }),
     check: sensitiveCheck,
   });
 }
@@ -605,7 +658,7 @@ export async function setBankAccount(
   return saveSection(actor, {
     employeeId: values.employeeId,
     version: values.version,
-    changes,
+    changes: (current) => ({ ...changes, bankAccountVerification: verificationBy(current) }),
     check: sensitiveCheck,
     validate: (existing) => {
       if (values.accountNumber === undefined && !existing?.bankAccount?.accountNumber) {
@@ -634,5 +687,90 @@ export async function setSkills(
     version: values.version,
     changes: { skills: values.skills },
     check,
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.6: "Mark verified" and "No supervisor" (docs/modules/talent.md#onboarding-checklist-and-
+// change-requests-build-step-26; decisions 260, 265 and 266 in docs/BUILD_PLAN.md).
+
+const GROUP_INCOMPLETE: Record<VerificationGroup, string> = {
+  governmentIds: 'Fill in every government ID and the RDO code before verifying them.',
+  bankAccount: 'Fill in the bank, the account number and the account name before verifying them.',
+};
+const HAS_ACTIVE_SUPERVISOR =
+  'This employee has an active supervisor, so “No supervisor” can’t be confirmed.';
+const NO_CONFIRMATION_TO_WITHDRAW = 'There’s no “No supervisor” confirmation to withdraw.';
+
+/** True when every required field of `group` holds a value on `record`. */
+export function isVerificationGroupComplete(
+  record: Parameters<typeof onboardingFilledFields>[0],
+  group: VerificationGroup,
+): boolean {
+  const filled = onboardingFilledFields(record);
+  return ONBOARDING_REQUIRED_FIELDS[group].every((field) => filled[field]);
+}
+
+/**
+ * "Mark verified" on the inspector's Government IDs or Payroll bank account section: whoever may
+ * change that group (Talent Write and HR or the System Administrator; for an HR employee, the
+ * System Administrator or a Board member), never on one's own record, once the group is complete.
+ * One `update` entry on `talent.employeeRecord`, with the verification in both snapshots.
+ */
+export async function markVerified(
+  actor: TalentActor,
+  input: MarkVerifiedInput,
+): Promise<{ version: number }> {
+  const parsed = markVerifiedSchema.safeParse(input);
+  if (!parsed.success) throw inputError(parsed.error.issues);
+  const { employeeId, version, group } = parsed.data;
+  const check: SectionCheck = (who, target) => assertCanVerifySensitiveDetails(who, target);
+  // Before the employee's department is known: Talent Write and not one's own record.
+  await preCheck(actor, employeeId, check);
+  return saveSection(actor, {
+    employeeId,
+    version,
+    changes: (current) => ({ [`${group}Verification`]: verificationBy(current) }),
+    check,
+    validate: (existing) => {
+      if (!isVerificationGroupComplete(existing, group)) {
+        throw new ActionError(GROUP_INCOMPLETE[group]);
+      }
+    },
+  });
+}
+
+/**
+ * "Confirm no supervisor" (`confirmed: true`) or "Withdraw" (`false`) on the inspector's
+ * Onboarding section: Talent Read and HR, a Board member or the System Administrator, never on
+ * one's own record. Confirming is refused while the employee has an active supervisor. One
+ * `update` entry on `talent.employeeRecord` (`create` when it is the record's first save).
+ */
+export async function setNoSupervisorConfirmation(
+  actor: TalentActor,
+  input: NoSupervisorConfirmationInput,
+): Promise<{ version: number }> {
+  const parsed = noSupervisorConfirmationSchema.safeParse(input);
+  if (!parsed.success) throw inputError(parsed.error.issues);
+  const { employeeId, version, confirmed } = parsed.data;
+  const check: SectionCheck = (who, target) => assertCanConfirmNoSupervisor(who, target);
+  await preCheck(actor, employeeId, check, check);
+  return saveSection(actor, {
+    employeeId,
+    version,
+    changes: (current) => ({
+      noSupervisorConfirmation: confirmed
+        ? { confirmedAt: now(), confirmedBy: new Types.ObjectId(current.id) }
+        : null,
+    }),
+    check,
+    validate: async (existing, session) => {
+      if (!confirmed) {
+        if (!existing?.noSupervisorConfirmation) throw new ActionError(NO_CONFIRMATION_TO_WITHDRAW);
+        return;
+      }
+      const [facts] = await employeeOnboardingFacts([employeeId], { session });
+      if ((facts?.activeSupervisorCount ?? 0) > 0) throw new ActionError(HAS_ACTIVE_SUPERVISOR);
+    },
   });
 }

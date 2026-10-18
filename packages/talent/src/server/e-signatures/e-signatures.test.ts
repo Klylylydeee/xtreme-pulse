@@ -12,6 +12,7 @@ import {
   registerApprovalType,
   submitApproval,
 } from '@pulse/core/server';
+import { OnboardingGateError } from '../../onboarding/gates';
 import { E_SIGNATURE_TYPE, SIGNATURE_APPLICATION_TYPE } from '../../views';
 import { getEmployeeRecordView, getOwnRecordView } from '../employee-records/service';
 import { registerTalentFileAccess } from '../files/registrations';
@@ -102,6 +103,15 @@ async function approve(approver: Person, requestId: string): Promise<void> {
     remarks: null,
     version: stored?.version as number,
   });
+}
+
+/** How many audit entries, signature applications and notifications are stored. */
+async function countWrites() {
+  return {
+    audit: await database().collection('auditLogs').countDocuments(),
+    applications: await SignatureApplicationModel.countDocuments(),
+    notifications: await database().collection('notifications').countDocuments(),
+  };
 }
 
 async function decisionOf(requestId: string) {
@@ -258,11 +268,86 @@ describe('signing approvals (the step’s "Done when")', () => {
     expect(entry?.record.label.startsWith(`${approver.employeeNumber} · Approval: `)).toBe(true);
   });
 
-  it('approves without a signature when none is on file (signature null)', async () => {
+  it('refuses an approve with no signature on file (the step 2.6 gate), writing nothing', async () => {
     const approver = await person('Wilma', 'Ortiz', NET);
     const requestId = await submitFor(approver, 'B-1');
-    await approve(approver, requestId);
-    expect((await decisionOf(requestId))?.signature).toBeNull();
+    const before = await countWrites();
+    const hooksBefore = hookStamps.length;
+    const refusal = approve(approver, requestId);
+    await expect(refusal).rejects.toBeInstanceOf(OnboardingGateError);
+    await expect(refusal).rejects.toThrow(
+      'Complete this onboarding item first: E-signature. Upload it in My record, then try again.',
+    );
+    // The decision rolled back: still pending, no decision, entry, application or notification.
+    const stored = await database()
+      .collection('approvalRequests')
+      .findOne({ _id: new Types.ObjectId(requestId) });
+    expect(stored?.status).toBe('pending');
+    expect(stored?.steps[0].decisions).toEqual([]);
+    expect(await countWrites()).toEqual(before);
+    expect(hookStamps.length).toBe(hooksBefore);
+
+    // Return and reject sign nothing and aren't gated.
+    await decideApproval({ id: approver.userId, email: approver.actor.email }, requestId, {
+      decision: 'return',
+      remarks: 'Please attach the quote.',
+      version: stored?.version as number,
+    });
+    const returned = await database()
+      .collection('approvalRequests')
+      .findOne({ _id: new Types.ObjectId(requestId) });
+    expect(returned?.status).toBe('returned');
+    const other = await submitFor(approver, 'B-2');
+    const otherStored = await database()
+      .collection('approvalRequests')
+      .findOne({ _id: new Types.ObjectId(other) });
+    await decideApproval({ id: approver.userId, email: approver.actor.email }, other, {
+      decision: 'reject',
+      remarks: 'Not needed.',
+      version: otherStored?.version as number,
+    });
+
+    // After uploading a signature, the same kind of approve succeeds, signed with version 1.
+    await uploadESignature(approver.actor, pngFile());
+    const third = await submitFor(approver, 'B-3');
+    await approve(approver, third);
+    expect((await decisionOf(third))?.signature.version).toBe(1);
+  });
+
+  it('lets the bootstrap system account approve a request routed to the System Administrators, unsigned', async () => {
+    const system = await systemAccount();
+    const submitted = await withTransaction((session) =>
+      submitApproval(
+        {
+          type: TYPE,
+          record: { type: 'talent.testRecord', id: new Types.ObjectId(), label: 'S-1' },
+          title: 'Request S-1',
+          href: '/talent',
+          requesterUserId: requester.userId,
+          steps: [
+            {
+              kind: 'anyOf',
+              label: 'Approver',
+              approvers: { userIds: [] },
+              whenEmpty: 'systemAdministrator',
+            },
+          ],
+        },
+        { session },
+      ),
+    );
+    expect(submitted.routedToSystemAdministrator).toBe(true);
+    const stored = await database()
+      .collection('approvalRequests')
+      .findOne({ _id: new Types.ObjectId(submitted.id) });
+    await decideApproval(
+      { id: system.id, email: system.email, isSystemAdministrator: true },
+      submitted.id,
+      { decision: 'approve', remarks: null, version: stored?.version as number },
+    );
+    const decision = await decisionOf(submitted.id);
+    expect(decision?.decision).toBe('approve');
+    expect(decision?.signature).toBeNull();
   });
 
   it('signs as the actor only and returns null for the system account', async () => {

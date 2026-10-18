@@ -16,7 +16,7 @@ import { DestructiveConfirmDialog } from '@pulse/ui/components/confirm-dialog';
 import { Switch } from '@pulse/ui/components/form';
 import { Badge } from '@/components/org-structure';
 import { removeCertificationAction } from '@/lib/actions/talent';
-import { RecordCard, RecordSection, Row } from './record-ui';
+import { RecordCard, RecordSection, Row, SectionActions } from './record-ui';
 
 // Spec: docs/modules/talent.md#documents-photo-e-signature-and-certifications-build-step-22,
 // SECURITY.md#sensitive-data and docs/DESIGN_SYSTEM.md#layout--components ("Documents and
@@ -304,9 +304,12 @@ function DocumentRow({
 export function SkillsCertificationsSection({
   view,
   handlers,
+  skillsAction,
 }: {
   view: EmployeeRecordView;
   handlers?: DocumentHandlers;
+  /** An extra action beside Skills' Edit (step 2.6: "Request change" on `/talent/me`). */
+  skillsAction?: ReactNode;
 }) {
   const { can, skills, certifications } = view;
   const name = `${view.identity.firstName} ${view.identity.lastName}`;
@@ -319,12 +322,15 @@ export function SkillsCertificationsSection({
           <h4 id={skillsId} className="text-footnote font-semibold text-text-secondary">
             Skills
           </h4>
-          {handlers && can.editSkills ? (
-            <Button variant="plain" onClick={handlers.onEditSkills} aria-label="Edit skills">
-              <PencilLine aria-hidden="true" className="size-4.5" />
-              Edit
-            </Button>
-          ) : null}
+          <SectionActions>
+            {handlers && can.editSkills ? (
+              <Button variant="plain" onClick={handlers.onEditSkills} aria-label="Edit skills">
+                <PencilLine aria-hidden="true" className="size-4.5" />
+                Edit
+              </Button>
+            ) : null}
+            {skillsAction}
+          </SectionActions>
         </div>
         <div className="rounded-card bg-surface px-4 py-3 shadow-card">
           {skills.length > 0 ? (
@@ -439,6 +445,11 @@ function CertificationRow({
           ? ` · Expires ${formatDate(certification.expiryDate)}`
           : ' · No expiry'}
       </p>
+      {certification.addedByName ? (
+        <p className="px-4 text-footnote break-words text-text-secondary">
+          Added by {certification.addedByName}
+        </p>
+      ) : null}
       {certification.attachmentUrl || (handlers && (canEdit || canRemove)) ? (
         <div className="flex flex-wrap items-center gap-1 px-1">
           {certification.attachmentUrl ? (

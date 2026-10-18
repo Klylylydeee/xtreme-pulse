@@ -37,6 +37,7 @@ import {
 import { signOutAction } from '@/lib/sign-out';
 import { CompanyLogo } from './company-logo';
 import { NotificationRouteWatcher, useNotificationBell } from './notification-bell';
+import { OnboardingProgress } from './onboarding-progress';
 import { useShellPageTitleState } from './shell-page-title';
 
 /** What the sidebar shows: the hrefs of the sections the user can open, and the counts. */
@@ -284,7 +285,8 @@ function AccountContent({ email }: { email: string }) {
  * sidebar, and the command bar built from it, list only those; hiding them is never access control,
  * since every page checks for itself
  * (SECURITY.md#resolving-and-enforcing-build-step-16). Status pages set their toolbar and tab
- * title with `ShellPageTitle`.
+ * title with `ShellPageTitle`. From step 2.6 the toolbar also shows the onboarding progress pill
+ * before the bell while any of the user's own onboarding items is To do (`OnboardingProgress`).
  */
 export function PulseShell({
   email,
@@ -339,6 +341,7 @@ export function PulseShell({
         notificationsUnread={bell.unread}
         notificationsOpen={bell.open}
         onNotificationsOpenChange={bell.onOpenChange}
+        status={<OnboardingProgress pathname={pathname} />}
         help={<HelpContent />}
         account={<AccountContent email={email} />}
       >

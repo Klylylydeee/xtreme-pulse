@@ -1,24 +1,36 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Suspense } from 'react';
-import { UserRound } from 'lucide-react';
+import { ChevronRight, ListChecks, UserRound } from 'lucide-react';
 import { ActionError } from '@pulse/core';
-import type { CurrentUser } from '@pulse/core/server';
-import type { WorkScheduleSectionView } from '@pulse/talent';
-import { getOwnRecordView, getWorkScheduleSection, listOwnESignatures } from '@pulse/talent/server';
+import { type CurrentUser, listBrandOptions } from '@pulse/core/server';
+import { EMPLOYEE_UPLOAD_DOCUMENT_TYPES, type WorkScheduleSectionView } from '@pulse/talent';
+import {
+  getOwnChangeRequestStates,
+  getOwnOnboardingReminder,
+  getOwnRecordView,
+  getWorkScheduleSection,
+  listOwnChangeRequests,
+  listOwnESignatures,
+} from '@pulse/talent/server';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { EmptyState } from '@pulse/ui/components/empty-state';
+import { IconTile } from '@pulse/ui/components/icon-tile';
 import { PageHeader } from '@pulse/ui/components/page-header';
 import { Skeleton } from '@pulse/ui/components/skeleton';
 import { Badge } from '@/components/org-structure';
 import { requireCurrentUser } from '@/lib/auth';
+import { ONBOARDING_HREF } from '@/lib/navigation';
+import { onboardingDoneText } from '@/lib/onboarding';
 import { getUploadHints } from '@/lib/upload-hints';
-import { EmployeeRecordSections, WorkScheduleSection } from '../employee-record-sections';
+import { WorkScheduleSection } from '../employee-record-sections';
 import { OwnPhotoAndSignature } from './own-photo-signature';
+import { OwnRecord } from './own-record';
 
 export const metadata: Metadata = { title: 'My record' };
 
 const DESCRIPTION =
-  'Your employee record. Change your photo and e-signature here; for anything else, ask HR. Each time you reveal a hidden value or open a document, it’s recorded.';
+  'Your employee record. Fill in what’s empty and it’s saved; changes to filled-in details go for approval. Each time you reveal a hidden value or open a document, it’s recorded.';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 170) and
 // SECURITY.md#exceptions-to-module-access — the employee's own record, self-service outside
@@ -45,6 +57,13 @@ const DESCRIPTION =
 // Work schedule section, read-only: the schedule in effect, the scheduled changes and the
 // history, for the signed-in user's own employee (the id comes from their own record, never the
 // request). When no company schedule is set yet, the section is left out instead of the page.
+//
+// From step 2.6 (docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26,
+// decisions 266–268 and 275) the employee edits their own Personal, Government IDs, Payroll bank
+// account and Skills sections (empty fields saved straight away, changes to filled-in ones sent as
+// change requests), uploads their own 201 documents and adds certifications, and sees their own
+// Change requests list. A link to the onboarding checklist shows while any own item is To do.
+// Every one of these reads and writes the signed-in user's own employee only.
 export default async function MyRecordPage() {
   const user = await requireCurrentUser();
   return (
@@ -58,12 +77,16 @@ export default async function MyRecordPage() {
 }
 
 async function MyRecord({ user }: { user: CurrentUser }) {
-  const [view, versions, uploads] = await Promise.all([
+  const [view, versions, uploads, states, changeRequests, brands, reminder] = await Promise.all([
     getOwnRecordView(user),
     listOwnESignatures(user),
     getUploadHints(),
+    getOwnChangeRequestStates(user),
+    listOwnChangeRequests(user),
+    listBrandOptions(),
+    getOwnOnboardingReminder(user),
   ]);
-  if (!view) {
+  if (!view || !states) {
     return (
       <EmptyState
         icon={<UserRound strokeWidth={1.75} />}
@@ -105,9 +128,34 @@ async function MyRecord({ user }: { user: CurrentUser }) {
         canUploadSignature={view.can.uploadESignature}
         imageUpload={uploads.image}
       />
-      <EmployeeRecordSections
+      {reminder?.showReminder ? (
+        <Link
+          href={ONBOARDING_HREF}
+          className="flex min-h-11 items-center gap-3 rounded-card bg-surface px-4 py-3 shadow-card hover:bg-accent-subtle/30"
+        >
+          <IconTile className="size-9 rounded-lg [&_svg]:size-4.5">
+            <ListChecks strokeWidth={1.75} />
+          </IconTile>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-subheadline font-semibold">Onboarding checklist</span>
+            <span className="numeric text-footnote text-text-secondary">
+              {onboardingDoneText(reminder)}
+            </span>
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            strokeWidth={1.75}
+            className="size-4.5 shrink-0 text-text-secondary"
+          />
+        </Link>
+      ) : null}
+      <OwnRecord
         view={view}
-        showESignature={false}
+        states={states}
+        changeRequests={changeRequests}
+        brands={brands}
+        documentUpload={uploads.document}
+        uploadTypes={EMPLOYEE_UPLOAD_DOCUMENT_TYPES}
         workSchedule={workSchedule ? <WorkScheduleSection section={workSchedule} /> : null}
       />
     </div>

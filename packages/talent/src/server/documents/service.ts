@@ -1,17 +1,22 @@
 import { type ClientSession, Types } from 'mongoose';
 import { connectDb, withTransaction } from '@pulse/db';
-import { ActionError, type BusinessDate, businessToday, now } from '@pulse/core';
+import type { z } from 'zod';
+import { AccessDeniedError, ActionError, type BusinessDate, businessToday, now } from '@pulse/core';
 import {
+  activeHrUserIds,
+  activeSystemAdministrators,
   type EmployeeIdentity,
   getEmployeeIdentity,
-  listEmployeeIdentities,
+  notify,
   recordAudit,
   reloadActorAccess,
   saveUpload,
   snapshotForAudit,
   snapshotsForAudit,
+  userNames,
 } from '@pulse/core/server';
 import { expiryStateOf } from '../../derived';
+import { canEmployeeUploadDocumentType } from '../../onboarding/settings';
 import {
   DOCUMENT_201_TYPE_LABELS,
   type Document201Category,
@@ -323,20 +328,18 @@ export interface DocumentsSection {
   notice?: string;
 }
 
-/** The names of the users who uploaded, for a viewer with Talent Read (else none). */
-async function uploaderNames(
+/**
+ * The names of the users who uploaded or added something to `employeeId`'s record, for the
+ * employee and a viewer with Talent Read (else none): "Uploaded by <name>", "Added by <name>".
+ */
+export async function creatorNames(
   viewer: TalentActor,
+  employeeId: string,
   userIds: Types.ObjectId[],
 ): Promise<Map<string, string>> {
-  const names = new Map<string, string>();
-  if (userIds.length === 0 || !canReadEmployeeRecords(viewer)) return names;
-  const wanted = new Set(userIds.map((id) => id.toHexString()));
-  for (const identity of await listEmployeeIdentities(viewer, { separated: true })) {
-    if (identity.userId && wanted.has(identity.userId)) {
-      names.set(identity.userId, `${identity.firstName} ${identity.lastName}`);
-    }
-  }
-  return names;
+  const own = viewer.employee !== null && viewer.employee.id === employeeId;
+  if (userIds.length === 0 || !(own || canReadEmployeeRecords(viewer))) return new Map();
+  return userNames(userIds);
 }
 
 /**
@@ -363,8 +366,9 @@ export async function buildDocumentsSection(
       .lean<EmployeeDocumentRecord[]>(),
     expiryLeadDaysOn(today),
   ]);
-  const names = await uploaderNames(
+  const names = await creatorNames(
     viewer,
+    target.employeeId,
     records.flatMap((record) => (record.createdBy ? [record.createdBy] : [])),
   );
   const documents = records.map((record): EmployeeDocumentView => {
@@ -403,4 +407,133 @@ export async function listEmployeeDocuments(
   const identity = await getEmployeeIdentity(actor, employeeId, { separated: true });
   if (!identity) return null;
   return buildDocumentsSection(actor, targetOf(identity));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.6: the employee uploads their own 201 documents (docs/modules/talent.md#onboarding-
+// checklist-and-change-requests-build-step-26, "What the employee changes themselves"; decision
+// 268 in docs/BUILD_PLAN.md). Self-service: no module access, no employee id taken. Any type but
+// the employment contract and the regularization evaluation; editing and archiving stay with HR.
+
+export const DOCUMENT_UPLOADED_EVENT = 'talent.documentUploaded';
+export const OWN_DOCUMENT_TYPE_REFUSED =
+  'HR issues the employment contract and the regularization evaluation. Choose another document type.';
+const NO_EMPLOYEE_DOCUMENTS = 'The system account has no employee record, so it has no 201 file.';
+
+/** "a government ID copy", "an NBI clearance": the type in a sentence, never the title or file. */
+const DOCUMENT_TYPE_PHRASES: Record<Document201Type, string> = {
+  employmentContract: 'an employment contract',
+  regularizationEvaluation: 'a regularization evaluation',
+  governmentIdCopy: 'a government ID copy',
+  nbiClearance: 'an NBI clearance',
+  medicalCertificate: 'a medical certificate',
+  diplomaTor: 'a diploma or TOR',
+  other: 'a 201 document',
+};
+
+/** What the own upload sheet sends: step 2.2's fields without the employee or a renewal. */
+export type OwnDocumentUploadInput = Omit<
+  z.input<typeof employeeDocumentAddSchema>,
+  'employeeId' | 'replacesDocumentId' | 'replacesVersion'
+>;
+
+/** Every active HR user, or the active System Administrators when none is active, but `exclude`. */
+async function hrOrAdministrators(exclude: string, session: ClientSession): Promise<string[]> {
+  const hr = await activeHrUserIds({ session });
+  const recipients = hr.length
+    ? hr
+    : (await activeSystemAdministrators(session)).map((admin) => admin.userId.toHexString());
+  return recipients.filter((id) => id !== exclude);
+}
+
+/**
+ * Uploads a 201 document to the signed-in user's own record (form field `file`): any type but the
+ * employment contract and the regularization evaluation, with step 2.2's checks and `create`
+ * entry. Takes no employee id. Notifies every active HR user (the System Administrators when none
+ * is active), naming the type only: "<name> uploaded an NBI clearance".
+ *
+ * The file is saved before the transaction (a side effect); if the transaction then fails, the
+ * saved file is left unused and never opens.
+ */
+export async function addOwnEmployeeDocument(
+  actor: TalentActor,
+  input: OwnDocumentUploadInput,
+  file: File,
+): Promise<{ documentId: string; version: number }> {
+  if (!actor.employee) throw new AccessDeniedError(NO_EMPLOYEE_DOCUMENTS);
+  const ownEmployeeId = actor.employee.id;
+  const parsed = employeeDocumentAddSchema.safeParse({
+    ...input,
+    employeeId: ownEmployeeId,
+    replacesDocumentId: undefined,
+    replacesVersion: undefined,
+  });
+  if (!parsed.success) throw inputError(parsed.error.issues);
+  const values = parsed.data;
+  if (!canEmployeeUploadDocumentType(values.type)) {
+    throw new ActionError(OWN_DOCUMENT_TYPE_REFUSED, { field: 'type' });
+  }
+  assertIssueDateNotInFuture(values.issueDate);
+  await connectDb();
+
+  const documentId = new Types.ObjectId();
+  const stored = await saveUpload({
+    file,
+    owner: { type: EMPLOYEE_DOCUMENT_TYPE, id: documentId },
+    actorId: objectIdOf(actor.id),
+    field: 'file',
+  });
+  const fileId = objectIdOf(stored.id);
+  if (!fileId) throw new Error('The stored document has no valid id.');
+
+  await withTransaction(async (session) => {
+    const current = await reloadActorAccess({ id: actor.id }, session);
+    if (!current.employee || current.employee.id !== ownEmployeeId) {
+      throw new AccessDeniedError(NO_EMPLOYEE_DOCUMENTS);
+    }
+    const identity = await getEmployeeIdentity(current, ownEmployeeId, { session });
+    if (!identity) throw new ActionError(EMPLOYEE_GONE);
+    const actorId = new Types.ObjectId(current.id);
+    const document = new EmployeeDocumentModel({
+      _id: documentId,
+      employeeId: new Types.ObjectId(identity.employeeId),
+      fileId,
+      type: values.type,
+      title: values.title,
+      issueDate: instantOf(values.issueDate),
+      expiryDate: instantOrNull(values.expiryDate),
+      version: 1,
+      createdBy: actorId,
+      updatedBy: actorId,
+    });
+    await document.save({ session });
+    await recordAudit(
+      {
+        actorId: current.id,
+        actorEmail: current.email,
+        module: 'talent',
+        action: 'create',
+        record: {
+          type: EMPLOYEE_DOCUMENT_TYPE,
+          id: documentId,
+          label: documentLabel(identity.employeeNumber, values.type),
+        },
+        before: null,
+        after: snapshotForAudit(EmployeeDocumentModel, document),
+      },
+      { session },
+    );
+    await notify(
+      {
+        recipients: await hrOrAdministrators(current.id, session),
+        module: 'talent',
+        event: DOCUMENT_UPLOADED_EVENT,
+        title: `${identity.firstName} ${identity.lastName} uploaded ${DOCUMENT_TYPE_PHRASES[values.type]}`,
+        href: `/talent?employee=${identity.employeeId}`,
+        record: { type: EMPLOYEE_DOCUMENT_TYPE, id: documentId },
+      },
+      { session },
+    );
+  });
+  return { documentId: documentId.toHexString(), version: 1 };
 }

@@ -92,13 +92,23 @@ export interface GovernmentIdsSectionView {
   sss: MaskedDigitsView | null;
   philhealth: MaskedDigitsView | null;
   pagibig: MaskedDigitsView | null;
+  /**
+   * Step 2.6: "Verified by <name> on <date>", or null ("Not verified"). Inside the section only,
+   * so it reaches only viewers who see the section.
+   */
+  verification: SectionVerificationView;
 }
 
 export interface BankAccountSectionView {
   bank: PayrollBank | null;
   accountNumber: MaskedDigitsView | null;
   accountName: string | null;
+  /** Step 2.6: as for the government IDs. */
+  verification: SectionVerificationView;
 }
+
+/** A group's verification (step 2.6), or null when it isn't verified. */
+export type SectionVerificationView = { verifiedAt: Date; verifiedByName: string } | null;
 
 export interface CompensationEntryView {
   id: string;
@@ -152,6 +162,13 @@ export interface EmployeeRecordPermissions {
   editSkills: boolean;
   /** Upload or Replace the e-signature: the owner only, on /talent/me. */
   uploadESignature: boolean;
+  /**
+   * Step 2.6: "Mark verified" on Government IDs: a verifier (the change rule, never one's own
+   * record), once the group is complete and not yet verified.
+   */
+  markGovernmentIdsVerified: boolean;
+  /** Step 2.6: "Mark verified" on Payroll bank account, as above. */
+  markBankAccountVerified: boolean;
 }
 
 export interface EmployeeRecordView {
@@ -230,6 +247,11 @@ export interface EmployeeList {
   rows: EmployeeListRow[];
   /** The stat tiles: active (not separated) employees by employment status, whatever the filters. */
   stats: { status: EmploymentStatus; count: number }[];
+  /**
+   * Step 2.6: the onboarding tiles ("Incomplete", "To verify") over active employees, whatever the
+   * filters. Present only for HR and the System Administrator (decision 274).
+   */
+  onboarding?: { incomplete: number; toVerify: number };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -304,6 +326,8 @@ export interface CertificationView {
   expiry: ExpiryState;
   /** The attachment (`/files/<id>`), or null. */
   attachmentUrl: string | null;
+  /** Step 2.6: "Added by <name>" when the viewer may read it (the employee or Talent Read), else null. */
+  addedByName: string | null;
   /** Send back with Edit and Remove. */
   version: number;
 }

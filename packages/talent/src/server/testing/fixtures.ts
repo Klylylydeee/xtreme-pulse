@@ -360,3 +360,45 @@ export async function setSeparationDate(
     },
   );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.6 helpers (docs/TESTING.md#onboarding-and-change-request-tests).
+
+/** Sets or clears an employee's profile photo, as Core's photo service would (a made-up file id). */
+export async function setPhoto(employee: Person, present = true): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    { $set: { photoFileId: present ? new Types.ObjectId() : null } },
+  );
+}
+
+/** Marks an account as still having its temporary password, as Core's user service would. */
+export async function setTemporaryPassword(employee: Person, temporary: boolean): Promise<void> {
+  await coreModel('User').updateOne(
+    { _id: new Types.ObjectId(employee.userId) },
+    { $set: { mustChangePassword: temporary } },
+  );
+}
+
+/** The person's actor as it is after a move to `dept` (the roles follow the department). */
+export function actorIn(employee: Person, dept: Department): TalentActor {
+  return { ...employee.actor, roles: departmentRolesFor(dept.code) };
+}
+
+/** Decides a Core approval request as `who`, with the version stored now. */
+export async function decide(
+  who: { id: string; email: string; isSystemAdministrator?: boolean },
+  requestId: string,
+  decision: 'approve' | 'return' | 'reject',
+  remarks: string | null = null,
+): Promise<void> {
+  const { decideApproval } = await import('@pulse/core/server');
+  const stored = await database()
+    .collection('approvalRequests')
+    .findOne({ _id: new Types.ObjectId(requestId) });
+  await decideApproval(who, requestId, {
+    decision,
+    remarks,
+    version: stored?.version as number,
+  });
+}

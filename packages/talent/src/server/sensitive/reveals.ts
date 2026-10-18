@@ -19,6 +19,9 @@ import { AllowanceAssignmentModel } from '../allowances/model';
 import { ALLOWANCE_TYPES_SETTING } from '../payroll-settings/settings';
 import { CompensationEntryModel } from '../compensation/model';
 import { EmployeeRecordModel } from '../employee-records/model';
+import { ChangeRequestModel } from '../change-requests/model';
+import { CHANGE_REQUEST_TYPE } from '../change-requests/service';
+import { changeRequestAuditLabel } from '../../onboarding/change-requests';
 
 // Spec: SECURITY.md#sensitive-data ("Registered reveals", decision 166 in docs/BUILD_PLAN.md) —
 // Talent's revealable fields. The reveal Server Action calls `registerTalentSensitiveReveals()`
@@ -35,6 +38,27 @@ const EMPLOYEE_RECORD_FIELDS: Record<string, { path: string; category: Sensitive
   pagibig: { path: 'governmentIds.pagibig', category: 'governmentId' },
   [BANK_ACCOUNT_NUMBER_FIELD]: { path: 'bankAccount.accountNumber', category: 'bankAccount' },
 };
+
+/**
+ * The revealable fields of `talent.changeRequest` (step 2.6): each sensitive value of `proposed`
+ * and of `previous`, by its stored path.
+ */
+const CHANGE_REQUEST_FIELDS: Record<string, SensitiveCategory> = Object.fromEntries(
+  (['proposed', 'previous'] as const).flatMap((group) => [
+    ...(['tin', 'sss', 'philhealth', 'pagibig'] as const).map((field) => [
+      `${group}.${field}`,
+      'governmentId' as const,
+    ]),
+    [`${group}.accountNumber`, 'bankAccount' as const],
+  ]),
+);
+
+async function changeRequestOf(ownerId: string) {
+  const id = objectIdOf(ownerId);
+  if (!id) return null;
+  await connectDb();
+  return ChangeRequestModel.findById(id, { employeeId: 1, section: 1 }).lean();
+}
 
 function objectIdOf(id: string): Types.ObjectId | null {
   return Types.ObjectId.isValid(id) && /^[a-f\d]{24}$/i.test(id) ? new Types.ObjectId(id) : null;
@@ -87,8 +111,10 @@ async function assignmentEmployee(
 }
 
 /**
- * Registers Talent's reveals: `talent.employeeRecord` (`tin`, `sss`, `philhealth`, `pagibig` as
- * `governmentId`, `bankAccountNumber` as `bankAccount`) and `talent.compensationEntry`
+ * Registers Talent's reveals (from step 2.6 also `talent.changeRequest`: `proposed.<field>` and
+ * `previous.<field>` for the government IDs as `governmentId` and the account number as
+ * `bankAccount`, labelled `<employee number> · <section>`): `talent.employeeRecord` (`tin`,
+ * `sss`, `philhealth`, `pagibig` as `governmentId`, `bankAccountNumber` as `bankAccount`) and `talent.compensationEntry`
  * (`basicSalary` as `salary`), and from step 2.3 `talent.allowanceAssignment` (`amount` as
  * `allowances`). Safe to call on every request.
  */
@@ -114,6 +140,29 @@ export function registerTalentSensitiveReveals(): void {
       const employeeId = await recordEmployeeId(ownerId);
       const employee = employeeId ? await employeeAuditLabel(employeeId) : null;
       return employee ? `${employee.employeeNumber} · ${employee.name}` : null;
+    },
+  });
+
+  registerSensitiveReveal(CHANGE_REQUEST_TYPE, {
+    module: 'talent',
+    fields: CHANGE_REQUEST_FIELDS,
+    async loadValue(ownerId, field) {
+      const id = objectIdOf(ownerId);
+      if (!Object.hasOwn(CHANGE_REQUEST_FIELDS, field) || !id) return null;
+      await connectDb();
+      const request = await ChangeRequestModel.findById(id).select(`+${field}`).lean();
+      return request ? valueAt(request, field) : null;
+    },
+    async subject(ownerId) {
+      const request = await changeRequestOf(ownerId);
+      return request ? getSensitiveSubject(request.employeeId) : null;
+    },
+    async label(ownerId) {
+      const request = await changeRequestOf(ownerId);
+      const employee = request ? await employeeAuditLabel(request.employeeId) : null;
+      return request && employee
+        ? changeRequestAuditLabel(employee.employeeNumber, request.section)
+        : null;
     },
   });
 

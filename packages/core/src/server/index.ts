@@ -396,6 +396,12 @@ export {
   type EmployeeNotificationContact,
   employeeNotificationContacts,
 } from './employees/notification-contacts';
+// The onboarding checklist's account facts (build step 2.6). Server-only, no actor: Talent's
+// onboarding service checks access first. No sensitive field.
+export {
+  type EmployeeOnboardingFacts,
+  employeeOnboardingFacts,
+} from './employees/onboarding-facts';
 // A module service's in-transaction re-check of the actor (build step 2.1).
 export { type ReloadedActor, reloadActorAccess } from './auth/administrators';
 // Append-only module models (docs/ARCHITECTURE.md#modules-and-packages, build step 2.1).
@@ -551,6 +557,8 @@ export {
   activeSystemAdministrators,
   type ApproverCandidate,
   NO_OTHER_SYSTEM_ADMINISTRATOR,
+  // Display names by user id (build step 2.6: who verified, decided or confirmed something).
+  userNames,
 } from './approvals/routing';
 export {
   DEV_SAMPLE_STEP_HELP,

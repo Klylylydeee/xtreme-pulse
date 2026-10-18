@@ -928,3 +928,135 @@ The former open questions, and the follow-ups they raised, are now answered in t
      - the new setting
 
      ([Spec](TESTING.md#reimbursement-tests))
+256. **Step 2.6:** The step's "Done when" stands: "a new user skips the checklist and keeps working, but an action gated on the e-signature names the missing item". Step 2.6 derives the onboarding checklist, wires the e-signature gate, adds HR verification of government IDs and bank details, and adds self-service change requests through Core's approvals engine. The `reportingTo` gate's callers come in steps 2.7 and 2.8, the payroll gate's in step 2.10, and the company-issued assets item stays a placeholder until Phase 4. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+257. **Step 2.6:** Every item's state is derived when read, never ticked or stored. The eight employee items:
+     - **Change temporary password:** always done once the checklist shows, since sign-in forces the change first
+     - **Personal info and addresses:** date of birth, sex, civil status, nationality, both addresses and the mobile number (the personal email is optional)
+     - **Emergency contact:** name, relationship and mobile number
+     - **Government IDs:** TIN, RDO code, SSS, PhilHealth PIN and Pag-IBIG MID; "Waiting for HR to verify" until verified
+     - **Payroll bank account:** bank, account number and account name; verified the same way
+     - **201 documents:** one unarchived, unexpired document of each required type
+     - **Profile photo**
+     - **E-signature:** at least one version
+
+     *Assumption, to be confirmed by HR:* the required fields. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+258. **Step 2.6:** The HR items, status only for the employee:
+     - **Module access:** done when the account isn't in the "Needs access" group
+     - **Department, position and employment status:** always set at user creation
+     - **Work schedule and work region:** always done, showing the company default or NCR until HR changes them. *Assumption, to be confirmed by HR*
+     - **Salary and allowances:** a current or scheduled compensation entry
+     - **Company-issued assets:** a placeholder, "Available when Pulse Supply is set up", not counted
+
+     The employee's progress counts the eight employee items. The reminder ends when they are done or waiting for HR. Onboarding is complete when every counted item is done and the IDs and bank account are verified. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+259. **Step 2.6:** The required 201 document types are the versioned setting `talent.onboardingSettings` (`requiredDocumentTypes`, any of `DOCUMENT_201_TYPES` but the employment contract, the regularization evaluation and "other"; may be empty). `pnpm seed:admin` seeds it once from 2000-01-01, source "Company policy (spec)": government ID copy and NBI clearance. A Talent Owner changes it from Settings on `/talent`, effective today, at most one version per day, audited as `create` on `core.configVersion`. *Assumption, to be confirmed by HR:* the two seeded types. ([Spec](DATA_MODEL.md#versioned-configuration))
+260. **Step 2.6:** The `reportingTo` item is done when the employee has an active supervisor, is a Board member, or has a "No supervisor" confirmation. HR, a Board member or the System Administrator confirms it (or withdraws it) on the inspector's Onboarding section, never on their own record. It is stored as `employeeRecords.noSupervisorConfirmation` and counts only while no supervisor is active. *Assumption, to be confirmed by HR and the user:* this is how the spec's "not required for employees with an empty `reportingTo`" is told apart from a line nobody has set yet. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+261. **Step 2.6:** Required but not enforced:
+     - **Guided once.** After the temporary password change, a user whose employee items aren't done goes to `/talent/onboarding` instead of Home, unless they were on their way to another page.
+     - **Skip for now** goes to Home.
+     - **The reminder.** A toolbar pill ("Onboarding 5 of 8") on every page and a Home card, until the employee items are done.
+
+     Nothing else is blocked. ([Spec](DESIGN_SYSTEM.md#feedback--motion))
+262. **Step 2.6:** The gates are one typed constant, `ONBOARDING_GATES` in `packages/talent/src/onboarding/gates.ts`, not a setting, since each gated action must call it:
+     - `applyESignature` needs `eSignature`
+     - `fileTimeRequest` (timesheet submission, leave, offset time off) needs `reportingTo`
+     - `includeInPayroll` needs `governmentIds` and `bankAccount`, each done and verified
+
+     *Assumption, to be confirmed by the user.* ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+263. **Step 2.6:** `checkOnboardingGate(gate, status)` returns the missing items in the map's order. `assertOnboardingGate` throws `OnboardingGateError`, an `ActionError` carrying the item keys:
+     - one item: "Complete this onboarding item first: <item>. <where>"
+     - several: "Complete these onboarding items first: <item>, <item>."
+     - `<where>`: for an employee item, where to do it ("Upload it in My record, then try again."); for an HR item, "Ask HR to set it."
+
+     ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+264. **Step 2.6:** The e-signature gate is wired inside `applyESignature`, so every later signer gets it:
+     - **An approver with an employee but no signature** is refused with "Complete this onboarding item first: E-signature. Upload it in My record, then try again." The signer runs in the decision's transaction, so the decision rolls back.
+     - **The bootstrap system account** has no employee, so it is exempt and still approves with `signature: null` ("Approved by the system account, without an e-signature"). *Assumption, to be confirmed by the user.*
+     - **The Approvals inspector** shows the notice and disables Approve for a viewer with no signature; Return and Reject stay available.
+
+     This replaces decision 177's "approving is allowed until step 2.6's gate". ([Spec](modules/core.md#approvals))
+265. **Step 2.6:** Verification is stored per group on the employee record: `governmentIdsVerification` and `bankAccountVerification`, each null or `{ verifiedAt, verifiedBy }`.
+     - **Who verifies:** those who may change the group (Talent Write and HR or the System Administrator; for HR staff, Talent Write and the System Administrator or a Board member), never on their own record, once the group is complete.
+     - **Accounting** never verifies.
+
+     *Assumption, to be confirmed by HR and counsel:* HR doesn't verify HR staff's details. ([Spec](../SECURITY.md#sensitive-data))
+266. **Step 2.6:** The stored values are verified when a verifier entered or approved them:
+     - **Cleared:** the employee's own entry to the group.
+     - **Set to that person:** a verifier's save, an approved change request (the approver), or "Mark verified".
+     - **Values saved before step 2.6** read as not verified. *Assumption, to be confirmed by HR.*
+     - **Audit:** `update` on `talent.employeeRecord`.
+     - **Notification** `talent.verificationNeeded`, when the employee fills one in, to the verifiers (HR; for HR staff, the Board members and System Administrators).
+
+     The badge shows only inside the section. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+267. **Step 2.6:** On their own record (self-service, no employee id taken), an employee's save is split by change request section:
+     - **Filling empty fields only** saves directly, creating the record on the first save, and leaves IDs or bank unverified.
+     - **Changing or clearing a filled-in field** makes that section's part one change request, blanks included, and saves none of it until approved. The sheet's button reads "Save" or "Send for approval".
+     - **Never by the employee:** Core's fields, the Employment fields, compensation, allowances and the work schedule.
+
+     *Assumption, to be confirmed by HR and the user:* blanks stay directly fillable after onboarding. ([Spec](../SECURITY.md#exceptions-to-module-access))
+268. **Step 2.6:** Employees also add to their own record:
+     - **201 documents** of any type but the employment contract and the regularization evaluation, with step 2.2's checks, shown "Uploaded by <name>". Editing and archiving stay with HR. Notification `talent.documentUploaded` to HR (the System Administrators when none is active), naming the type only.
+     - **Certifications**, shown "Added by <name>". Editing needs Talent Write and removing Talent Owner, as before.
+
+     *Assumption, to be confirmed by HR.* ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+269. **Step 2.6:** Change request sections (`CHANGE_REQUEST_SECTIONS`) and who approves (any one of):
+     - **Contact details** (`contact`: both addresses, mobile number, personal email, emergency contact) and **Skills** (`skills`): the active `reportingTo` supervisors and every active HR user
+     - **Personal details** (`personal`: date of birth, sex, civil status, nationality): HR, because supervisors never see the date of birth or civil status
+     - **Government IDs** (`governmentIds`) and **Payroll bank account** (`bankAccount`): HR; for an employee in the HR department, any one Board member
+
+     The requester is never an approver, and an empty step goes to the System Administrators. *Assumptions, to be confirmed by the user and counsel:* Personal details to HR only; the System Administrator approves IDs and bank only as the fallback. ([Spec](../SECURITY.md#sensitive-data))
+270. **Step 2.6:** Supervisors approve their team's change requests and see only that request's fields. They don't edit records directly, so they get no new view of their team's personal data; direct editing keeps the step 2.1 rules (Talent Write). *Assumption, to be confirmed by the user and counsel:* this reading of "HR and any supervisor in `reportingTo` can edit the employee's record" (RA 10173 proportionality). ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+271. **Step 2.6:** The approval type `talent.changeRequest` is registered by `registerTalentApprovalTypes()`, which the approvals Server Action calls beside `registerCoreApprovalTypes()` and `registerTalentApprovalSigner()`:
+     - **One step**, given at submit: `anyOf` user ids from `employeeNotificationContacts` and `activeHrUserIds`, `{ set: 'hr' }` or `{ set: 'board' }`
+     - **Decisions:** approve, return and reject
+     - **`whenEmpty`:** `systemAdministrator`
+     - **Title:** "Change request: <section> · <name>"; **summary:** the field labels only; **link:** `/talent/change-requests/<id>`
+
+     Deciding needs no module access; the hook checks the role. *Assumption, to be confirmed by the user.* ([Spec](modules/core.md#approvals))
+272. **Step 2.6:** Change requests are the collection `changeRequests`:
+     - **Fields:** the employee, the requester, the section, `changedFields`, `proposed` (changed fields only; ID and account numbers as `sensitiveField()`s), `previous` (set on approval), an optional note, the status, the approval request, the decider, when and the remarks
+     - **Statuses:** `pending`, `returned`, `approved`, `rejected`, `cancelled`. A returned request is edited and sent again (a new approval request with `previousRequestId`) or cancelled
+     - **One open** (`pending` or `returned`) request per employee per section, by a partial unique index
+     - **No withdrawing** a pending one, since the engine has none. *Assumption, to be confirmed by the user*
+     - **Never deleted**
+
+     ([Spec](DATA_MODEL.md#collection-ownership))
+273. **Step 2.6:** On approve, the `onSettled` hook, in the decision's transaction:
+     - checks the approver's role against the employee as they are now, or throws "This change can no longer be approved by you: <reason>. Return it instead."
+     - writes only the changed fields, over their current values, raising the record's `version`
+     - stores `previous` and sets the verification of an IDs or bank change to the approver
+     - writes `update` on `talent.changeRequest` and on `talent.employeeRecord` (reason "Change request approved")
+
+     Return and reject set the status only. *Assumption, to be confirmed by HR:* a value changed meanwhile is overwritten, with no conflict check. ([Spec](modules/talent.md#onboarding-checklist-and-change-requests-build-step-26))
+274. **Step 2.6:** Who sees what:
+     - **A change request** opens for its requester, its approvers (`isApproverFor`), the System Administrator, and Talent Read users who may see that section. Its ID and account numbers are masked with Reveal, registered as `talent.changeRequest` (categories `governmentId` and `bankAccount`) and audit-logged.
+     - **The inspector's Onboarding section** hides the state of items about sections the viewer can't see.
+     - **The `/talent` onboarding filter and tiles** are for HR and the System Administrator only. *Assumption, to be confirmed by the user.*
+     - **Core's `employeeOnboardingFacts(employeeIds)`** gives the account facts the checklist needs, with no sensitive field.
+
+     ([Spec](../SECURITY.md#sensitive-data))
+275. **Step 2.6:** Screens:
+     - `/talent/onboarding`, the checklist, with "Skip for now"
+     - the toolbar progress pill and the Home card
+     - on `/talent/me`: the Edit sheets with "Save" or "Send for approval", the verification badges, "Upload document", "Add certification" and the Change requests list
+     - `/talent/change-requests/<id>`, read-only, with Current and Proposed
+     - the Approvals inspector's gate notice
+     - the inspector's Onboarding section, "Mark verified" and "Confirm no supervisor"
+     - the `/talent` onboarding filter and tiles
+     - "Required onboarding documents" in Settings on `/talent`
+
+     ([Spec](DESIGN_SYSTEM.md#feedback--motion))
+276. **Step 2.6:** `pnpm test` adds the onboarding and change request tests:
+     - the item rules and progress
+     - the gate map and its messages
+     - the e-signature gate and the Done when
+     - verification
+     - own entries
+     - employee uploads and certifications
+     - change request routing
+     - applying, returning, rejecting and cancelling
+     - who may see a change request, and its reveals
+     - Core's onboarding facts
+     - the new setting
+     - the navigation and the change-password redirect
+
+     ([Spec](TESTING.md#onboarding-and-change-request-tests))

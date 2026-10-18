@@ -6,8 +6,8 @@ import {
   type CurrentUser,
   listApprovalsDecided,
   listApprovalsWaiting,
-  registerCoreApprovalTypes,
 } from '@pulse/core/server';
+import { registerApprovalTypes } from '@/lib/approval-types';
 import { requireCurrentUser } from '@/lib/auth';
 import { firstParam, type SearchParams } from '@/lib/keyset-paging';
 import { ApprovalsLoading } from './approvals-loading';
@@ -48,7 +48,7 @@ async function Approvals({
   user: CurrentUser;
   searchParams: Promise<SearchParams>;
 }) {
-  registerCoreApprovalTypes();
+  registerApprovalTypes();
   const params = await searchParams;
   const view: ApprovalsView = firstParam(params, 'view') === 'decided' ? 'decided' : 'waiting';
   const list = view === 'waiting' ? listApprovalsWaiting : listApprovalsDecided;

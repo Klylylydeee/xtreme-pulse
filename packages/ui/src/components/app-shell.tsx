@@ -46,6 +46,7 @@ export function AppShell({
   notificationsUnread,
   notificationsOpen,
   onNotificationsOpenChange,
+  status,
   help,
   account,
   children,
@@ -78,6 +79,8 @@ export function AppShell({
   /** Controls the notifications popover; leave undefined to let it manage itself. */
   notificationsOpen?: boolean;
   onNotificationsOpenChange?: (open: boolean) => void;
+  /** A status shown in the toolbar before the notification bell, such as the onboarding progress. */
+  status?: ReactNode;
   help: ReactNode;
   /** The signed-in account: who is signed in and a Sign out button. Omit to hide the button. */
   account?: ReactNode;
@@ -326,6 +329,7 @@ export function AppShell({
           notificationsUnread={notificationsUnread}
           notificationsOpen={notificationsOpen}
           onNotificationsOpenChange={onNotificationsOpenChange}
+          status={status}
           help={help}
           account={account}
         />

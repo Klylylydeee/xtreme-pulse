@@ -2,7 +2,7 @@
 
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CircleCheck, RotateCw, TriangleAlert } from 'lucide-react';
+import { CircleAlert, CircleCheck, RotateCw, TriangleAlert } from 'lucide-react';
 import type { EmployeeRecordView, WorkScheduleSectionView } from '@pulse/talent';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { Button } from '@pulse/ui/components/button';
@@ -22,10 +22,12 @@ import {
 } from './employee-documents-sheets';
 import {
   EmployeeRecordSections,
+  type RecordSectionActionKey,
   type RecordSectionKey,
   WorkScheduleSection,
 } from './employee-record-sections';
 import { RecordSectionSheet, WorkScheduleSheet } from './employee-record-sheets';
+import { MarkVerifiedButton, OnboardingBlock, useEmployeeOnboarding } from './onboarding-section';
 import { PhotoControls } from './photo-controls';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
@@ -47,6 +49,11 @@ import { PhotoControls } from './photo-controls';
 // service checks again), so a failure there never blanks the record. It has "Set schedule" when
 // the server's `canSet` allows it, and "Timesheet", a link to the read-only timesheet (every
 // inspector viewer has Talent Read).
+//
+// From step 2.6 (docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26) the
+// Onboarding section loads on its own too (`onboarding-section.tsx`), with "Confirm no supervisor",
+// and the Government IDs and Payroll bank account headers get "Mark verified" when the server's
+// `can` flags allow it. A refused action shows its message above the record.
 
 const LOAD_FAILED = 'This record couldn’t load. Check your connection and try again.';
 
@@ -55,6 +62,8 @@ interface Notice {
   for: string;
   message: string;
   note: string | null;
+  /** Step 2.6: a refused "Mark verified", shown as an error instead of a confirmation. */
+  error?: boolean;
 }
 
 function replaceEmployeeParam(employeeId: string | null) {
@@ -231,6 +240,7 @@ export function EmployeeInspector({
   const router = useRouter();
   const { state, reload } = useEmployeeRecord(employeeId, session, separated);
   const schedule = useWorkSchedule(employeeId, session);
+  const onboarding = useEmployeeOnboarding(employeeId, session, separated);
   const scheduleSection = schedule.state.status === 'done' ? schedule.state.section : null;
   const view = state.status === 'done' ? state.view : null;
   const title = view
@@ -278,7 +288,14 @@ export function EmployeeInspector({
     setNotice({ for: `${employeeId}:${session}`, message, note: note ?? null });
     reload();
     schedule.reload();
+    onboarding.reload();
     router.refresh();
+  }
+
+  /** A refused action (step 2.6's "Mark verified"): its message, and the record reloaded. */
+  function refused(message: string) {
+    setNotice({ for: `${employeeId}:${session}`, message, note: null, error: true });
+    reload();
   }
 
   const documentHandlers: DocumentHandlers = {
@@ -321,6 +338,32 @@ export function EmployeeInspector({
               />
             }
             notice={notice && notice.for === `${employeeId}:${session}` ? notice : null}
+            onboarding={(record) => (
+              <OnboardingBlock
+                state={onboarding.state}
+                onRetry={onboarding.reload}
+                record={record}
+                onChanged={changed}
+              />
+            )}
+            sectionActions={(record) => ({
+              governmentIds: record.can.markGovernmentIdsVerified ? (
+                <MarkVerifiedButton
+                  record={record}
+                  group="governmentIds"
+                  onChanged={changed}
+                  onError={refused}
+                />
+              ) : null,
+              bankAccount: record.can.markBankAccountVerified ? (
+                <MarkVerifiedButton
+                  record={record}
+                  group="bankAccount"
+                  onChanged={changed}
+                  onError={refused}
+                />
+              ) : null,
+            })}
           />
         ) : null}
       </InspectorPanel>
@@ -388,6 +431,8 @@ function RecordBody({
   onPhotoChanged,
   workSchedule,
   notice,
+  onboarding,
+  sectionActions,
 }: {
   state: RecordState;
   onReload: () => void;
@@ -397,6 +442,12 @@ function RecordBody({
   onPhotoChanged: (message: string) => void;
   workSchedule: ReactNode;
   notice: Notice | null;
+  /** Step 2.6: the Onboarding section, after the record. */
+  onboarding: (record: EmployeeRecordView) => ReactNode;
+  /** Step 2.6: "Mark verified" in the Government IDs and Payroll bank account headers. */
+  sectionActions: (
+    record: EmployeeRecordView,
+  ) => Partial<Record<RecordSectionActionKey, ReactNode>>;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
     return (
@@ -451,8 +502,16 @@ function RecordBody({
   const { identity } = view;
   return (
     <div className="flex flex-col gap-5" aria-busy={refreshing || undefined}>
+      <div role="alert" className="empty:hidden">
+        {notice?.error ? (
+          <p className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium text-destructive-text shadow-card">
+            <CircleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
+            <span>{notice.message}</span>
+          </p>
+        ) : null}
+      </div>
       <div role="status" className="empty:hidden">
-        {notice ? (
+        {notice && !notice.error ? (
           <div className="flex flex-col gap-2 rounded-card bg-surface px-4 py-3 text-footnote font-medium shadow-card">
             <p className="flex items-start gap-2 text-success-text">
               <CircleCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
@@ -503,7 +562,9 @@ function RecordBody({
             onChanged={onPhotoChanged}
           />
         }
+        sectionActions={sectionActions(view)}
       />
+      {onboarding(view)}
     </div>
   );
 }

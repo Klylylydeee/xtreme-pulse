@@ -140,6 +140,16 @@ export const MY_RECORD_HREF = '/talent/me';
 /** The employee's own timesheet (step 2.4): in Pulse Core, though it lives under `/talent`. */
 export const OWN_TIMESHEET_HREF = '/talent/timesheet';
 
+/**
+ * The employee's own onboarding checklist (step 2.6,
+ * docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26): self-service,
+ * reached from the toolbar progress, the Home card and My record, never from the sidebar.
+ */
+export const ONBOARDING_HREF = '/talent/onboarding';
+
+/** Change request pages (step 2.6), opened from Approvals and from My record. */
+export const CHANGE_REQUESTS_HREF = '/talent/change-requests';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -429,6 +439,11 @@ export const SECTION_PAGES: {
   { href: '/talent/payroll-settings', section: '/talent', title: 'Payroll settings' },
   // Step 2.4 (decision 231): "Pulse Talent › Timesheet", read-only.
   { href: '/talent/timesheets', section: '/talent', title: 'Timesheet', openToOthers: true },
+  // Step 2.6 (decision 275): the own checklist, open to every signed-in user (self-service), and
+  // a change request, which its requester, its approvers (a supervisor with no module access
+  // included) and Talent readers open. The pages decide who may open them.
+  { href: ONBOARDING_HREF, section: '/talent', title: 'Onboarding', openToOthers: true },
+  { href: CHANGE_REQUESTS_HREF, section: '/talent', title: 'Change request', openToOthers: true },
 ];
 
 /**

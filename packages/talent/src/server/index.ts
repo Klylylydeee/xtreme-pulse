@@ -146,6 +146,68 @@ export {
   releaseReceiptClaim,
   type ReleaseReceiptClaimInput,
 } from './receipt-claims/service';
+// Onboarding and change requests (build step 2.6,
+// docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26).
+// - The checklist: own (self-service, no employee id), the inspector's Onboarding section (Talent
+//   Read, hidden items), and the /talent filter and tiles (`listEmployeeRecords({ onboarding })`).
+// - "Mark verified" and "No supervisor" on the inspector.
+// - Own entries on /talent/me (self-service): each save fills blanks straight away and sends
+//   changes to filled-in values as change requests; the employee's own 201 upload and certification.
+// - Change requests: send again or cancel a returned one, the own list and Edit states, the request
+//   page, and `registerTalentApprovalTypes()` (call it beside `registerCoreApprovalTypes()` and
+//   `registerTalentApprovalSigner()` before deciding).
+// - The required onboarding documents setting (Settings on /talent, Talent Owner).
+export {
+  deriveOnboarding,
+  type DerivedOnboarding,
+  getEmployeeOnboarding,
+  getOwnOnboarding,
+  getOwnOnboardingReminder,
+  hiddenOnboardingItems,
+  ONBOARDING_FILTERS,
+  type OnboardingFilter,
+} from './onboarding/service';
+export {
+  addOnboardingSettingsVersion,
+  canChangeOnboardingSettings,
+  getOnboardingSettings,
+  ONBOARDING_SEED_VERSION,
+  ONBOARDING_SETTINGS_DENIED,
+  ONBOARDING_SETTINGS_SETTING,
+  onboardingSettingsOn,
+} from './onboarding/settings';
+export {
+  isVerificationGroupComplete,
+  markVerified,
+  setNoSupervisorConfirmation,
+} from './employee-records/service';
+export {
+  saveOwnBankAccount,
+  saveOwnGovernmentIds,
+  saveOwnPersonal,
+  saveOwnSkills,
+  VERIFICATION_NEEDED_EVENT,
+} from './employee-records/own';
+export {
+  addOwnEmployeeDocument,
+  DOCUMENT_UPLOADED_EVENT,
+  OWN_DOCUMENT_TYPE_REFUSED,
+  type OwnDocumentUploadInput,
+} from './documents/service';
+export { addOwnCertification, type OwnCertificationInput } from './certifications/service';
+export {
+  cancelChangeRequest,
+  CHANGE_REQUEST_APPROVED_REASON,
+  CHANGE_REQUEST_GONE,
+  CHANGE_REQUEST_NOT_RETURNED,
+  CHANGE_REQUEST_TYPE,
+  CHANGE_REQUEST_TYPE_LABEL,
+  getChangeRequestView,
+  getOwnChangeRequestStates,
+  listOwnChangeRequests,
+  registerTalentApprovalTypes,
+  resendChangeRequest,
+} from './change-requests/service';
 // File access (build step 2.2): the file route calls this beside registerCoreFileAccess().
 export { registerTalentFileAccess } from './files/registrations';
 
@@ -206,6 +268,21 @@ export {
   TIMESHEET_DENIED,
   type TimesheetTarget,
   WORK_SCHEDULE_SET_DENIED,
+  // Step 2.6
+  assertCanConfirmNoSupervisor,
+  assertCanVerifySensitiveDetails,
+  canConfirmNoSupervisor,
+  canSeeChangeRequestSection,
+  canSeeOnboardingOverview,
+  canVerifySensitiveDetails,
+  CHANGE_REQUEST_DENIED,
+  changeRequestApprovalRefusal,
+  HR_VERIFY_DENIED,
+  NO_EMPLOYEE_RECORD,
+  NO_SUPERVISOR_DENIED,
+  OWN_NO_SUPERVISOR_DENIED,
+  OWN_VERIFY_DENIED,
+  VERIFY_DENIED,
 } from './policy';
 
 // The reveals (SECURITY.md#sensitive-data): call before `revealSensitiveField`.

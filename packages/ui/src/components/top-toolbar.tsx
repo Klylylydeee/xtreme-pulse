@@ -118,6 +118,7 @@ export function TopToolbar({
   notificationsUnread = 0,
   notificationsOpen,
   onNotificationsOpenChange,
+  status,
   help,
   account,
   className,
@@ -135,6 +136,8 @@ export function TopToolbar({
   /** Controls the notifications popover; leave undefined to let it manage itself. */
   notificationsOpen?: boolean;
   onNotificationsOpenChange?: (open: boolean) => void;
+  /** A status shown in the toolbar before the notification bell, such as the onboarding progress. */
+  status?: ReactNode;
   help: ReactNode;
   /** The signed-in account's popover content; no account button when omitted. */
   account?: ReactNode;
@@ -183,6 +186,7 @@ export function TopToolbar({
         </ol>
       </nav>
       {commandBar}
+      {status}
       <div className="flex shrink-0 items-center md:gap-1">
         <NotificationsButton
           unread={notificationsUnread}

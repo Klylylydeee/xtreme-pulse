@@ -381,3 +381,147 @@ export function canViewTimesheet(actor: TalentActor, target: TimesheetTarget): b
 export function assertCanViewTimesheet(actor: TalentActor, target: TimesheetTarget): void {
   if (!canViewTimesheet(actor, target)) throw new AccessDeniedError(TIMESHEET_DENIED);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.6: the onboarding checklist, verification and change requests (SECURITY.md#sensitive-
+// data, SECURITY.md#exceptions-to-module-access and
+// docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26; decisions 260,
+// 265, 267, 269, 273 and 274 in docs/BUILD_PLAN.md).
+//
+// - Verifying government IDs or the bank account ("Mark verified", and a save that verifies):
+//   whoever may change that group directly (canChangeSensitiveDetails), never on one's own record.
+//   Accounting never verifies.
+// - "No supervisor": Talent Read and HR, a Board member or the System Administrator, never on
+//   one's own record.
+// - Own entries: the employee, on their own employee only (self-service, no module access).
+// - Approving a change request, checked again at the decision against the employee as they are
+//   then: Contact details and Skills, any approver named at submit; Personal details, HR or the
+//   System Administrator; government IDs and the bank account, HR or the System Administrator, and
+//   for an employee in the HR department a Board member or the System Administrator.
+// - Seeing a change request: its requester, its approvers, the System Administrator, and Talent
+//   Read users who may see that section of the employee's record.
+// - The /talent onboarding filter and tiles: Talent Read and HR or the System Administrator.
+
+export const VERIFY_DENIED =
+  'Only HR and the System Administrator, with Talent Write, verify government IDs and bank details.';
+export const HR_VERIFY_DENIED =
+  'Only the System Administrator or a Board member, with Talent Write, verifies government IDs and bank details for HR staff.';
+export const OWN_VERIFY_DENIED = 'You can’t verify your own details. Ask HR to verify them.';
+export const NO_SUPERVISOR_DENIED =
+  'Only HR, a Board member or the System Administrator, with Talent access, confirms “No supervisor”.';
+export const OWN_NO_SUPERVISOR_DENIED = 'You can’t confirm “No supervisor” on your own record.';
+export const NO_EMPLOYEE_RECORD =
+  'The system account has no employee record, so it has nothing to fill in.';
+export const CHANGE_REQUEST_DENIED = 'You don’t have access to this change request.';
+
+/** Why `actor` may not verify `target`'s government IDs or bank account, or null when they may. */
+function verifyRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  if (isOwn(actor, target)) return OWN_VERIFY_DENIED;
+  if (!hasModuleAccess(actor, 'talent', 'write')) {
+    return target.departmentCode === ROLE_DEPARTMENT_CODES.hr ? HR_VERIFY_DENIED : VERIFY_DENIED;
+  }
+  if (target.departmentCode === ROLE_DEPARTMENT_CODES.hr) {
+    return isSystemAdministrator(actor) || isBoard(actor) ? null : HR_VERIFY_DENIED;
+  }
+  return isSystemAdministrator(actor) || isHR(actor) ? null : VERIFY_DENIED;
+}
+
+/** True when `actor` may verify `target`'s government IDs and bank account (the change rule). */
+export function canVerifySensitiveDetails(actor: TalentActor, target: RecordTarget): boolean {
+  return verifyRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may verify `target`'s IDs and bank account. */
+export function assertCanVerifySensitiveDetails(actor: TalentActor, target: RecordTarget): void {
+  const refusal = verifyRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+/** Why `actor` may not confirm or withdraw "No supervisor" for `target`, or null. */
+function noSupervisorRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  if (!canReadEmployeeRecords(actor)) return TALENT_READ_DENIED;
+  if (isOwn(actor, target)) return OWN_NO_SUPERVISOR_DENIED;
+  return isHR(actor) || isBoard(actor) || isSystemAdministrator(actor)
+    ? null
+    : NO_SUPERVISOR_DENIED;
+}
+
+/** True when `actor` may confirm or withdraw "No supervisor" for `target`. */
+export function canConfirmNoSupervisor(actor: TalentActor, target: RecordTarget): boolean {
+  return noSupervisorRefusal(actor, target) === null;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may confirm or withdraw "No supervisor". */
+export function assertCanConfirmNoSupervisor(actor: TalentActor, target: RecordTarget): void {
+  const refusal = noSupervisorRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+/** True when `actor` gets the /talent onboarding filter and tiles (HR and the System Administrator). */
+export function canSeeOnboardingOverview(actor: TalentActor): boolean {
+  return canReadEmployeeRecords(actor) && (isHR(actor) || isSystemAdministrator(actor));
+}
+
+/** The change request sections, as the rules need them (`CHANGE_REQUEST_SECTIONS`). */
+export type ChangeRequestRuleSection =
+  'contact' | 'skills' | 'personal' | 'governmentIds' | 'bankAccount';
+
+/**
+ * Why `approver` may no longer approve a change to `section` of `target`'s record, or null when
+ * they may. Checked in the decision's transaction against the employee as they are then (the
+ * employee may have moved department after submit). Contact details and Skills: any approver named
+ * at submit, which the engine has already checked. The reason completes "This change can no longer
+ * be approved by you: <reason>. Return it instead."
+ */
+export function changeRequestApprovalRefusal(
+  approver: TalentActor,
+  section: ChangeRequestRuleSection,
+  target: RecordTarget,
+): string | null {
+  if (isOwn(approver, target)) return 'it is a change to your own record';
+  switch (section) {
+    case 'contact':
+    case 'skills':
+      return null;
+    case 'personal':
+      return isHR(approver) || isSystemAdministrator(approver)
+        ? null
+        : 'personal details are approved by HR, and you are no longer in HR';
+    case 'governmentIds':
+    case 'bankAccount':
+      if (isSystemAdministrator(approver)) return null;
+      if (target.departmentCode === ROLE_DEPARTMENT_CODES.hr) {
+        return isBoard(approver)
+          ? null
+          : 'the employee is now in HR, so a Board member approves their government IDs and bank details';
+      }
+      return isHR(approver)
+        ? null
+        : 'the employee is no longer in HR, so HR approves their government IDs and bank details';
+  }
+}
+
+/**
+ * True when a Talent Read `viewer` may see `section` of `target`'s record, for the change request
+ * page: Contact details and Skills with Talent Read; Personal details also needs the date of birth
+ * and civil status rule; government IDs and the bank account need the reveal rule.
+ */
+export function canSeeChangeRequestSection(
+  viewer: TalentActor,
+  section: ChangeRequestRuleSection,
+  target: RecordTarget,
+): boolean {
+  if (isOwn(viewer, target)) return true;
+  if (!canReadEmployeeRecords(viewer)) return false;
+  switch (section) {
+    case 'contact':
+    case 'skills':
+      return true;
+    case 'personal':
+      return canSeeBirthAndCivilStatus(viewer, target);
+    case 'governmentIds':
+      return canSeeSensitiveSection(viewer, 'governmentId', target);
+    case 'bankAccount':
+      return canSeeSensitiveSection(viewer, 'bankAccount', target);
+  }
+}

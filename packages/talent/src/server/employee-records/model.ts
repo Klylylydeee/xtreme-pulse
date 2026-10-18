@@ -43,6 +43,20 @@ export interface EmergencyContact {
   mobileNumber: string | null;
 }
 
+/** A group's verification (step 2.6): who verified it and when. */
+export interface Verification {
+  verifiedAt: Date;
+  /** A user id. */
+  verifiedBy: Types.ObjectId;
+}
+
+/** "No supervisor" confirmed (step 2.6): by whom and when. */
+export interface NoSupervisorConfirmation {
+  confirmedAt: Date;
+  /** A user id. */
+  confirmedBy: Types.ObjectId;
+}
+
 export interface EmployeeRecordDocument {
   _id: Types.ObjectId;
   employeeId: Types.ObjectId;
@@ -73,6 +87,12 @@ export interface EmployeeRecordDocument {
   };
   /** Skills tags (build step 2.2); absent on records saved before it. */
   skills?: string[];
+  /** Step 2.6: who verified the government IDs, or null (absent before step 2.6: not verified). */
+  governmentIdsVerification?: Verification | null;
+  /** Step 2.6: who verified the bank account, or null (absent before step 2.6: not verified). */
+  bankAccountVerification?: Verification | null;
+  /** Step 2.6: "No supervisor" confirmed, or null. Counts only while no supervisor is active. */
+  noSupervisorConfirmation?: NoSupervisorConfirmation | null;
   /** Raised by every save, for the stale-form check. */
   version: number;
   createdAt: Date;
@@ -109,6 +129,22 @@ const emergencyContactSchema = new Schema<EmergencyContact>(
       maxlength: EMERGENCY_CONTACT_RELATIONSHIP_MAX_LENGTH,
     },
     mobileNumber: mobileField,
+  },
+  { _id: false },
+);
+
+const verificationSchema = new Schema<Verification>(
+  {
+    verifiedAt: { type: Date, required: true },
+    verifiedBy: { type: Schema.Types.ObjectId, required: true },
+  },
+  { _id: false },
+);
+
+const noSupervisorConfirmationSchema = new Schema<NoSupervisorConfirmation>(
+  {
+    confirmedAt: { type: Date, required: true },
+    confirmedBy: { type: Schema.Types.ObjectId, required: true },
   },
   { _id: false },
 );
@@ -171,6 +207,11 @@ const employeeRecordSchema = new Schema<EmployeeRecordDocument>({
       message: `Add at most ${SKILLS_MAX_COUNT} skills, each once.`,
     },
   },
+  // Step 2.6 (decisions 260 and 265): the verification of each sensitive group, and "No
+  // supervisor". Null or absent until set; records saved before step 2.6 have none.
+  governmentIdsVerification: { type: verificationSchema, default: null },
+  bankAccountVerification: { type: verificationSchema, default: null },
+  noSupervisorConfirmation: { type: noSupervisorConfirmationSchema, default: null },
   version: { type: Number, required: true, min: 1 },
 });
 

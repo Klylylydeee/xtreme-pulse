@@ -17,6 +17,9 @@ import {
   employmentSectionSchema,
   expiryAlertSettingsSchema,
   governmentIdsSectionSchema,
+  markVerifiedSchema,
+  noSupervisorConfirmationSchema,
+  onboardingSettingsSchema,
   personalSectionSchema,
   setWorkScheduleSchema,
   skillsSectionSchema,
@@ -24,14 +27,18 @@ import {
 import {
   addCompensationEntry,
   addEmployeeDocument,
+  addOnboardingSettingsVersion,
   archiveEmployeeDocument,
   assignAllowance,
   createCertification,
+  getEmployeeOnboarding,
   getEmployeeRecordView,
   getWorkScheduleSection,
+  markVerified,
   removeCertification,
   setBankAccount,
   setGovernmentIds,
+  setNoSupervisorConfirmation,
   setSkills,
   setWorkSchedule,
   updateCertification,
@@ -369,5 +376,78 @@ export const setWorkScheduleAction = defineAction({
     const result = await setWorkSchedule(await signedInUser(), input);
     revalidatePath('/talent');
     return { id: result.id };
+  },
+});
+
+// --- Step 2.6: onboarding, verification and "No supervisor" --------------------------------------
+//
+// docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26 (decisions 259,
+// 260, 265 and 274). Nothing here returns or logs a sensitive value: the checklist holds states
+// only (an item about a section the viewer can't see comes back hidden, with any count that
+// includes it), and the saves answer only the record's new `version`.
+
+/**
+ * The inspector's Onboarding section: both lists with their states and progress, and "Confirm no
+ * supervisor" or "Withdraw" for those who may. Talent Read here; the service checks again and
+ * hides what the viewer can't see. Null when there is no such employee. Any string, as for the
+ * record.
+ */
+export const getEmployeeOnboardingAction = defineAction({
+  access: talentReaders,
+  schema: z.object({
+    employeeId: z.string().max(100),
+    separated: z.boolean().optional(),
+  }),
+  handler: async ({ employeeId, separated }) => {
+    if (!OBJECT_ID_PATTERN.test(employeeId)) return null;
+    return getEmployeeOnboarding(await signedInUser(), employeeId, {
+      separated: separated === true,
+    });
+  },
+});
+
+/**
+ * "Mark verified" on Government IDs or Payroll bank account. Talent Write here; the service checks
+ * again who may verify (HR or the System Administrator; for an HR employee, the System
+ * Administrator or a Board member; never one's own record), that the group is complete, and the
+ * record's `version`, and writes the audit entry.
+ */
+export const markVerifiedAction = defineAction({
+  access: talentWriters,
+  schema: markVerifiedSchema,
+  handler: async (input) => {
+    const result = await markVerified(await signedInUser(), input);
+    revalidatePath('/talent');
+    return { version: result.version };
+  },
+});
+
+/**
+ * "Confirm no supervisor" (`confirmed: true`) or "Withdraw" (`false`). Talent Read here, which the
+ * inspector needs; the service checks HR, a Board member or the System Administrator, never one's
+ * own record, that no supervisor is active, and the record's `version`, and writes the audit entry.
+ */
+export const setNoSupervisorConfirmationAction = defineAction({
+  access: talentReaders,
+  schema: noSupervisorConfirmationSchema,
+  handler: async (input) => {
+    const result = await setNoSupervisorConfirmation(await signedInUser(), input);
+    revalidatePath('/talent');
+    return { version: result.version };
+  },
+});
+
+/**
+ * "Required onboarding documents" in Settings: a new `talent.onboardingSettings` version effective
+ * today in Manila, at most one a day. Talent Owner here and again in the service's transaction,
+ * which writes the `create` entry on `core.configVersion`.
+ */
+export const addOnboardingSettingsVersionAction = defineAction({
+  access: talentOwners,
+  schema: onboardingSettingsSchema,
+  handler: async (input) => {
+    const result = await addOnboardingSettingsVersion(await signedInUser(), input);
+    revalidatePath('/talent');
+    return result;
   },
 });

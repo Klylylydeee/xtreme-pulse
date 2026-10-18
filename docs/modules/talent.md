@@ -77,7 +77,7 @@ The fields, fixed sets and indexes are in [DATA_MODEL.md](../DATA_MODEL.md#colle
 
 - **Compensation is effective-dated and append-only.** Each salary change is a new compensation entry: effective date, basic salary in centavos, rate type (monthly-rated or daily-rated: for a daily-rated employee the amount is the daily rate), the minimum wage earner flag and a required reason. An entry is never edited or deleted. The **current** entry is the latest one whose effective date is today or earlier in Manila; a later effective date shows as "Scheduled". To correct a mistake, add a new entry with the **same effective date** and a reason: the newer entry (by creation time) wins that date, and the old one stays in the history marked "Superseded". The effective date is on or after the date hired and at most one year ahead. The salary is entered in pesos with up to 2 decimals, converted to centavos without floating point, and must be more than zero ([Money](../DATA_MODEL.md#money)). The minimum wage warning is added in step 2.3 ([Payroll settings and allowances](#payroll-settings-and-allowances-build-step-23)).
 - **Editing.** Each section (Personal, Employment, Government IDs, Payroll bank account) has its own Edit sheet, and Compensation has "Add salary change". Saving one section leaves the others unchanged. Each form sends back the record's `version` it loaded; if someone else saved first, the save is refused with "Someone else changed this record. Reload to see it." A save that changes nothing still raises the `version` and writes an `update` entry. "Add salary change" sends no `version`: it only ever adds an entry, so there is nothing to overwrite. A sensitive input is never filled in with the stored value: it starts empty with the hint "Ends in 1234", and leaving it empty keeps the stored value. A stored government ID or account number can be replaced but not cleared in step 2.1.
-- **Nobody edits their own record in Pulse Talent in step 2.1**, the System Administrator included. Employees change their own details through change requests in step 2.6 ([Self-service & record changes](#self-service--record-changes)). Supervisors in `reportingTo` editing a record also comes with step 2.6. Until then, editing needs Talent Write.
+- **Nobody edits their own record in Pulse Talent in step 2.1**, the System Administrator included. Employees change their own details through change requests in step 2.6 ([Self-service & record changes](#self-service--record-changes)). From step 2.6 they also fill in their own empty fields directly, and `reportingTo` supervisors approve their team's change requests; editing a record directly still needs Talent Write ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)).
 - **Audit.** Record type `talent.employeeRecord`, labelled `<employee number> · <first name> <last name>`: the first save is a `create` entry, later saves are `update` entries with both sides snapshotted (`snapshotsForAudit`), so a changed sensitive value shows only as "Hidden (sensitive), changed". Record type `talent.compensationEntry`, labelled `<employee number> · <effective date YYYY-MM-DD>`: one `create` entry per entry. Reveals are `reveal` entries on these record types, module `talent` ([Audit logging](../../SECURITY.md#audit-logging)). Nothing in step 2.1 sends a notification.
 
 **Screens.**
@@ -123,7 +123,7 @@ Built in step 2.2, with [Skills & certifications](#skills--certifications). Deci
   - *Assumption, to be confirmed by HR:* the type list, and that the issue date is required.
 - **Never deleted.** HR archives a document with a reason, and it moves under "Show archived". The file can't be changed, but the details can be edited (with the record's `version`, like the employee record). An archived document can't be edited or archived again.
 - **Renewals.** A renewed document (a new NBI clearance, say) is uploaded as a new document. The upload sheet can archive the one it replaces in the same save, with the reason "Replaced by a renewed document."
-- **Who adds, edits and archives:** Talent Write **and** HR or the System Administrator, never on one's own record. HR may manage other HR staff's documents. Employees upload their own from step 2.6 onboarding.
+- **Who adds, edits and archives:** Talent Write **and** HR or the System Administrator, never on one's own record. HR may manage other HR staff's documents. From step 2.6 employees upload their own (any type but the employment contract and the regularization evaluation), and editing and archiving stay with HR ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)).
 - **Who sees them.**
   - A medical certificate is category `medical`; every other document is `file201`.
   - Others' documents show for Talent Read plus the reveal rule for that category, so HR, the System Administrator and, except for medical certificates, Accounting.
@@ -149,7 +149,7 @@ Built in step 2.2, with [Skills & certifications](#skills--certifications). Deci
 - **Who sees the image.** Only the owner (every version) and the System Administrator. Others see "E-signature on file, version N" or "Not uploaded".
 - **Applying.** One owner-only service, `applyESignature`, applies a signature for the signed-in user only: it takes no employee id. Each use records which version and file was applied, to what, and when (`signatureApplications`). Versions and their files are never changed or deleted, so a signed record keeps the version it was signed with, even after a replacement.
 - **Approvals** (from this step). An approve decision applies the approver's current signature, and the approvals inspector shows "Signed with e-signature, version N". Return and reject sign nothing.
-  - An approver with no signature on file can still approve until step 2.6 adds the gate; the decision shows "Approved without an e-signature". *Assumption, to be confirmed by the user.*
+  - An approver with no signature on file could still approve until step 2.6 added the gate; such decisions show "Approved without an e-signature". From step 2.6 the approve is refused with the gate's message, and only the bootstrap system account approves unsigned ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)).
   - Quotations, purchase orders and the other documents call the same service in their own steps.
 - *Assumption, to be confirmed by counsel:* an uploaded signature image is enough for approvals now, and for HR documents and contracts later (RA 8792, the E-Commerce Act, and the Rules on Electronic Evidence).
 
@@ -203,6 +203,8 @@ Built in step 2.2, with [Skills & certifications](#skills--certifications). Deci
   - Inclusion in a payroll run → government IDs and payroll bank account (HR sees incomplete employees flagged before finalizing payroll)
 - Government IDs and bank details entered during onboarding are verified by HR before the first payroll. After onboarding, changes to them follow the [Self-service](#self-service--record-changes) rules.
 
+Built in step 2.6, with the change requests below: [Onboarding checklist and change requests (build step 2.6)](#onboarding-checklist-and-change-requests-build-step-26).
+
 ## Self-service & record changes
 
 - Employees can view their full record and submit change requests for their own details.
@@ -212,6 +214,146 @@ Built in step 2.2, with [Skills & certifications](#skills--certifications). Deci
   - For employees in the HR department, those changes are made only by the System Administrator (normally the Web Administrator – Developer) or a Board of Directors member, never by HR. No one in HR changes their own or a colleague's pay or bank details.
   - `reportingTo` changes are HR, Board of Directors and System Administrator only (see [Reporting lines](core.md#reporting-lines)).
 - Every change stores the old value, new value, requester, approver and timestamp.
+
+### Onboarding checklist and change requests (build step 2.6)
+
+Built in step 2.6. Decisions 256–276 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The collections, fields and the new setting are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership), and who may see and change what in [Sensitive data](../../SECURITY.md#sensitive-data). Step 2.6 derives each employee's onboarding status, wires the e-signature gate, adds HR verification of government IDs and bank details, and adds self-service change requests through Core's [approvals engine](core.md#approvals). The `reportingTo` gate is wired in steps 2.7 (timesheet submission) and 2.8 (leave and offset time off), the payroll gate in step 2.10 (the run's flags), and the company-issued assets item stays a placeholder until Phase 4.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 84–101), to be confirmed by HR, counsel or the user.
+
+**The checklist.** Every employee has one, the System Administrator's included; the bootstrap system account has no employee, so it has none. Nothing is ticked by hand: each item's state is **derived** from the records it is about, every time it is read, and nothing about it is stored except the two HR confirmations below. An item is **Done**, **To do**, **Waiting for HR to verify** (government IDs and the bank account, filled in but not verified) or a **Placeholder**.
+
+| Employee item | Done when (*Assumption*: the required fields) |
+|---|---|
+| Change temporary password (`password`) | The account no longer has a temporary password. Sign-in already forces the change first ([Sign-in and passwords](../../SECURITY.md#sign-in-and-passwords)), so it is always done by the time the checklist shows |
+| Personal info and addresses (`personalInfo`) | Date of birth, sex, civil status, nationality, present address, permanent address and mobile number are filled in. The personal email is optional |
+| Emergency contact (`emergencyContact`) | Its name, relationship and mobile number are filled in |
+| Government IDs (`governmentIds`) | TIN, RDO code, SSS number, PhilHealth PIN and Pag-IBIG MID are filled in. Until they are verified, the item reads "Waiting for HR to verify" (it counts as done for the employee's progress) |
+| Payroll bank account (`bankAccount`) | The bank, the account number and the account name are filled in; verified as for government IDs |
+| 201 documents (`documents`) | For each type in the setting's `requiredDocumentTypes`, the employee has at least one unarchived 201 document of that type that hasn't expired. With an empty list the item is done |
+| Profile photo (`photo`) | A profile photo is set |
+| E-signature (`eSignature`) | At least one e-signature version is uploaded |
+
+| HR item (status only for the employee) | Done when |
+|---|---|
+| Module access (`moduleAccess`) | The account isn't in the [User access page's](core.md#user-access-page) "Needs access" group: some module is above None, or the user is a System Administrator |
+| Department, position, employment status (`department`, `position`, `employmentStatus`) | Set. Creating a user requires all three, so they are always done; they are listed so the employee sees them |
+| `reportingTo` (`reportingTo`) | At least one supervisor in `reportingTo` is active; **or** the employee is a Board of Directors member; **or** HR, a Board member or the System Administrator has confirmed "No supervisor" for them (*Assumption*: the spec's "not required for employees with an empty `reportingTo`") |
+| Work schedule (`workSchedule`) | Always done: the company default applies until HR sets an own schedule. It shows which ("Company default" or the own schedule) |
+| Work region (`workRegion`) | Always done: it defaults to NCR. It shows the region (*Assumption*, with the work schedule: neither asks HR to confirm the default) |
+| Salary and allowances (`compensation`) | The employee has a current or scheduled compensation entry. Allowances are optional (the internet allowance is automatic) |
+| Company-issued assets (`assets`) | A **Placeholder** until Pulse Supply: "Available when Pulse Supply is set up". It isn't counted in the progress |
+
+- **Progress.** The employee's progress counts the eight employee items ("5 of 8 done"). The HR items show beside them as status only, and HR sees their own count (8, without the placeholder). The onboarding is **complete** when every item but the placeholder is done and the government IDs and bank account are verified.
+- **Required documents** come from the new versioned setting `talent.onboardingSettings` (`requiredDocumentTypes`: types from `DOCUMENT_201_TYPES` other than the employment contract, the regularization evaluation and "other", which HR issues or which name nothing). `pnpm seed:admin` seeds it once, effective 2000-01-01, with the source "Company policy (spec)": government ID copy and NBI clearance (*Assumption*: the spec names "201 documents" without a list). A Talent Owner changes it from Settings on `/talent`, as a new version effective today in Manila (at most one per day), with a `create` entry on `core.configVersion`.
+- **"No supervisor" confirmation.** On the inspector's Onboarding section, HR, a Board member or the System Administrator (with Talent Read, which the inspector needs; never on their own record) confirms that an employee with no active supervisor has none, so their leave and offset time off go to HR. It is stored on the employee record (`noSupervisorConfirmation`: who and when) and can be withdrawn. It counts only while `reportingTo` has no active supervisor. Audit: `update` on `talent.employeeRecord`.
+
+**Required but not enforced.**
+
+- **Guided once.** After a new user changes their temporary password, the change-password page sends them to `/talent/onboarding` instead of Home, when their employee items aren't all done and they weren't on their way to another page. "Skip for now" goes to Home; nothing else is in the way.
+- **Reminded until done.** While any employee item is To do, every page shows the onboarding progress in the top toolbar ("Onboarding 5 of 8", linking to `/talent/onboarding`), and Home shows a "Finish setting up your profile" card under the hero ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)). Both go once every employee item is done or waiting for HR. HR items never keep the reminder showing, since the employee can't act on them.
+- Everything else in the app works with the checklist incomplete. Only the gates below block anything.
+
+**Gates.** One config map in code, `ONBOARDING_GATES` in `packages/talent/src/onboarding/gates.ts`, maps each gated action to the items it needs. A gate is code, not a setting: each gated action has to call it, so a gate can't be added or dropped from a screen (*Assumption*: the spec's "config map" is a typed constant).
+
+| Gate | Needs | Wired in |
+|---|---|---|
+| `applyESignature`: approvals, then quotations, purchase orders, delivery receipts, service reports, HR and handover documents as they are built | `eSignature` | Step 2.6, inside `applyESignature`, so every later caller gets it |
+| `fileTimeRequest`: submitting a timesheet, filing leave or offset time off | `reportingTo` | Steps 2.7 and 2.8 |
+| `includeInPayroll`: inclusion in a payroll run | `governmentIds` and `bankAccount`, each done **and verified** | Step 2.10, as the run's "incomplete onboarding" flag before HR submits |
+
+- **The check.** `checkOnboardingGate(gate, status)` returns the missing items in the map's order; `assertOnboardingGate` throws `OnboardingGateError`, an `ActionError` that names them and carries their keys, so a screen can link to each. The message is "Complete this onboarding item first: <item>. <where>", or "Complete these onboarding items first: <item>, <item>." For an employee item, `<where>` says where to do it ("Upload it in My record, then try again."); for an HR item, "Ask HR to set it." For the e-signature: "Complete this onboarding item first: E-signature. Upload it in My record, then try again."
+- **The e-signature gate** (step 2.6, the "Done when"). `applyESignature` now throws `OnboardingGateError` when the signer has an employee but no e-signature, instead of returning null. The signer runs in the approve decision's transaction, so the decision rolls back and the approver sees the message. Approving with no signature on file, which steps 2.2 to 2.5 allowed, is no longer possible. The **bootstrap system account** has no employee and can't have a signature, so it is exempt: it still approves and the decision records `signature: null`, shown as "Approved by the system account, without an e-signature" (*Assumption*: a request routed to the System Administrators must stay decidable when only the system account is active). Return and reject sign nothing and aren't gated.
+
+**Verification of government IDs and the bank account.**
+
+- **State.** Each of the two groups has its own verification on the employee record: `governmentIdsVerification` and `bankAccountVerification`, each null (not verified) or `{ verifiedAt, verifiedBy }`.
+- **Who verifies.** Whoever may change that group directly: Talent Write **and** HR or the System Administrator; for an employee in the HR department, Talent Write **and** the System Administrator or a Board member, never HR (*Assumption*: an HR colleague verifying an HR employee's bank account is the same risk as changing it). Never on one's own record. Accounting never verifies. "Mark verified" shows only once the group is complete.
+- **What sets and clears it.** The rule is that the stored values are verified when someone who may verify entered or approved them:
+  - the employee fills in a blank field of the group (below): cleared
+  - someone who may verify saves the group in the inspector: verified by them
+  - an approved change request to the group: verified by the approver, who may verify by the routing below. The approvals inspector says so: "Approving applies the change and marks these details verified."
+  - "Mark verified": verified by them
+  - values saved before step 2.6 have no verification and read as not verified, so HR verifies them once (*Assumption*)
+- **Shown** inside the Government IDs and Payroll bank account sections only, so it reaches only viewers who see the section: "Verified by <name> on <date>" or "Not verified". The employee sees theirs on `/talent/me` and on the checklist.
+- **Audit:** `update` on `talent.employeeRecord`, with the verification in both snapshots. The values stay hidden as always.
+- **Notification** `talent.verificationNeeded`: when the employee fills in a government ID or the bank account, to whoever may verify (every active HR user; for an HR employee, every active Board member and System Administrator), "Verify <name>'s government IDs" (or "payroll bank account"), linking to `/talent?employee=<employeeId>`. Sent in the save's transaction.
+
+**What the employee changes themselves.** All on `/talent/me` and from the checklist, self-service ([Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)): the services take no employee id and act on the signed-in user's own employee.
+
+- **Filling in a blank field saves straight away.** The employee edits their own Personal (with the emergency contact), Government IDs, Payroll bank account and Skills sections. Each save is split by change request section (below). For each section, a save that only fills fields that are empty is saved directly, the first save creating the record. Filled-in government IDs and the bank account are then not verified. This holds after onboarding too (*Assumption*).
+- **Changing a filled-in field is a change request.** When a save changes, for a section, any field that already has a value (or clears one), that section's part of the save becomes one change request, the blanks it fills included, and none of it is saved until it is approved. The sheet says which before the save: its button reads "Save" or "Send for approval" (the server decides again, and its answer says what was saved and what was sent).
+- **Never by the employee:** Core's fields (name, login email, department, position, `reportingTo`, employment status, date hired; "Managed in Users", ask HR), the Employment fields (work region, contract end date, regularization date, separation remarks), compensation and allowances, and the work schedule. These stay with HR as in steps 2.1 to 2.4.
+- **201 documents.** The employee uploads their own, from the checklist or `/talent/me`: any type but the employment contract and the regularization evaluation, which HR issues. The checks, the file handling and the audit entry are step 2.2's; the document shows "Uploaded by <name>". Editing and archiving stay with HR (Talent Write **and** HR or the System Administrator) (*Assumption*). Notification `talent.documentUploaded` to every active HR user (the System Administrators when none is active): "<name> uploaded an NBI clearance", linking to the record. It names the type, never the file name or title.
+- **Certifications.** The employee adds their own on `/talent/me`, with step 2.2's fields and checks; it shows "Added by <name>". Editing needs Talent Write and removing Talent Owner, never on one's own record, as before (*Assumption*).
+
+**Change requests.**
+
+- **Sections.** A change request covers one section of the employee's own record:
+
+  | Section (`CHANGE_REQUEST_SECTIONS`) | Fields | Approved by any one of |
+  |---|---|---|
+  | Contact details (`contact`) | Present address, permanent address, mobile number, personal email, emergency contact | The employee's active `reportingTo` supervisors and every active HR user |
+  | Skills (`skills`) | Skills | The same |
+  | Personal details (`personal`) | Date of birth, sex, civil status, nationality | Every active HR user |
+  | Government IDs (`governmentIds`) | TIN, RDO code, SSS, PhilHealth PIN, Pag-IBIG MID | Every active HR user; **for an employee in the HR department, every active Board member** |
+  | Payroll bank account (`bankAccount`) | Bank, account number, account name | The same as government IDs |
+
+  - The requester is never an approver. A step left with no one goes to the System Administrators (the engine's `whenEmpty: 'systemAdministrator'`), and a step whose only approver is the requester goes to them too ([Approvals](core.md#approvals)).
+  - *Assumption:* Personal details go to HR only, because a supervisor doesn't see the date of birth or civil status ([Sensitive data](../../SECURITY.md#sensitive-data)); the System Administrator approves government IDs and bank details only when routed there, not as a standing approver.
+  - The on-screen Personal section holds both Contact and Personal details. One save that touches both makes two change requests.
+- **Supervisors approve, they don't edit.** The spec's "HR and any supervisor in `reportingTo` can edit the employee's record" is read as: supervisors approve their team's change requests, seeing only that request's fields. Editing a record directly still needs Talent Write under the step 2.1 rules, so supervisors don't get a new view of their team's personal data (*Assumption, to be confirmed by the user and counsel*: data minimization under RA 10173).
+- **The approval type** `talent.changeRequest`, registered by `registerTalentApprovalTypes()`, which the approvals Server Action calls beside `registerCoreApprovalTypes()` and `registerTalentApprovalSigner()`:
+  - one step, given at submit (the table above): `anyOf` with the user ids Talent works out from Core's `employeeNotificationContacts` and `activeHrUserIds` for Contact details and Skills, `{ set: 'hr' }` for Personal details and for others' IDs and bank, `{ set: 'board' }` for an HR employee's IDs and bank
+  - decisions: approve, return and reject
+  - `whenEmpty: 'systemAdministrator'`
+  - the title "Change request: <section label> · <first name> <last name>" and the summary "Fields: present address, mobile number" (field labels only). Neither ever holds a value
+  - the link `/talent/change-requests/<id>`
+- **Stored** in the new collection `changeRequests`: the employee, the requester, the section, the fields that change (`changedFields`), the proposed values of those fields only, an optional note from the employee (up to 500 characters), the status, the current approval request, and, once applied, the previous values and who approved it and when. Government ID numbers and the account number are `sensitiveField()`s, in both the proposed and the previous values.
+- **Statuses:** `pending` → `approved` (applied), `returned` or `rejected`; a returned request can be edited and sent again (back to `pending`, as a new approval request linked to the old one with `previousRequestId`) or cancelled (`cancelled`). Approved, rejected and cancelled requests are final and never deleted. One employee has at most one open (`pending` or `returned`) request per section; while one is open, that section's Edit on `/talent/me` reads "A change to this section is waiting for approval" (or "…was returned") and opens the request instead.
+- **Checks** when sending: the fields pass the record's own checks (the formats, the bank list, at most 30 skills…); at least one field changes; the section has no other open request. The employee can't withdraw a pending request: the engine has no withdraw, so they ask the approver to return it (*Assumption*).
+- **Applying on approval.** The type's `onSettled` hook runs in the decision's transaction. On approve it:
+  - checks again that the approver may approve this section for this employee **now** (HR or the System Administrator; for an HR employee's IDs and bank, a Board member or the System Administrator; for Contact details and Skills, any approver named at submit), since the employee may have moved department after submit. Otherwise it throws "This change can no longer be approved by you: <reason>. Return it instead.", and the decision rolls back
+  - writes the changed fields only, over their current values, keeping the record's other fields, and raises the record's `version`. A value someone changed meanwhile is overwritten by the approved one; the request page shows the current values when the approver decides (*Assumption*: no conflict check)
+  - stores the previous values on the request, sets the status, and sets the verification of an IDs or bank change to the approver
+  - writes the audit entries below
+
+  On return or reject it sets the status only, and the remarks show on the request.
+- **Approving needs no module access.** Like every approval, the engine checks the person, not module access, so an HR approver doesn't need Talent Write; the hook checks the role (*Assumption*).
+- **Who sees a change request** (the page and its values): the requester, anyone who is or was its approver (`isApproverFor`), the System Administrator, and Talent Read users who may see that section of the employee's record. Others get the no-access state (HTTP 403). The values follow the record's rules: government ID numbers and the account number are masked (last 4) with Reveal, audit-logged (`talent.changeRequest`, categories `governmentId` and `bankAccount`), and an approver who may not reveal them doesn't get the section, which the routing never allows. A supervisor without Talent Read gets the employee's directory fields only.
+
+**Audit.** All in module `talent`, in the transaction of the change:
+
+| Change | Entry |
+|---|---|
+| A blank field filled by the employee | `create` (first save) or `update` on `talent.employeeRecord`, the employee as actor |
+| A change request sent, sent again or cancelled | `create` or `update` on `talent.changeRequest`, labelled `<employee number> · <section label>` |
+| A change request approved, returned or rejected | `update` on `talent.changeRequest`, and on approval an `update` on `talent.employeeRecord` with the reason "Change request approved"; Core writes its own entry on `core.approvalRequest` |
+| Verification, "No supervisor" confirmed or withdrawn | `update` on `talent.employeeRecord` |
+| A 201 document uploaded or a certification added by the employee | Step 2.2's `create` entries |
+| A change request value revealed | `reveal` on `talent.changeRequest` |
+| The onboarding setting changed | `create` on `core.configVersion`, module `core` |
+
+Sensitive values show only as "Hidden (sensitive), changed" ([Audit logging](../../SECURITY.md#audit-logging)). A gate refusal writes nothing.
+
+**Notifications.** The approvals engine sends the change request events: waiting for the approvers, settled by another, and the outcome to the employee ([Approvals](core.md#approvals)). Talent adds `talent.verificationNeeded` and `talent.documentUploaded` (above). Nothing is sent for the checklist itself.
+
+**Screens.**
+
+- **`/talent/onboarding`**, the employee's checklist (self-service; the bootstrap system account gets an empty state). The page header "Onboarding" with "5 of 8 done" and a progress bar. Two inset grouped sections: **Your items**, each row with its status badge (text: "Done", "To do", "Waiting for HR to verify") and an action that opens the same sheet as on My record (Edit, Upload, Add photo, Upload e-signature); and **Set up by HR**, status only, with "Available when Pulse Supply is set up" on the assets row. "Skip for now" goes to Home. Reached from the toolbar progress, the Home card and My record.
+- **The toolbar progress and the Home card** ([Feedback & motion](../DESIGN_SYSTEM.md#feedback--motion)), while any employee item is To do.
+- **`/talent/me`** adds:
+  - Edit on the Personal, Government IDs, Payroll bank account and Skills sections, with the footer "Empty fields are saved straight away. Changes to filled-in fields go to <approvers> for approval." and the button "Save" or "Send for approval"
+  - the verification badge in Government IDs and Payroll bank account
+  - "Upload document" in the 201 file and "Add certification"
+  - **Change requests**: the employee's own, newest first, with their status badges, the remarks of a returned or rejected one, and "Edit and send again" and "Cancel request" on a returned one
+- **`/talent/change-requests/<id>`**, the request (opened from Approvals and from My record). The employee, the section, when it was sent, the employee's note, and a list of the changed fields: Current and Proposed (Previous and Applied once approved), masked where the record masks them. A link "Open in Approvals" goes to `/approvals?request=<id>`. Read-only; deciding stays on Approvals. Breadcrumb "Pulse Talent › Change request".
+- **The Approvals inspector.** When the viewer has no e-signature, a notice above the decision buttons reads "Approving needs your e-signature. Upload it in My record." with a link, and Approve is disabled; Return and Reject stay available. The server refuses an approve anyway (the gate). A change request also shows "Approving applies the change to <name>'s record" (and "…and marks these details verified" for IDs and bank).
+- **The inspector** adds an **Onboarding** section (Talent Read): both lists with their states and progress, and "Confirm no supervisor" or "Withdraw" for those who may. An item about a section the viewer can't see (government IDs, bank account, salary, 201 documents) shows "Visible to HR, Accounting and the System Administrator" instead of its state, so the list never says whether such a value exists. The Government IDs and Payroll bank account sections get the verification badge and "Mark verified".
+- **`/talent`** adds, for HR and the System Administrator, a filter "Onboarding: Incomplete | To verify" (`?onboarding=incomplete|verify`) and two stat tiles counting each. Other Talent Read users don't get them, because "To verify" would say who has IDs or a bank account on file (*Assumption*).
+- **Settings on `/talent`** adds "Required onboarding documents" (Talent Owner).
+
+**Not in step 2.6:** the `fileTimeRequest` and `includeInPayroll` gates' callers (steps 2.7, 2.8 and 2.10), company-issued assets (Phase 4), withdrawing a pending request (the engine has none), and email notifications.
 
 ## Skills & certifications
 
@@ -223,7 +365,7 @@ Built in step 2.2 ([Documents, photo, e-signature and certifications](#documents
 
 - **Each certification** has a name, an issuer, an optional product from Core's products (so Pulse Engage can count how many employees hold a current certification for a brand), an optional certificate or license number, an issue date (required), an optional expiry date and an optional attachment.
   - The attachment opens for the employee, Talent Read and the System Administrator.
-- **Who changes them.** Adding and editing need Talent Write, never on one's own record. Removing one is a soft delete and needs Talent Owner, also never on one's own record. Employees add their own from step 2.6.
+- **Who changes them.** Adding and editing need Talent Write, never on one's own record. Removing one is a soft delete and needs Talent Owner, also never on one's own record. From step 2.6 employees add their own on `/talent/me`; editing and removing them keep these rules ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)).
 - **Dates.** Unlike a 201 document, a certification's issue date may be in the future (a certificate dated ahead). The expiry date, when given, must be after it.
 - **Skills** are free-text tags on the employee record: up to 30, of up to 50 characters each, with duplicates refused (ignoring case). They are changed with Talent Write, never on one's own record. *Assumption, to be confirmed by HR:* the spec names skills but gives no fields.
 - **Read services for Pulse Ops and Pulse Engage:** `listCertifications` and `countCertifiedEmployeesByBrand`.
@@ -825,6 +967,7 @@ An employee can only be set to **Terminated** once the required process is compl
 ## Notifications
 
 - **Employees:** timesheet due soon, timesheet returned with remarks or approved, leave or offset time off approved or rejected, payslip ready, document or certification expiring, notice received (NTE, NOD, TN).
-- **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)).
+- **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)); their team's change requests to contact details and skills waiting for their approval (from step 2.6, through the approvals engine).
+- **From step 2.6** ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)): the employee hears the outcome of each change request (approved, returned or rejected); HR hears of change requests waiting for HR, government IDs or a bank account to verify (`talent.verificationNeeded`; for an HR employee, the Board members and the System Administrators instead) and 201 documents an employee uploaded (`talent.documentUploaded`); Board members hear of an HR employee's ID and bank change requests.
 - **HR:** new users needing module access, company details still missing, timesheets waiting for HR approval, leave and offset time off requests waiting for HR approval (requesters with an empty `reportingTo`), missing timesheets at the deadline, payroll run or final pay approved or returned, remittance due dates, probation, contract and document alerts, minimum wage flags, due-process deadlines.
 - **Board of Directors:** payroll runs and final pay waiting for approval.

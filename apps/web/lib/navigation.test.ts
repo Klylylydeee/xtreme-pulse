@@ -6,6 +6,7 @@ import {
   ADMIN_ENTRIES,
   ADMIN_GROUPS,
   breadcrumbFor,
+  CHANGE_REQUESTS_HREF,
   CORE_ENTRIES,
   documentTitleFor,
   getNavEntry,
@@ -20,6 +21,7 @@ import {
   NO_NAV_BADGES,
   noAccessTitle,
   NOT_FOUND_PAGE_TITLE,
+  ONBOARDING_HREF,
   type NavigationViewer,
   visibleAdminGroups,
   visibleHrefs,
@@ -32,7 +34,8 @@ import {
 // docs/TESTING.md#holiday-calendar-tests (navigation, step 1.10),
 // docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11),
 // docs/TESTING.md#employee-record-tests (My record, step 2.1), the Payroll settings breadcrumb
-// (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4) and
+// (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4),
+// docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -481,6 +484,47 @@ describe('Timesheet (step 2.4)', () => {
     expect(activeEntry(talentReader, path)?.entry.label).toBe('Talent');
     expect(isEntryActive(getNavEntry('/talent/timesheet'), path)).toBe(false);
     expect(visibleHrefs(systemAdministrator)).not.toContain('/talent/timesheets');
+  });
+});
+
+describe('Onboarding and change requests (step 2.6)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const changeRequest = '/talent/change-requests/64b7f0c2a1b2c3d4e5f60718';
+
+  it('names the checklist "Pulse Talent › Onboarding" for everyone, Talent access or not', () => {
+    for (const someone of [newUser, hr, systemAdministrator, systemAccount]) {
+      expect(breadcrumbFor(visibleNavigation(someone), ONBOARDING_HREF)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Onboarding',
+      });
+    }
+    expect(ONBOARDING_HREF).toBe('/talent/onboarding');
+  });
+
+  it('names a change request "Pulse Talent › Change request", approvers without Talent included', () => {
+    for (const groups of [talentReader, visibleNavigation(newUser), visibleNavigation(hr)]) {
+      expect(breadcrumbFor(groups, changeRequest)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Change request',
+      });
+    }
+    expect(changeRequest.startsWith(`${CHANGE_REQUESTS_HREF}/`)).toBe(true);
+  });
+
+  it('adds no sidebar entry, and leaves My record and the own timesheet not current', () => {
+    for (const someone of [newUser, systemAdministrator]) {
+      const hrefs = visibleHrefs(someone);
+      expect(hrefs).not.toContain(ONBOARDING_HREF);
+      expect(hrefs).not.toContain(CHANGE_REQUESTS_HREF);
+    }
+    for (const path of [ONBOARDING_HREF, changeRequest]) {
+      expect(isEntryActive(getNavEntry('/talent/me'), path)).toBe(false);
+      expect(isEntryActive(getNavEntry('/talent/timesheet'), path)).toBe(false);
+      // Talent stays current there for Talent readers, as on the other Talent pages.
+      expect(activeEntry(talentReader, path)?.entry.label).toBe('Talent');
+    }
   });
 });
 

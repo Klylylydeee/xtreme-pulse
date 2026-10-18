@@ -2,7 +2,13 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { EMPLOYMENT_STATUSES, type EmploymentStatus } from '@pulse/core';
 import { type CurrentUser, listBrandOptions, listDirectoryDepartments } from '@pulse/core/server';
-import { getExpiryAlertSettings, listEmployeeRecords } from '@pulse/talent/server';
+import {
+  getExpiryAlertSettings,
+  getOnboardingSettings,
+  listEmployeeRecords,
+  ONBOARDING_FILTERS,
+  type OnboardingFilter,
+} from '@pulse/talent/server';
 import { requireModulePage } from '@/lib/auth';
 import { getUploadHints } from '@/lib/upload-hints';
 import { firstParam, type SearchParams } from '@/lib/keyset-paging';
@@ -15,6 +21,10 @@ const SEARCH_MAX_LENGTH = 100;
 
 function statusParam(value: string | undefined): EmploymentStatus | null {
   return EMPLOYMENT_STATUSES.find((status) => status === value) ?? null;
+}
+
+function onboardingParam(value: string | undefined): OnboardingFilter | null {
+  return ONBOARDING_FILTERS.find((filter) => filter === value) ?? null;
 }
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 — the employee list (build step
@@ -30,6 +40,9 @@ function statusParam(value: string | undefined): EmploymentStatus | null {
 // From step 2.2 the page also loads what the inspector's sheets need (Core's products for a
 // certification, the upload limits) and the expiry alert lead days, whose Settings sheet a Talent
 // Owner opens from the header.
+// From step 2.6 (decisions 259 and 274), for HR and the System Administrator only (the service
+// returns `onboarding` counts only for them), the onboarding filter (`?onboarding=incomplete|verify`)
+// and its two tiles; and the required onboarding documents setting, in the same Settings (Talent Owner).
 export default async function TalentPage({
   searchParams,
 }: {
@@ -55,14 +68,23 @@ async function Employees({
   const departmentId = (firstParam(params, 'department') ?? '').trim() || null;
   const status = statusParam(firstParam(params, 'status'));
   const showSeparated = firstParam(params, 'separated') === '1';
+  const onboarding = onboardingParam(firstParam(params, 'onboarding'));
 
-  const [list, departments, brands, uploads, expirySettings] = await Promise.all([
-    listEmployeeRecords(user, { q: search, departmentId, status, separated: showSeparated }),
-    listDirectoryDepartments(),
-    listBrandOptions(),
-    getUploadHints(),
-    getExpiryAlertSettings(user),
-  ]);
+  const [list, departments, brands, uploads, expirySettings, onboardingSettings] =
+    await Promise.all([
+      listEmployeeRecords(user, {
+        q: search,
+        departmentId,
+        status,
+        separated: showSeparated,
+        onboarding,
+      }),
+      listDirectoryDepartments(),
+      listBrandOptions(),
+      getUploadHints(),
+      getExpiryAlertSettings(user),
+      getOnboardingSettings(user),
+    ]);
 
   return (
     <EmployeesManager
@@ -75,6 +97,9 @@ async function Employees({
       showSeparated={showSeparated}
       tools={{ brands, uploads }}
       expirySettings={expirySettings}
+      onboardingSettings={onboardingSettings}
+      onboarding={list.onboarding ? onboarding : null}
+      onboardingCounts={list.onboarding ?? null}
     />
   );
 }

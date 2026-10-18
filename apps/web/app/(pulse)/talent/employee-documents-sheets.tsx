@@ -82,7 +82,7 @@ function needsReload(message: string | null): boolean {
 }
 
 /** The shared form inside a sheet: header, errors, fields, and Cancel and the submit button. */
-function FormSheet({
+export function FormSheet({
   title,
   description,
   action,

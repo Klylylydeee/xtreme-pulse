@@ -33,7 +33,9 @@ import {
   PAYROLL_BANK_LABELS,
   RATE_TYPE_LABELS,
   type RevealTarget,
+  type SectionVerificationView,
   SEX_LABELS,
+  verificationBadgeText,
   WORK_REGION_LABELS,
   type WorkScheduleAssignmentView,
   type WorkScheduleSectionView,
@@ -56,7 +58,14 @@ import {
   scheduleHoursText,
   scheduleSummary,
 } from './payroll-settings/payroll-format';
-import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record-ui';
+import {
+  dateOrNull,
+  EditButton,
+  RecordCard,
+  RecordSection,
+  Row,
+  SectionActions,
+} from './record-ui';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21, SECURITY.md#sensitive-data and
 // docs/DESIGN_SYSTEM.md#layout--components ("Employee record") — the record's inset grouped
@@ -82,6 +91,9 @@ import { dateOrNull, EditButton, RecordCard, RecordSection, Row } from './record
 //   Work schedule section follows Employment (`WorkScheduleSection`, passed in as `workSchedule`
 //   because it loads on its own): the schedule in effect, the scheduled changes and the history,
 //   with "Set schedule" and "Timesheet" in the inspector. A schedule isn't sensitive.
+
+/** The sections that take an extra action from the caller (step 2.6). */
+export type RecordSectionActionKey = 'personal' | 'governmentIds' | 'bankAccount' | 'skills';
 
 export type RecordSectionKey =
   'personal' | 'employment' | 'compensation' | 'allowance' | 'governmentIds' | 'bankAccount';
@@ -119,6 +131,25 @@ function MaskedDigitsRow({
   return <MaskedField label={label} lastFour={value.lastFour} reveal={revealOf(value, format)} />;
 }
 
+/**
+ * Step 2.6: a group's verification, inside Government IDs and Payroll bank account only, so it
+ * reaches only viewers who see the section: "Verified by <name> on <date>" or "Not verified".
+ */
+function VerificationRow({ verification }: { verification: SectionVerificationView }) {
+  return (
+    <Row term="Verification">
+      {verification ? (
+        <span className="inline-flex items-start gap-1.5">
+          <ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
+          <span>{verificationBadgeText(verification, formatDate(verification.verifiedAt))}</span>
+        </span>
+      ) : (
+        <Badge>{verificationBadgeText(null)}</Badge>
+      )}
+    </Row>
+  );
+}
+
 /** A masked salary: "••••", no digits, until revealed. */
 function MaskedSalary({ label, value }: { label: string; value: MaskedAmountView }) {
   return <MaskedField label={label} lastFour="" reveal={revealOf(value, formatRevealedSalary)} />;
@@ -144,6 +175,7 @@ export function EmployeeRecordSections({
   photoSlot,
   workSchedule,
   showESignature = true,
+  sectionActions,
 }: {
   view: EmployeeRecordView;
   onEdit?: (section: RecordSectionKey) => void;
@@ -155,11 +187,22 @@ export function EmployeeRecordSections({
   workSchedule?: ReactNode;
   /** False on `/talent/me`, which shows the e-signature in its own section. */
   showESignature?: boolean;
+  /**
+   * Step 2.6: an extra action in a section's header, beside its Edit (the inspector's "Mark
+   * verified", `/talent/me`'s "Request change").
+   */
+  sectionActions?: Partial<Record<RecordSectionActionKey, ReactNode>>;
 }) {
   const { identity, personal, employment, can } = view;
   const name = `${identity.firstName} ${identity.lastName}`;
-  const edit = (section: RecordSectionKey, flag: boolean, label: string) =>
-    onEdit && flag ? <EditButton label={label} onClick={() => onEdit(section)} /> : null;
+  const edit = (section: RecordSectionKey, flag: boolean, label: string) => (
+    <SectionActions>
+      {onEdit && flag ? <EditButton label={label} onClick={() => onEdit(section)} /> : null}
+      {section in (sectionActions ?? {})
+        ? sectionActions?.[section as RecordSectionActionKey]
+        : null}
+    </SectionActions>
+  );
   const contact = personal.emergencyContact;
 
   return (
@@ -314,6 +357,7 @@ export function EmployeeRecordSections({
               value={view.governmentIds.pagibig}
               format={formatPagibigMid}
             />
+            <VerificationRow verification={view.governmentIds.verification} />
           </RecordCard>
         </RecordSection>
       ) : null}
@@ -333,6 +377,7 @@ export function EmployeeRecordSections({
               format={(digits) => digits}
             />
             <Row term="Account name">{view.bankAccount.accountName}</Row>
+            <VerificationRow verification={view.bankAccount.verification} />
           </RecordCard>
         </RecordSection>
       ) : null}
@@ -351,7 +396,11 @@ export function EmployeeRecordSections({
         showESignature={showESignature}
       />
 
-      <SkillsCertificationsSection view={view} handlers={documentHandlers} />
+      <SkillsCertificationsSection
+        view={view}
+        handlers={documentHandlers}
+        skillsAction={sectionActions?.skills}
+      />
 
       {view.manageAccessHref ? (
         <Link

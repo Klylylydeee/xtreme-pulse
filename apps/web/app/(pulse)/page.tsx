@@ -13,6 +13,7 @@ import {
   HOLIDAYS_TILE,
   HomeTileSkeleton,
   NOTIFICATIONS_TILE,
+  OnboardingCard,
   TEAM_TILE,
   UnreadNotificationsTile,
   UpcomingHolidaysTile,
@@ -50,7 +51,9 @@ function AccessSetupCard() {
  * the bootstrap system account); the access card of step 1.6 stays under it; then the tiles, each
  * streaming in behind its own Suspense with its own skeleton, zero state and error state. HR and
  * the System Administrator also see the company details reminder while any detail is a
- * placeholder.
+ * placeholder. From step 2.6 a user with an employee also sees "Finish setting up your profile"
+ * under the hero, above the access card, while any of their own onboarding items is To do
+ * (docs/modules/talent.md#onboarding-checklist-and-change-requests-build-step-26).
  */
 export default async function HomePage() {
   const user = await requireCurrentUser();
@@ -72,6 +75,11 @@ export default async function HomePage() {
         </h2>
         <p className="text-callout text-hero-text-secondary">{formatHeroDate(at)}</p>
       </section>
+      {showTeam ? (
+        <Suspense fallback={null}>
+          <OnboardingCard user={user} />
+        </Suspense>
+      ) : null}
       {waitingForAccess ? <AccessSetupCard /> : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Suspense fallback={<HomeTileSkeleton info={APPROVALS_TILE} />}>
