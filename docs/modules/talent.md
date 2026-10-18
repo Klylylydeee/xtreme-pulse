@@ -437,7 +437,7 @@ A separate table on the same timesheet.
 - Either approver can return the timesheet to the employee with remarks; the employee revises and resubmits, and approval starts again from step 2.
 - An approved timesheet is locked. Changes after the payroll run is finalized become adjustments in the next cut-off.
 - If a timesheet is not fully approved when HR prepares the payroll run, the employee still receives their basic pay for the cut-off. Overtime, reimbursements and any absence, late or undertime deductions from that timesheet are settled in the next cut-off once approved. Offset hours from that timesheet are credited to the balance only when it is fully approved.
-- Built in step 2.7: [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).
+- Built in step 2.7: [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27). Basic pay for a timesheet not fully approved, and its settlement in a later cut-off, from step 2.9: [Payroll run computation (build step 2.9)](#payroll-run-computation-build-step-29).
 
 #### Daily Time Record (DTR)
 - Computed per employee per day from the approved timesheet, schedule, approved leave, approved offset time off and confirmed holidays.
@@ -1066,6 +1066,7 @@ Step 2.13's regularization evaluation sets the regularization date and the Regul
   - Rest day work: 130%; special non-working day on a rest day: 150%; regular holiday on a rest day: 260%
   - Overtime: +25% of the hourly rate on ordinary days; +30% of the day's hourly rate on rest days and holidays
   - Night differential (10:00 PM – 6:00 AM): +10% of the hourly rate
+- Built in step 2.9: [Payroll run computation (build step 2.9)](#payroll-run-computation-build-step-29).
 
 ### Allowances
 - Allowance types are configurable data (e.g. rice, transportation, communication, meal). Each type has a tax treatment (taxable, non-taxable, or de minimis) and a basis: a fixed amount per cut-off, or an amount per day present.
@@ -1080,7 +1081,7 @@ Step 2.13's regularization evaluation sets the regularization date and the Regul
 - Only draft runs can be edited; finalized runs are locked.
 
 ### Payroll run & payslips
-1. Once timesheets for the cut-off are approved, pay is computed automatically into a draft payroll run.
+1. Once timesheets for the cut-off are approved, pay is computed automatically into a draft payroll run (built in step 2.9: [Payroll run computation (build step 2.9)](#payroll-run-computation-build-step-29); steps 2–4 and payslips come in step 2.10).
 2. **HR** reviews the run, makes any manual inputs, resolves flagged employees (incomplete onboarding, unapproved timesheets, below minimum wage) and submits it.
 3. **Any one Board of Directors member** approves or returns it to HR with remarks. There is no Accounting review step.
 4. On approval, the run is finalized and a **payslip is generated automatically** for every employee in it, available in their self-service as a PDF.
@@ -1202,6 +1203,145 @@ The seeded type is the **internet allowance**: ₱500 per cut-off (₱1,000 a mo
 
 *Assumptions, to be confirmed by HR or the accountant:* no pay date moves for a weekend or holiday; double holidays (300%), special working days and the lower wage rates for small retail, service and manufacturing employers aren't seeded, since the spec doesn't list them.
 
+### Payroll run computation (build step 2.9)
+
+Built in step 2.9. Decisions 325–349 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The new setting and collections are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership), the pay and tax rules as the agent understood them in [Payroll computation](../COMPLIANCE.md#payroll-computation-build-step-29), and who may see what in [Sensitive data](../../SECURITY.md#sensitive-data). Step 2.9 computes a **draft** payroll run per cut-off from the DTR, time off, reimbursements, compensation, allowances and the payroll settings, stores it encrypted, recomputes it on demand, every night and after a holiday change, and shows it read-only to HR, Accounting and the System Administrator. It settles an earlier cut-off's attendance items once its timesheet is approved, and the difference when a finalized period's attendance changes later.
+
+Not in step 2.9: manual lines, the review flags (incomplete onboarding, unapproved timesheets, below minimum wage), submitting, Board approval, finalizing and locking, payslips, the payroll register with bank accounts and the Fiscal posting placeholder (all step 2.10); remittance reports (2.11); 13th month pay and tax annualization (2.12); final pay (2.14); payroll reports and exports (2.16). Nothing in step 2.9 finalizes a run, so its "paid" figures come only from runs step 2.10 finalizes.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 225–257), to be confirmed by HR, the accountant, counsel or the user. **Every rate, formula and legal reading below is an *Assumption*,** and every rate stays in versioned configuration: nothing here hardcodes a rate.
+
+**Run settings** (the new versioned setting `talent.payrollRunSettings`, seeded by `pnpm seed:admin` from 2000-01-01 with the source "Company policy (spec) and step 2.9 recommendations"; the version in effect on the cut-off's start date applies). HR adds a version in the Pay schedule segment of Payroll settings, under the step 2.3 rules (Talent Owner **and** HR or the System Administrator).
+
+| Field | Meaning | Seeded |
+|---|---|---|
+| `contributionBases` | For each of `sss`, `philhealth`, `pagibig`: `monthlyBasicSalary` or `monthCompensation` (below) | PhilHealth `monthlyBasicSalary`; SSS and Pag-IBIG `monthCompensation`, step 2.3's recommendation (*Assumption*) |
+| `monthlyRatedUnworkedSpecialDay` | `paid` (a monthly salary already covers it, as the daily rate factor 261 counts every day but rest days) or `deducted` (at `1 − specialDayUnworked` of the daily rate) | `paid` (*Assumption*) |
+| `adjustmentLookbackCutOffs` | How many cut-offs before the run's are reconciled (1–48) | 24, a year (*Assumption*) |
+
+**Payroll runs** (the new collections `payrollRuns` and `payrollRunEmployees`; base fields, never deleted).
+
+- **One regular run per cut-off** (`kind` `regular`; step 2.12 adds `thirteenthMonth`), numbered `PAY-YYYY-NNNN` with the pay date's year from Core's counters when it is created (*Assumption*: the prefix). It stores the cut-off key, `periodStart`, `periodEnd`, `payDate`, the contribution month (the pay date's month, `YYYY-MM`), the status, when and by whom it was last computed (no actor for the job), the setting versions it used, the employee count, the employees left out, and its encrypted totals.
+- **Statuses** (`PAYROLL_RUN_STATUSES`): `draft`, `pendingApproval`, `returned`, `finalized`. Step 2.9 writes only `draft`; step 2.10 builds the rest. A draft is recomputed as a whole and its employee lines replaced; a run that has left `draft` is never recomputed.
+- **The first payroll cut-off** is the first cut-off that starts on or after `talent.leaveSettings.goLiveDate`: the cut-offs before it were paid by the old system, and year-to-date pay at go-live carries them. While `goLiveDate` is null no run can be created ("Set the go-live date in Payroll settings › Leave first."). *Assumption*: HR sets the go-live date on a cut-off start.
+- **Who is in a run.** Every employee with a Talent record whose employment overlaps the cut-off: date hired on or before `periodEnd`, and no separation date or one on or after `periodStart`. Everyone with no salary in effect on any employed day of the cut-off is **left out** and listed on the run ("No salary on file"), never in its totals. An employee separated before the cut-off starts is left out even with earlier cut-offs to settle; final pay settles them (step 2.14; *Assumption*).
+- **Creating a draft.** HR (Talent Write **and** HR or the System Administrator) creates one from `/talent/payroll` for any cut-off that has ended (today after `periodEnd`), is on or after the first payroll cut-off and has no run. The job below also creates the latest one automatically.
+
+**Rates** ([Rates](#rates)). Every amount is an exact ratio until its line is rounded, half-up to the centavo, once ([Money](../DATA_MODEL.md#money)).
+
+- **The salary of a day** is the compensation entry in effect that day (the latest entry on or before it; [Compensation](#compensation)); its rate type decides monthly or daily rating.
+- **The daily rate** of a day is `dailyRateRatio` with the `dailyRateFactor` of the `payrollSettings` version in effect on the cut-off's start (monthly × 12 ÷ 261; a daily rate is itself). **The hourly rate** is the daily rate ÷ `hoursPerDay` (8), and a minute is the hourly rate ÷ 60.
+- **Base days** of a cut-off are the employee's scheduled work days in it (the schedule in effect each day), holidays included. **Employed base days** leave out days before the date hired and after the separation date.
+- **Versions used** are step 2.3's: contributions on the first day of the contribution month, the withholding table, de minimis limits and the 13th month ceiling on the pay date, premium rates, minimum wages and allowance types on each day, `payrollSettings` and `payrollRunSettings` on the cut-off's start. The run stores each version it used.
+
+**Basic pay** (always paid for the cut-off, whatever the timesheet's status):
+
+- **Monthly-rated, employed every day of the cut-off:** monthly salary ÷ 2. With a salary change inside the cut-off, each base day earns (that day's monthly salary ÷ 2) ÷ the cut-off's base days, summed into one line, so one salary throughout is exactly monthly ÷ 2.
+- **Monthly-rated, hired or separated inside the cut-off:** employed base days × the daily rate of each day.
+- **Daily-rated:** employed base days that aren't confirmed nationwide holidays × the daily rate of each day; holidays are paid through holiday pay below.
+- *Assumption, to be confirmed by the accountant:* the two monthly formulas (the spec's "prorated by working days using the daily rate in effect on each day").
+
+**Holidays** (confirmed nationwide holidays only, as on the DTR; [Pay computation per cut-off](#pay-computation-per-cut-off)):
+
+- **The workday-before rule.** An unworked regular holiday is paid at `regularHolidayUnworked` (100%) when the employee was present, or on paid leave or paid offset, on **the workday before**: the last scheduled work day before the holiday that isn't itself a holiday, rest days skipped. A day before the date hired, an absence and leave without pay don't meet it; a day partly worked does. A worked holiday (any worked minutes) is always paid. While the timesheet holding the workday before isn't approved, the rule counts as met for now (*Assumption*).
+- **Monthly-rated, holiday on a scheduled work day:** basic pay already includes it. An unworked regular holiday that fails the rule is a deduction, "Holiday not paid (absent on <day>)", of `regularHolidayUnworked` × the daily rate. An unworked special day costs nothing with `monthlyRatedUnworkedSpecialDay` `paid`.
+- **Daily-rated, holiday on a scheduled work day:** a **holiday pay** line: a regular holiday at `regularHolidayUnworked` × the daily rate when worked or the rule is met; a special day at `specialDayUnworked` (seeded 0, the spec's "no pay if unworked unless company policy says otherwise").
+- **A holiday on a rest day**, either rate type: a regular holiday's holiday pay as above (DOLE pays an unworked regular holiday that falls on a rest day; *Assumption*); a special day nothing unless worked.
+
+**Overtime and premiums** (Overtime timesheet only, on approved claimed minutes as step 2.4 computes them; [Extra hours: Overtime timesheet](#extra-hours-overtime-timesheet)). The **day's rate** is 1 on an ordinary day, `restDayWorked` (1.30) on a rest day, `regularHolidayWorked` (2.00) or `specialDayWorked` (1.30) on a holiday, and `regularHolidayOnRestDay` (2.60) or `specialDayOnRestDay` (1.50) on a holiday that falls on a rest day:
+
+| Line | Minutes | Pay per minute |
+|---|---|---|
+| Overtime, ordinary day | Ordinary-day claimed minutes | minute rate × (1 + `overtimeOrdinaryAddOn`) |
+| Rest day work | Rest-day claimed minutes within the first `hoursPerDay` hours | minute rate × day's rate |
+| Holiday work | Holiday claimed minutes within the first `hoursPerDay` hours | minute rate × (day's rate − the base already paid for that day: 1 for a regular holiday; for a special day 1 when a monthly salary covers it, otherwise `specialDayUnworked`) |
+| Rest day and holiday overtime | Claimed minutes beyond the first `hoursPerDay` hours | minute rate × day's rate × (1 + `overtimeRestDayHolidayAddOn`) |
+
+So a monthly-rated employee working a regular holiday gets 100% more on top of basic pay, and a daily-rated one 100% holiday pay plus 100% for the hours: 200% either way. **The Standard timesheet** gets none of these lines: its extra hours, rest day and holiday work became offset hours (step 2.7), shown on the breakdown as "Offset earned, not paid". Its unworked holidays are paid exactly as above ([Pay computation per cut-off](#pay-computation-per-cut-off)).
+
+**Night differential** applies to the DTR's night minutes, which are paid minutes only (decision 291): minutes × minute rate × the day's rate × `nightDifferentialAddOn` (10%). Night minutes inside overtime don't compound the overtime add-on (*Assumption*: Labor Code Art. 86 reads it as 10% of the overtime rate; see [Payroll computation](../COMPLIANCE.md#payroll-computation-build-step-29)).
+
+**Attendance deductions** (from an approved timesheet's DTR):
+
+- `absentUnpaid` days and `leaveWithoutPayDays` (a half day included): × the daily rate of the day ("Absences", "Leave without pay").
+- Late, undertime and `absentMinutes` (a partly covered day's uncovered minutes): minutes × minute rate ("Late", "Undertime", "Partial-day absence").
+- Paid leave and paid offset cost nothing: basic pay covers them. Maternity leave is paid leave like any other, so the employee keeps full pay; the SSS maternity benefit, the employer's salary differential and SSS's reimbursement of the benefit aren't modeled (*Assumption, to be confirmed by the accountant and counsel*, RA 11210). The unpaid maternity extension is leave without pay.
+
+**Allowances** ([Allowances](#allowances), step 2.3's assignments):
+
+- **Per cut-off:** each type in effect, prorated by base days: each employed base day earns (the amount in effect that day ÷ the cut-off's base days), one line per type, so a full cut-off is exactly the amount. Absences don't reduce it (*Assumption*).
+- **Per day present:** the amount in effect each day × the DTR's `present` days (paid leave and offset aren't present; *Assumption*). This is an attendance item: it waits for an approved timesheet.
+- **Tax treatment:** taxable lines are taxable compensation; non-taxable lines aren't; a de minimis line is non-taxable up to its limit and taxable on the excess, in the cut-off the excess arises. The limit's period (month of the pay date, semester, year, or per day × the cut-off's present days) is counted against what finalized runs already paid for that type in that period. A limit set as a share of the minimum wage uses the employee's region on the pay date. *Assumption, to be confirmed by the accountant:* the excess is taxed at once as the spec says, not first pooled into the ₱90,000 ceiling for other benefits; step 2.12's annualization reconciles it.
+
+**Reimbursements** ([Reimbursements](#reimbursements)): an approved timesheet's live lines, one line "Reimbursements (<n> receipts)", non-taxable and outside every contribution basis. It is part of net pay but kept as its own figure in the totals, never mixed into salary.
+
+**Government contributions** (the contribution month is the pay date's month, so both cut-offs paid in a month share one month's contribution; [Employer contributions & monthly remittances](#employer-contributions--monthly-remittances)):
+
+- **Bases.** `monthlyBasicSalary` is the monthly salary in effect on the first day of the contribution month (on the date hired, if later); a daily rate counts as daily × the factor ÷ 12, rounded half-up. `monthCompensation` is the employee's **compensation for contributions** in the month: the sum, over the regular runs with a pay date in the month, of basic pay, holiday pay, overtime, premiums, night differential, taxable allowances and de minimis excess, less attendance deductions, settlements included. A minimum wage earner's exempt pay counts.
+- **The mid-month cut-off** (the first paid in the month) deducts its `contributionSplit` share (half) of the month's contribution computed on an **estimate**: the `monthlyBasicSalary` basis for every agency, since the month's compensation isn't known yet.
+- **The end-of-month cut-off** computes the month's contribution on the real bases, reading the same month's mid-month run (finalized, or else its draft), and deducts the month's contribution less what the mid-month run deducted. The remainder may be negative, a correction refunded in that cut-off. With no mid-month run in the month (the first payroll cut-off after go-live), it deducts only its own split share of the estimate. An employee separated after the mid-month cut-off keeps the estimate's share; final pay settles the rest (step 2.14). *Assumption, to be confirmed by the accountant.*
+- **Shares.** Step 2.3's lookups: SSS by the monthly salary credit (regular SS and MPF, employee and employer, and EC), PhilHealth with its floor and ceiling, Pag-IBIG up to the maximum fund salary. The employer shares and EC are computed the same way and stored on the line and the totals; they never reduce pay. Contributions are taken whatever the timesheet's status.
+
+**Withholding tax** (BIR's semi-monthly table, the version in effect on the pay date; [BIR (taxes)](../COMPLIANCE.md#bir-taxes)):
+
+- **Taxable compensation** for the cut-off is its compensation for contributions (settlements from earlier cut-offs included) less the employee's SSS (MPF included), PhilHealth and Pag-IBIG shares deducted in this cut-off, and never below 0. The tax is `semiMonthlyWithholding` on it, with no annualization; step 2.12 annualizes in December and in final pay.
+- **Minimum wage earners** (the flag on the salary in effect on the pay date): basic pay, holiday pay, overtime, premiums and night differential are exempt; their taxable allowances and de minimis excess are still taxed on the table, with no contribution subtracted (*Assumption, to be confirmed by the accountant*, RR 11-2018).
+
+**A timesheet not fully approved** ([Submission & approval](#submission--approval)). When the cut-off's timesheet isn't `approved` when the run is computed (or there is none), the employee still gets the cut-off's **provisional** pay: basic pay, per cut-off allowances and, for a daily-rated employee, holiday pay with the workday-before rule counted as met, with contributions and tax on it. Its overtime, premiums, night differential, per day present allowances, reimbursements, holiday deductions and attendance deductions wait. The line says "Timesheet not approved: basic pay only. The rest settles in the next cut-off once approved."
+
+**Settling earlier cut-offs** (the spec's "settle in the next cut-off once approved" and "late approvals and changes to finalized periods also become adjustments there"). Each run line records, for every period it pays, the amount of each **attendance item** (the waiting items above, plus holiday pay). For each of the employee's earlier cut-offs within `adjustmentLookbackCutOffs` and on or after the first payroll cut-off, the run computes the period's attendance items now (the full set when its timesheet is approved, the provisional set when not) and pays the difference from what **finalized** runs already paid for that period, item by item, as lines grouped under "Settled from earlier cut-offs" with the period named ("Overtime, ordinary day · Sep 26 – Oct 10"). A difference of 0 adds no line.
+
+- This covers a timesheet approved after its run was finalized, leave or offset time off approved later (an absence becomes paid leave), and a holiday confirmed or deleted inside a finalized period, each using the rates, salary and settings of the days it belongs to.
+- **Basic pay and per cut-off allowances of a finalized period are never recomputed**: a back-dated salary or allowance change is a manual line in step 2.10 (back pay), as the spec says ([Manual inputs & adjustments](#manual-inputs--adjustments); *Assumption*).
+- Only finalized runs count as paid, so two drafts can show the same settlement; step 2.10 finalizes runs in cut-off order and recomputes a draft before it is submitted (*Assumption*). Settlements are taxable or not as their item is, and count in this cut-off's contribution month.
+- Older periods than the lookback aren't reconciled; HR adds a manual line in step 2.10.
+
+**The employee line** (`payrollRunEmployees`, one per employee in a run). Lines are grouped as earnings, deductions, "Settled from earlier cut-offs" and employer shares (`PAYROLL_LINE_KINDS`: `basicPay`, `holidayPay`, `overtimeOrdinary`, `restDayWork`, `holidayWork`, `restDayHolidayOvertime`, `nightDifferential`, `allowance`, `reimbursement`; `absence`, `leaveWithoutPay`, `late`, `undertime`, `partialAbsence`, `holidayNotPaid`, `sssEmployee`, `philhealthEmployee`, `pagibigEmployee`, `withholdingTax`; `sssEmployer`, `sssEc`, `philhealthEmployer`, `pagibigEmployer`; step 2.10 adds `manual`). Each line has its label, the period it belongs to, its quantity and unit (days, minutes, receipts) and rate in words, its amount, and whether it is taxable.
+
+- **Gross pay** is the earnings (settlements of earnings included, signed); **total deductions** the deductions (settlements of deductions included); **net pay** gross less deductions. Employer shares are outside both.
+- **Net pay below zero** is kept as computed and marked "Net pay below zero"; step 2.10's review resolves it (*Assumption*).
+- **Also stored:** the snapshot of the facts used (rate type, daily and hourly rate, timesheet type and status, base days, minimum wage earner), the contribution bases, salary credits and the month's shares, taxable compensation, the tax, the de minimis amounts per type, and **basic salary earned** for 13th month pay: basic pay less absences, leave without pay, late, undertime, partial-day absences and holiday deductions (settlements included), excluding holiday pay, overtime, premiums, night differential, allowances and reimbursements (*Assumption, to be confirmed by the accountant*, PD 851; step 2.12 sums it).
+- **Encrypted.** The line's breakdown (all of the above, as one JSON value) and its gross, deductions, net pay and reimbursement figures are `sensitiveField()`s (category `payslip`), and so are the run's totals ([Sensitive data](../../SECURITY.md#sensitive-data)). What isn't sensitive is stored plain: the employee, timesheet status, "Net pay below zero" and the periods settled.
+
+**Recomputing a draft.** "Recompute" (Talent Write **and** HR or the System Administrator), the nightly job and the holidays-changed listener recompute a draft from its sources: in one transaction, its employee lines are replaced, its totals, settings, counts and `computedAt` set, and its `version` raised, so two recomputes can't interleave. A run that isn't `draft` is refused. Timesheet and time off approvals don't recompute drafts by themselves; the page shows "Computed <when>" and HR recomputes before reviewing (*Assumption*).
+
+- **The holidays-changed listener** `talent.recomputeDtr` (steps 2.7 and 2.8), extended as step 2.7 promised: after its offset and time off reconcile, it recomputes every draft run whose cut-off or lookback holds a changed date, in cut-off order, each in its own transaction, audited with no actor.
+- **Audit.** `create` on `talent.payrollRun` (labelled `<number> · <period>`) when a draft is created, and `update` with the reason "Recomputed" on each recompute, with no amount in either; the employee lines aren't audited one by one, since they are the draft's derived values (*Assumption*).
+
+**The draft job** `talent.payrollDraftRuns` (daily at 05:00 Asia/Manila, cron `0 5 * * *`; [Background jobs](../ARCHITECTURE.md#background-jobs)). While `goLiveDate` is set: it creates the draft of the latest ended cut-off on or after the first payroll cut-off when it has no run and either every included employee's timesheet is approved or the cut-off's submission deadline has passed (the spec's "once timesheets for the cut-off are approved, pay is computed automatically"); then it recomputes every draft, in cut-off order. Creating one notifies every active HR user (the System Administrators when none is active) once per run: `talent.payrollDraftReady`, "Draft payroll for Sep 26 – Oct 10 is ready to review", linking to the run, with no amount (`dedupeKey` `talent.payrollDraftReady:<run id>`). Earlier ended cut-offs are created by HR. `pnpm dev:payroll-drafts [--date YYYY-MM-DD]` runs it once in development, like `pnpm dev:leave-credits`; it refuses in production.
+
+**Who may see and do what** ([Sensitive data](../../SECURITY.md#sensitive-data)):
+
+- **Seeing runs:** Talent Read **and** HR, Accounting or the System Administrator. The list and the run page show no amount until the viewer chooses "Show amounts", which writes and commits a `reveal` audit entry on the run (field `amounts`) before any amount is decrypted; opening one employee's breakdown writes a `reveal` on that line (field `breakdown`). Board members see runs from step 2.10, when they approve them.
+- **Creating and recomputing:** Talent Write **and** HR or the System Administrator. Accounting reads only. An HR employee's own pay is computed like anyone's; computing changes no pay.
+- Employees don't see drafts; payslips come in step 2.10.
+
+**Screens** (phone first; see [Payroll runs on a phone](../DESIGN_SYSTEM.md#layout--components)).
+
+- **`/talent/payroll`**, the runs list ("Pulse Talent › Payroll"), reached from a "Payroll" button on `/talent` for whoever may see runs: each run's period, pay date, number, status badge ("Draft"), employee count and "Computed <when>", newest first. "Compute draft run" opens a sheet with the ended cut-offs that have no run.
+- **`/talent/payroll/<runId>`**, a run ("Pulse Talent › Payroll run"): the period, pay date, number, status and "Computed <when> by <name>" (or "by the nightly job"), "Recompute", and the note "Draft: amounts change until the run is finalized." Tiles count the employees, "Timesheet not approved", "Net pay below zero" and "Left out". The people list shows each person's name, number, department, timesheet type and badges ("Timesheet not approved · basic pay only", "Settles earlier cut-offs", "Net pay below zero"); after "Show amounts", each row's net pay and the run's totals (gross, deductions, net pay, reimbursements, tax withheld, employee and employer contributions). A row opens the breakdown sheet: earnings, deductions, settlements, employer shares, and "How it was computed" (daily and hourly rate, base days, minutes, contribution bases, taxable compensation).
+- **Payroll settings › Pay schedule** gets the "Payroll run" setting (`talent.payrollRunSettings`) with "Add version".
+
+**Cross-module and services.** Talent reads its own DTR (`computeDtr` with step 2.8's time off), offset, reimbursement, compensation, allowance and settings services; it reads Core's confirmed holidays, counters (`nextDocumentNumber`), `notify`, `activeHrUserIds` and the holidays-changed listener. **No Core change.** `getPayrollRunLine` and the stored figures serve step 2.10 (review, payslips and year-to-date), 2.11 (remittances from finalized runs), 2.12 (basic salary earned, annualization) and 2.14 (final pay).
+
+**Hand-checked cases.** With the seeded rates (step 2.3) and schedule, `goLiveDate` 2026-09-26, "today" Monday 2026-10-19, the cut-off **Sep 26 – Oct 10, 2026** (mid-month, paid Oct 15; 10 base days: Sep 28 – Oct 2 and Oct 5 – 9), no holiday in it, and every timesheet approved unless said. The salaries are invented test figures, chosen so the daily rate is whole: ₱21,750 a month is ₱1,000 a day and ₱125 an hour; ₱26,100 a month is ₱1,200 a day and ₱150 an hour.
+
+| # | Case | Expected |
+|---|---|---|
+| P1 | **Overtime timesheet** (a Driver), monthly ₱21,750: Sep 28 08:00–19:00 and Oct 6 08:00–23:00 marked overtime; Sat Oct 3 08:00–12:00 marked; Oct 1 08:30–17:00; Oct 2 no entry; a ₱350.00 meal reimbursement; the internet allowance | Basic ₱10,875.00; overtime 480 min ₱1,250.00; rest day work 240 min ₱650.00; night differential 60 min ₱12.50; internet ₱500.00; reimbursements ₱350.00; gross **₱13,637.50**. Absences 1 day ₱1,000.00; late 30 min ₱62.50; SSS ₱550.00 (MSC ₱22,000, half of ₱1,100); PhilHealth ₱271.88 (half of ₱543.75, the first half rounded up); Pag-IBIG ₱100.00; taxable ₱10,803.12; tax ₱57.92; deductions **₱2,042.30**; net **₱11,595.20**. Employer: SSS ₱1,100.00, EC ₱15.00, PhilHealth ₱271.88, Pag-IBIG ₱100.00 (the **Done when**) |
+| P2 | **Standard timesheet**, monthly ₱26,100: Sep 29 08:00–19:00 and Sat Oct 3 08:00–12:00 marked offset; Sep 30 08:00–16:00; approved VL Oct 8 – 9 with a balance of 1.0 (Oct 9 without pay); the internet allowance | Basic ₱13,050.00; internet ₱500.00; gross **₱13,550.00**; offset earned 6.0 h, not paid. Undertime 60 min ₱150.00; leave without pay 1 day ₱1,200.00; SSS ₱650.00 (MSC ₱26,000); PhilHealth ₱326.25; Pag-IBIG ₱100.00; taxable ₱10,623.75; tax ₱31.01; deductions **₱2,457.26**; net **₱11,092.74** (the **Done when**) |
+| P3 | P1's employee with the timesheet still waiting for HR | Basic ₱10,875.00 and internet ₱500.00 only; the same contributions (₱921.88); taxable ₱9,953.12, tax ₱0.00; net ₱10,453.12; "Timesheet not approved" |
+| P4 | P3's run finalized; the timesheet approved; the next cut-off's draft (Oct 11 – 25) | Lines settled from Sep 26 – Oct 10: overtime ₱1,250.00, rest day work ₱650.00, night differential ₱12.50, reimbursements ₱350.00, absences −₱1,000.00, late −₱62.50 |
+| P5 | P1 finalized; later an approved SL covers Oct 2 | The next draft settles absences for Sep 26 – Oct 10 at +₱1,000.00 (the deduction reversed) |
+| P6 | P1's employee in Oct 11 – 25 (end of month, paid Oct 30), present every day, nothing else; P1 is that month's mid-month run | Compensation for contributions ₱11,725.00 + ₱10,875.00 = ₱22,600.00 (MSC ₱22,500): SSS ₱1,125.00 − ₱550.00 = **₱575.00**; PhilHealth ₱543.75 − ₱271.88 = ₱271.87; Pag-IBIG ₱100.00; taxable ₱9,928.13, tax ₱0.00 |
+| P7 | Monthly ₱21,750 hired Mon Oct 5 | Basic 5 days × ₱1,000.00 = ₱5,000.00; internet 5/10 of ₱500.00 = ₱250.00 |
+| P8 | Monthly ₱21,750, then ₱26,100 from Oct 5 | Basic ₱10,875.00 × 5/10 + ₱13,050.00 × 5/10 = ₱11,962.50, one line |
+| P9 | Cut-off Nov 26 – Dec 10, 2026, with Nov 30 a confirmed regular holiday and Dec 8 a confirmed special day, both unworked; daily-rated ₱800, present Fri Nov 27 | Basic 9 days × ₱800.00 = ₱7,200.00; holiday pay Nov 30 ₱800.00; Dec 8 nothing |
+| P10 | As P9, absent Fri Nov 27: daily-rated ₱800; and monthly ₱21,750 | Daily: no holiday pay for Nov 30, absences ₱800.00. Monthly: basic ₱10,875.00, absences ₱1,000.00, holiday not paid (absent on Nov 27) ₱1,000.00 |
+| P11 | Nov 30 worked 08:00–17:00, marked, Overtime timesheet: monthly ₱21,750; daily ₱800 | Monthly: holiday work 480 min ₱1,000.00 on top of basic. Daily: holiday pay ₱800.00 + holiday work ₱800.00 |
+| P12 | Daily-rated ₱755 with the minimum wage earner flag, Overtime timesheet, present every day, Sep 28 08:00–19:00 marked | Basic ₱7,550.00; overtime 120 min ₱235.94; tax ₱0.00 |
+| H2 | P10's monthly employee with Nov 30 still a draft when their run was finalized (Nov 30 deducted as an absence); the holiday is then confirmed | The listener recomputes the drafts; the next draft settles absences for Nov 26 – Dec 10 at +₱1,000.00 |
+
 ## Separation
 
 ### Separation checklist
@@ -1277,6 +1417,7 @@ An employee can only be set to **Terminated** once the required process is compl
 - **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)); their team's change requests to contact details and skills waiting for their approval (from step 2.6, through the approvals engine).
 - **From step 2.6** ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)): the employee hears the outcome of each change request (approved, returned or rejected); HR hears of change requests waiting for HR, government IDs or a bank account to verify (`talent.verificationNeeded`; for an HR employee, the Board members and the System Administrators instead) and 201 documents an employee uploaded (`talent.documentUploaded`); Board members hear of an HR employee's ID and bank change requests.
 - **From step 2.8** ([Leave, offset time off and opening balances](#leave-offset-time-off-and-opening-balances-build-step-28)): leave and offset time off go through the approvals engine (`talent.leave`, `talent.offsetTimeOff`: waiting for the supervisor, or HR for an empty `reportingTo`; approved, returned or rejected to the employee). New: `talent.timeOffCancelled` to the approvers when an approved request is cancelled, and `talent.leaveAdjusted` to the employee when a holiday change alters an approved leave's charge (offset time off reuses `talent.offsetAdjusted`).
+- **From step 2.9** ([Payroll run computation](#payroll-run-computation-build-step-29)): HR gets `talent.payrollDraftReady` when the nightly job creates a draft payroll run (the System Administrators when no HR user is active); it names the cut-off and carries no amount.
 - **From step 2.7** ([Timesheet approval, the DTR and the offset balance](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)): the employee gets `talent.timesheetDue` (ready to submit, due today, overdue) and `talent.offsetAdjusted` (a holiday change altered an approved timesheet's offset); HR gets `talent.timesheetsMissing` the day after the deadline; the approval events (waiting for the supervisor or HR, returned, approved) are the approvals engine's.
 - **HR:** new users needing module access, company details still missing, timesheets waiting for HR approval, leave and offset time off requests waiting for HR approval (requesters with an empty `reportingTo`), missing timesheets at the deadline, payroll run or final pay approved or returned, remittance due dates, probation, contract and document alerts, minimum wage flags, due-process deadlines.
 - **Board of Directors:** payroll runs and final pay waiting for approval.

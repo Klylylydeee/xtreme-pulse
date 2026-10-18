@@ -82,6 +82,17 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Go-live date | The day Pulse Talent goes live (`talent.leaveSettings.goLiveDate`), as of which HR enters opening balances and year-to-date pay once |
 | Opening entry | A balance or year-to-date pay figure HR enters once per existing employee as of the go-live date, never an edit to a balance |
 | Absent minutes | On a day partly covered by time off with nothing worked, the scheduled minutes the time off doesn't cover (build step 2.8) |
+| Payroll run, draft run | One cut-off's pay for every employee (`PAY-` number). A draft is recomputed as a whole until step 2.10 submits and finalizes it (build step 2.9) |
+| First payroll cut-off | The first cut-off that starts on or after the go-live date; earlier cut-offs were paid by the old system (build step 2.9) |
+| Base days | An employee's scheduled work days in a cut-off, holidays included, used to prorate basic pay and per cut-off allowances (build step 2.9) |
+| Workday before | The last scheduled work day before a holiday that isn't itself a holiday; being present or on paid leave then makes an unworked regular holiday paid (build step 2.9) |
+| Provisional pay | What an employee whose timesheet isn't fully approved still gets: basic pay, per cut-off allowances and daily-rated holiday pay (build step 2.9) |
+| Attendance item | A pay line that depends on the approved DTR: overtime, premiums, night differential, holiday pay and deductions, per day present allowances, reimbursements, and the attendance deductions (build step 2.9) |
+| Settlement | A line in a later run paying the difference between a period's attendance items now and what finalized runs paid for it ("Settled from earlier cut-offs", build step 2.9) |
+| Contribution month | The month of a cut-off's pay date; both cut-offs paid in it share one month's SSS, PhilHealth and Pag-IBIG contribution (build step 2.9) |
+| Compensation for contributions | A month's taxable pay less attendance deductions, from both cut-offs paid that month; the SSS and Pag-IBIG basis by default (build step 2.9) |
+| Taxable compensation | A cut-off's compensation for contributions less the employee's SSS, PhilHealth and Pag-IBIG shares, the basis of the semi-monthly withholding (build step 2.9) |
+| Basic salary earned | Basic pay less attendance and holiday deductions, the basis of 13th month pay (build step 2.9) |
 | Daily rate factor | The divisor that turns a monthly salary into a daily rate: monthly salary × 12 ÷ 261 ([Rates](modules/talent.md#rates)) |
 | De minimis | Small non-taxable benefits up to BIR limits |
 | 13th month pay | 1/12 of basic salary earned in the year, due by December 24 (PD 851) |
