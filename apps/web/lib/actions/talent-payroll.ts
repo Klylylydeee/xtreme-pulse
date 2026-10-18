@@ -26,6 +26,8 @@ import { requireModuleAccess, signedInUser } from '@/lib/auth';
 //   under `value.<path>`, and the service parses it again.
 // - The wage order list needs Talent Read here; the service checks HR, Accounting or the System
 //   Administrator. It holds no amount.
+// - From step 2.7 (decision 279) the timesheet settings carry `submissionDeadlineDays`, a whole
+//   number of days (1 to 10) added through the same "Add version" and its audit entry.
 // - Nothing here is logged or cached.
 
 const TALENT_READ = 'You don’t have access to Pulse Talent. Ask HR or the System Administrator.';
@@ -36,7 +38,15 @@ const talentReaders = requireModuleAccess('talent', 'read', TALENT_READ);
 const talentOwners = requireModuleAccess('talent', 'owner', TALENT_OWNER);
 
 /** Whole-number fields the sheet sends as digits. */
-const INTEGER_KEYS = new Set(['startDay', 'endDay', 'payDay', 'dailyRateFactor', 'hoursPerDay']);
+const INTEGER_KEYS = new Set([
+  'startDay',
+  'endDay',
+  'payDay',
+  'dailyRateFactor',
+  'hoursPerDay',
+  // Step 2.7 (decision 279): the timesheet submission deadline, 1 to 10 days.
+  'submissionDeadlineDays',
+]);
 /** Optional text fields whose blank means none. */
 const NULLABLE_TEXT_KEYS = new Set(['rateOfMinimumWage', 'deMinimisKey']);
 

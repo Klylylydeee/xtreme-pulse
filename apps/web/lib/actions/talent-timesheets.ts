@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { defineAction } from '@pulse/core';
+import { defineAction, OBJECT_ID_PATTERN } from '@pulse/core';
 import {
   createTimeEntrySchema,
   deleteTimeEntrySchema,
@@ -12,6 +12,7 @@ import {
 import {
   createTimeEntry,
   deleteTimeEntry,
+  submitTimesheet,
   timeIn,
   timeOut,
   updateTimeEntry,
@@ -29,6 +30,11 @@ import { requireSignedIn, signedInUser } from '@/lib/auth';
 //
 // Each returns only ids, versions and statuses; the page reloads its view to show the change.
 // Nothing here is logged or cached.
+//
+// Step 2.7 (docs/modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27,
+// "Submitting"; assumption 146): "Submit timesheet" (or "Resubmit") takes only the timesheet's id,
+// never an employee id, and the service refuses any timesheet that isn't the signed-in user's own
+// (it reads as not found). A missing onboarding item comes back as the form error, naming it.
 
 const OWN_TIMESHEET = '/talent/timesheet';
 
@@ -87,5 +93,22 @@ export const deleteTimeEntryAction = defineAction({
     await deleteTimeEntry(await signedInUser(), input);
     revalidatePath(OWN_TIMESHEET);
     return null;
+  },
+});
+
+/** "Submit timesheet" or "Resubmit", from the confirmation sheet: the own timesheet only. */
+export const submitTimesheetAction = defineAction({
+  access: requireSignedIn(),
+  schema: z.object({
+    timesheetId: z.string().regex(OBJECT_ID_PATTERN, 'Reload the page and try again.'),
+  }),
+  handler: async (input) => {
+    const result = await submitTimesheet(await signedInUser(), { timesheetId: input.timesheetId });
+    revalidatePath(OWN_TIMESHEET);
+    return {
+      timesheetId: result.timesheetId,
+      status: result.status,
+      submittedLate: result.submittedLate,
+    };
   },
 });

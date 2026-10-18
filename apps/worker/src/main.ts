@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   const { connectDb, disconnectDb, isDatabaseConfigured, redactConnectionString } =
     await import('@pulse/db');
   const { jobHandlers, jobSchedules } = await import('./jobs');
+  const { registerTalentListeners } = await import('./talent-jobs');
 
   if (!isJobsConfigured()) {
     log.error(
@@ -48,6 +49,9 @@ async function main(): Promise<void> {
   } else {
     log.error('MONGODB_URI is not set, so jobs that use the database will fail.');
   }
+
+  // Listeners before the worker starts, so a `core.holidaysChanged` job already waiting runs them.
+  registerTalentListeners();
 
   const production = process.env.NODE_ENV === 'production';
   let worker;

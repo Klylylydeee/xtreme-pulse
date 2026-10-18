@@ -318,7 +318,7 @@ describe('manual entries', () => {
     const view = await getOwnTimesheetView(p.actor);
     expect(view?.treatment).toBe('offset');
     expect(view?.totals.workedMinutes).toBe(635);
-    expect(view?.offset).toEqual({ balanceMinutes: 0, thisCutOffMinutes: 155 });
+    expect(view?.offset).toEqual({ balanceMinutes: 0, thisCutOffMinutes: 155, credited: null });
     expect(view?.todayCard?.workedMinutes).toBe(635);
   });
 
@@ -609,6 +609,15 @@ describe('who sees and changes a timesheet', () => {
         name: 'Wes Lim',
         employeeNumber: worker.employeeNumber,
         href: `/talent/timesheets/${worker.employeeId}`,
+        // Step 2.7: the latest ended cut-off's status (no timesheet, past its deadline).
+        status: {
+          periodStart: '2026-08-26',
+          periodEnd: '2026-09-10',
+          status: null,
+          label: 'Overdue',
+          overdue: true,
+          submittedLate: false,
+        },
       },
     ]);
     expect((await getOwnTimesheetView(boss.actor))?.myTeam).toEqual(team);

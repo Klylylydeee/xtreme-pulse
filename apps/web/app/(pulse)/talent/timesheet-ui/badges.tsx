@@ -1,11 +1,31 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, Clock, Info, PenLine, TriangleAlert, type LucideIcon } from 'lucide-react';
+import {
+  CalendarDays,
+  CalendarX2,
+  CircleCheck,
+  Clock,
+  Hourglass,
+  Info,
+  type LucideIcon,
+  PenLine,
+  RotateCcw,
+  TriangleAlert,
+  UserCheck,
+} from 'lucide-react';
+import {
+  DTR_DAY_STATUS_LABELS,
+  DTR_PREVIEW_LABEL,
+  type DtrDayStatus,
+  SUBMITTED_LATE_LABEL,
+  type TimesheetStatus,
+} from '@pulse/talent';
 import { cn } from '@pulse/ui/lib/utils';
 
 // Spec: docs/DESIGN_SYSTEM.md#layout--components ("Timesheets on a phone") — the timesheet's text
 // badges. Each one names its state in words, with an icon beside it, so colour is never the only
 // signal: "Manual" in `warning-text`, "No time out", "Not claimed", the day's kind, and (build
-// step 2.5) a reimbursement's "Over limit".
+// step 2.5) a reimbursement's "Over limit"; from build step 2.7, "Submitted late", a timesheet's status
+// on My team, and the DTR's day statuses and "Not approved yet".
 
 const TONES = {
   /** A manual time, and an entry with no time out. */
@@ -14,6 +34,10 @@ const TONES = {
   neutral: 'bg-bg-grouped text-text-secondary',
   /** A rest day or holiday label. */
   accent: 'bg-accent-subtle text-accent',
+  /** Approved, Present (build step 2.7). */
+  success: 'bg-bg-grouped text-success-text',
+  /** Overdue, Absent (build step 2.7). */
+  destructive: 'bg-bg-grouped text-destructive-text',
 } as const;
 
 export function TimesheetBadge({
@@ -82,6 +106,86 @@ export function OverLimitBadge() {
   return (
     <TimesheetBadge tone="warning" Icon={TriangleAlert}>
       Over limit
+    </TimesheetBadge>
+  );
+}
+
+/** "Submitted late": submitted on a day after the deadline (build step 2.7). */
+export function SubmittedLateBadge() {
+  return (
+    <TimesheetBadge tone="warning" Icon={Clock}>
+      {SUBMITTED_LATE_LABEL}
+    </TimesheetBadge>
+  );
+}
+
+/**
+ * A timesheet's status as text, with its icon (My team): `label` is the status as it reads today
+ * ("Not submitted", "Overdue", "Waiting for HR", …), and `overdue` the server's flag for the
+ * destructive tone. Null status: no timesheet yet.
+ */
+export function TimesheetStatusBadge({
+  status,
+  label,
+  overdue,
+}: {
+  status: TimesheetStatus | null;
+  label: string;
+  overdue: boolean;
+}) {
+  if (status === 'approved') {
+    return (
+      <TimesheetBadge tone="success" Icon={CircleCheck}>
+        {label}
+      </TimesheetBadge>
+    );
+  }
+  if (status === 'returned') {
+    return (
+      <TimesheetBadge tone="warning" Icon={RotateCcw}>
+        {label}
+      </TimesheetBadge>
+    );
+  }
+  if (status === 'pendingSupervisor' || status === 'pendingHr') {
+    return (
+      <TimesheetBadge tone="neutral" Icon={Hourglass}>
+        {label}
+      </TimesheetBadge>
+    );
+  }
+  return (
+    <TimesheetBadge tone={overdue ? 'destructive' : 'neutral'} Icon={TriangleAlert}>
+      {label}
+    </TimesheetBadge>
+  );
+}
+
+const DTR_STATUS_STYLE: Record<DtrDayStatus, { tone: keyof typeof TONES; Icon: LucideIcon }> = {
+  holiday: { tone: 'accent', Icon: CalendarDays },
+  restDay: { tone: 'accent', Icon: CalendarDays },
+  onLeavePaid: { tone: 'neutral', Icon: CalendarDays },
+  offsetPaid: { tone: 'neutral', Icon: CalendarDays },
+  leaveWithoutPay: { tone: 'neutral', Icon: CalendarDays },
+  present: { tone: 'success', Icon: UserCheck },
+  absentUnpaid: { tone: 'destructive', Icon: CalendarX2 },
+};
+
+/** A DTR day's status: "Present", "Absent (unpaid)", "Rest day", "Holiday", … */
+export function DtrStatusBadge({ status }: { status: DtrDayStatus }) {
+  const { tone, Icon } = DTR_STATUS_STYLE[status];
+  return (
+    <TimesheetBadge tone={tone} Icon={Icon}>
+      {DTR_DAY_STATUS_LABELS[status]}
+    </TimesheetBadge>
+  );
+}
+
+/** "Not approved yet": a DTR day whose timesheet isn't approved (a preview). */
+export function PreviewBadge() {
+  return (
+    <TimesheetBadge tone="neutral" Icon={Info}>
+      {DTR_PREVIEW_LABEL}
     </TimesheetBadge>
   );
 }

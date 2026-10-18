@@ -11,8 +11,10 @@ import {
   now,
 } from '@pulse/core';
 import {
+  type ConfigVersion,
   type EmployeeIdentity,
   getEmployeeIdentity,
+  listApprovalsForRecord,
   listClientOptions,
   listConfigVersions,
   listConfirmedHolidays,
@@ -22,7 +24,9 @@ import {
   snapshotForAudit,
   snapshotsForAudit,
   toDirectoryIdentity,
+  userNames,
 } from '@pulse/core/server';
+import { computeDtr } from '../../dtr/compute';
 import {
   computeTimesheet,
   dayKindLabel,
@@ -47,7 +51,17 @@ import {
   minutesOfClockTime,
   scheduledMinutes,
   type TimeEntrySource,
+  timesheetLockedMessage,
+  type TimesheetSettings,
+  type TimesheetStatus,
 } from '../../timesheets/schemas';
+import {
+  approvalRequestHref,
+  canSubmitOn,
+  isPastDeadline,
+  TIMESHEET_APPROVAL_TYPE,
+  timesheetStatusText,
+} from '../../timesheets/submission';
 import {
   STALE_ENTRY_MESSAGE,
   type TeamMemberLink,
@@ -55,15 +69,18 @@ import {
   type TimeEntryView,
   type TimeInResult,
   type TimeOutResult,
+  type TimesheetApprovalView,
   type TimesheetDayView,
   type TimesheetRecordView,
+  type TimesheetStatusBannerView,
   type TimesheetTodayView,
   type TimesheetView,
 } from '../../timesheets/views';
 import { inputError } from '../input';
+import { offsetBalanceOf, timesheetOffsetCredit } from '../offset/service';
 import { PREMIUM_RATES_SETTING, TIMESHEET_SETTINGS_SETTING } from '../payroll-settings/settings';
+import { NO_EMPLOYEE_TIMESHEET, type TalentActor } from '../policy';
 import { reimbursementsSectionFor } from '../reimbursements/service';
-import { assertCanViewTimesheet, NO_EMPLOYEE_TIMESHEET, type TalentActor } from '../policy';
 import { auditLabelOf, dayOf, EMPLOYEE_GONE, instantOf } from '../shared';
 import {
   listCompanyScheduleVersions,
@@ -75,6 +92,7 @@ import {
   TimeEntryModel,
   TimesheetModel,
 } from './model';
+import { isTimesheetApprover, timesheetViewerIdentity } from './access';
 import {
   ensureTimesheet,
   loadPayrollVersions,
@@ -82,6 +100,8 @@ import {
   type PayrollVersions,
   periodOrNull,
 } from './periods';
+import { deadlineOf, latestCutOffStatuses, submittedLateOf } from './status';
+import { gatherSubmit, showsSubmit, submitSummaryView } from './submission';
 
 // Spec: docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24 ("Time
 // entries", "Who may do what", "Screens"), SECURITY.md#exceptions-to-module-access ("The own
@@ -95,13 +115,20 @@ import {
 //   `manual`. The browser never sends a source.
 // - Checks, in the save's transaction: the time out after the time in, at most 24 hours, nothing
 //   in the future, the date between the date hired and the separation date (and not after today),
-//   no overlap with the employee's other entries, one open entry at most, the timesheet open, an
-//   activity once there is a time out, and the entry's `version`.
+//   no overlap with the employee's other entries, one open entry at most, the timesheet `open` or
+//   `returned` (step 2.7: the entry's current timesheet too), an activity once there is a time
+//   out, and the entry's `version`.
 // - Each save touches the timesheets an overlapping entry could belong to, so two saves of the
 //   same employee at once conflict and the transaction retries with the other's entry visible.
 // - Audit: `create`, `update` and `delete` on `talent.timeEntry`, labelled
 //   `<employee number> · <YYYY-MM-DD>`, in the same transaction. No notification.
 // - The reads compute hours for display with `computeTimesheet`; nothing computed is stored.
+//
+// Step 2.7 (docs/modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27,
+// decisions 278, 285 and 295): entries change only while the timesheet is `open` or `returned`;
+// the view adds the status, its banner and the submit sheet (`approval`), the DTR segment (`dtr`,
+// derived like the hours), the offset balance and credit, and My team's statuses. Approvers of a
+// timesheet open it read-only (timesheets/access.ts), and decide on /approvals only.
 
 const MS_PER_MINUTE = 60_000;
 const MAX_ENTRY_MINUTES = MINUTES_PER_DAY;
@@ -110,10 +137,39 @@ export const ENTRY_NOT_FOUND = 'This entry can’t be found. Reload to see it.';
 export const ALREADY_TIMED_IN = 'You’re already timed in. Time out first.';
 export const NOT_TIMED_IN = 'You aren’t timed in.';
 export const ACTIVITY_REQUIRED = 'Enter the activity performed.';
-export const TIMESHEET_NOT_OPEN = 'This timesheet is no longer open, so its entries can’t change.';
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
+
+/**
+ * Entries change only while their timesheet is `open` or `returned` (step 2.7, decision 278): a
+ * pending timesheet refuses with "…waiting for approval…", an approved one with "…approved and
+ * locked."
+ */
+function assertTimesheetEditable(timesheet: { status: TimesheetStatus }): void {
+  const locked = timesheetLockedMessage(timesheet.status);
+  if (locked) throw new ActionError(locked);
+}
+
+/**
+ * The timesheet an entry is on now must be editable too (an edit may move it to another day).
+ * Touched first, so a submit of that timesheet in flight conflicts with this save.
+ */
+async function assertEntryTimesheetEditable(
+  entry: Pick<TimeEntryDocument, 'timesheetId'>,
+  actorId: string,
+  session: ClientSession,
+): Promise<void> {
+  await TimesheetModel.updateOne(
+    { _id: entry.timesheetId },
+    { $set: { updatedBy: new Types.ObjectId(actorId) }, $inc: { __v: 1 } },
+    { session },
+  );
+  const timesheet = await TimesheetModel.findById(entry.timesheetId, { status: 1 })
+    .session(session)
+    .lean<Pick<TimesheetDocument, 'status'>>();
+  if (timesheet) assertTimesheetEditable(timesheet);
+}
 
 /** The instant of `HH:MM` on a Manila day. */
 function instantAt(day: BusinessDate, time: string): Date {
@@ -266,7 +322,7 @@ async function checkEntry(
     payrollVersions,
     actorId: current.id,
   });
-  if (timesheet.status !== 'open') throw new ActionError(TIMESHEET_NOT_OPEN);
+  assertTimesheetEditable(timesheet);
   return { timesheet, date };
 }
 
@@ -404,6 +460,7 @@ export async function timeOut(
       .session(session)
       .lean<TimeEntryDocument>();
     if (!open) throw new ActionError(NOT_TIMED_IN);
+    await assertEntryTimesheetEditable(open, context.current.id, session);
 
     const activity = values.activity !== undefined ? values.activity : open.activity;
     if (!activity) {
@@ -552,6 +609,7 @@ export async function updateTimeEntry(
     const context = await ownContext(actor, session);
     const existing = await findOwnEntry(context.identity, values.entryId, session);
     if (existing.version !== values.version) throw new ActionError(STALE_ENTRY_MESSAGE);
+    await assertEntryTimesheetEditable(existing, context.current.id, session);
     if (!sent.timeOut && existing.timeOut) {
       throw new ActionError('Enter the time out.', { field: 'timeOut' });
     }
@@ -618,7 +676,7 @@ export async function deleteTimeEntry(
     const timesheet = await TimesheetModel.findById(existing.timesheetId, { status: 1 })
       .session(session)
       .lean();
-    if (timesheet && timesheet.status !== 'open') throw new ActionError(TIMESHEET_NOT_OPEN);
+    if (timesheet) assertTimesheetEditable(timesheet);
     const date = dayOf(existing.date);
     await touchTimesheets(
       existing.employeeId,
@@ -656,20 +714,30 @@ export interface TimesheetViewOptions {
   cutOff?: string | null;
 }
 
-/** The team list's link for each active direct report (directory fields only). */
-function teamLinks(identities: EmployeeIdentity[]): TeamMemberLink[] {
+/**
+ * The team list's link for each active direct report (directory fields only), with their status
+ * for the latest ended cut-off (step 2.7).
+ */
+async function teamLinks(identities: EmployeeIdentity[]): Promise<TeamMemberLink[]> {
+  const statuses = await latestCutOffStatuses(identities.map((identity) => identity.employeeId));
   return identities.map((identity) => {
     const directory = toDirectoryIdentity(identity);
-    return {
+    const link: TeamMemberLink = {
       employeeId: directory.employeeId,
       name: nameOf(directory),
       employeeNumber: directory.employeeNumber,
       href: `/talent/timesheets/${directory.employeeId}`,
     };
+    const status = statuses.get(directory.employeeId);
+    if (status) link.status = status;
+    return link;
   });
 }
 
-/** "My team": the actor's active direct reports, each linking to their timesheet. */
+/**
+ * "My team": the actor's active direct reports, each linking to their timesheet, with each
+ * person's status for the latest ended cut-off.
+ */
 export async function listMyTeam(actor: TalentActor): Promise<TeamMemberLink[]> {
   if (!actor.employee) return [];
   await connectDb();
@@ -690,10 +758,103 @@ function recordView(timesheet: TimesheetDocument): TimesheetRecordView {
   };
 }
 
+interface ApprovalViewContext {
+  identity: EmployeeIdentity;
+  viewer: TalentActor;
+  own: boolean;
+  today: BusinessDate;
+  settings: readonly ConfigVersion<TimesheetSettings>[];
+}
+
+/**
+ * The timesheet's step 2.7 part (decision 295): the status as it reads today, the banner (with the
+ * Supervisor step's approvers while pending there, and who returned or approved it), the deadline
+ * and "Submitted late", the own timesheet's submit sheet once the cut-off has ended, "Open in
+ * Approvals" for a pending approver of the current request, and the lock's message.
+ */
+async function approvalViewOf(
+  stored: TimesheetDocument | null,
+  timesheet: TimesheetRecordView,
+  { identity, viewer, own, today, settings }: ApprovalViewContext,
+): Promise<TimesheetApprovalView> {
+  const { status, periodEnd } = timesheet;
+  const deadline = deadlineOf(periodEnd, settings);
+  const submittedLate = stored ? submittedLateOf(stored, deadline) : false;
+  const requestId = stored?.approvalRequestId?.toHexString() ?? null;
+  const [requests, names] = await Promise.all([
+    stored && requestId
+      ? listApprovalsForRecord(viewer, TIMESHEET_APPROVAL_TYPE, stored._id.toHexString())
+      : Promise.resolve([]),
+    userNames(
+      [stored?.returnedBy, stored?.approvedBy].filter(
+        (id): id is Types.ObjectId => id instanceof Types.ObjectId,
+      ),
+    ),
+  ]);
+  const current = requests.find((request) => request.id === requestId) ?? null;
+  const nameOfUser = (id: Types.ObjectId | null | undefined) =>
+    id ? (names.get(id.toHexString()) ?? null) : null;
+
+  let banner: TimesheetStatusBannerView;
+  if (!stored || status === 'open') {
+    banner = canSubmitOn(periodEnd, today)
+      ? { kind: 'notSubmitted', deadline, overdue: isPastDeadline(today, deadline) }
+      : { kind: 'open' };
+  } else if (status === 'pendingSupervisor') {
+    banner = {
+      kind: 'pendingSupervisor',
+      submittedAt: stored.submittedAt ?? stored.updatedAt,
+      submittedLate,
+      approverNames: (current?.steps[0]?.approvers ?? []).map((approver) => approver.name),
+    };
+  } else if (status === 'pendingHr') {
+    banner = {
+      kind: 'pendingHr',
+      submittedAt: stored.submittedAt ?? stored.updatedAt,
+      submittedLate,
+    };
+  } else if (status === 'returned') {
+    banner = {
+      kind: 'returned',
+      returnedAt: stored.returnedAt ?? stored.updatedAt,
+      returnedByName: nameOfUser(stored.returnedBy),
+      remarks: stored.returnRemarks ?? '',
+      submittedLate,
+    };
+  } else {
+    banner = {
+      kind: 'approved',
+      approvedAt: stored.approvedAt ?? stored.updatedAt,
+      approvedByName: nameOfUser(stored.approvedBy),
+      submittedLate,
+    };
+  }
+
+  const submit =
+    own && stored && showsSubmit(stored, today)
+      ? submitSummaryView(await gatherSubmit(identity, stored, { today }), stored)
+      : null;
+  const approverLink =
+    current && current.status === 'pending' && current.allowedDecisions.length > 0
+      ? { requestId: current.id, href: approvalRequestHref(current.id) }
+      : null;
+  return {
+    statusText: timesheetStatusText({ status, periodEnd, deadline, today }),
+    banner,
+    deadline,
+    submittedLate,
+    submit,
+    approverLink,
+    lockedMessage: timesheetLockedMessage(status),
+  };
+}
+
 interface ViewTarget {
   identity: EmployeeIdentity;
   /** The signed-in user, on their own timesheet: the clock, the client options and My team. */
   owner: TalentActor | null;
+  /** The signed-in user (the owner, Talent Read, a supervisor or an approver). */
+  viewer: TalentActor;
 }
 
 /**
@@ -702,7 +863,7 @@ interface ViewTarget {
  * first use; another person's that isn't created yet shows with `id` null and no entries.
  */
 async function buildView(
-  { identity, owner }: ViewTarget,
+  { identity, owner, viewer }: ViewTarget,
   options: TimesheetViewOptions,
 ): Promise<TimesheetView | null> {
   const own = owner !== null;
@@ -722,12 +883,12 @@ async function buildView(
 
   const employeeId = new Types.ObjectId(identity.employeeId);
   let timesheet: TimesheetRecordView;
+  let stored: TimesheetDocument | null = null;
   if (own) {
-    timesheet = recordView(
-      (await ensureTimesheet(identity, period.start, { payrollVersions })).timesheet,
-    );
+    stored = (await ensureTimesheet(identity, period.start, { payrollVersions })).timesheet;
+    timesheet = recordView(stored);
   } else {
-    const stored = await TimesheetModel.findOne({
+    stored = await TimesheetModel.findOne({
       employeeId,
       periodStart: instantOf(period.start),
     }).lean<TimesheetDocument>();
@@ -780,7 +941,7 @@ async function buildView(
     listClientOptions(),
   ]);
 
-  const hours = computeTimesheet({
+  const dtrInputs = {
     timesheetType: timesheet.timesheetType,
     periodStart: period.start,
     periodEnd: period.end,
@@ -798,7 +959,30 @@ async function buildView(
     premiumRates,
     timesheetSettings: settings,
     payrollSettings: payrollVersions,
+  };
+  const hours = computeTimesheet(dtrInputs);
+
+  // Step 2.7: the DTR from the same inputs (derived, never stored), the status and its banner, and
+  // the offset balance and credit.
+  const dtr = computeDtr({
+    ...dtrInputs,
+    approved: timesheet.status === 'approved',
+    dateHired: identity.dateHired,
+    separationDate: identity.separationDate,
+    today,
+    timeOff: [],
   });
+  const approval = await approvalViewOf(stored, timesheet, {
+    identity,
+    viewer,
+    own,
+    today,
+    settings,
+  });
+  const offsetCredit =
+    stored && hours.treatment === 'offset' ? await timesheetOffsetCredit(stored._id) : null;
+  const balanceMinutes =
+    hours.treatment === 'offset' ? await offsetBalanceOf(identity.employeeId) : 0;
 
   const clientNames = new Map(clients.map((client) => [client.id, client.name]));
   const entriesByDay = new Map<BusinessDate, TimeEntryDocument[]>();
@@ -889,8 +1073,19 @@ async function buildView(
     todayCard,
     offset:
       hours.treatment === 'offset'
-        ? { balanceMinutes: 0, thisCutOffMinutes: hours.totals.offsetMinutes }
+        ? {
+            balanceMinutes,
+            thisCutOffMinutes: hours.totals.offsetMinutes,
+            credited: offsetCredit,
+          }
         : null,
+    approval,
+    dtr: {
+      final: dtr.final,
+      days: [...dtr.days].reverse(),
+      totals: dtr.totals,
+      treatment: dtr.treatment,
+    },
     previousCutOff: previous?.start ?? null,
     nextCutOff: next?.start ?? null,
     schedule: scheduleOn(scheduleDay, workSchedules, assignments),
@@ -902,7 +1097,7 @@ async function buildView(
   };
   if (owner) {
     view.clients = clients.map((client) => ({ id: client.id, name: client.name }));
-    const team = teamLinks(await listDirectReportIdentities(owner));
+    const team = await teamLinks(await listDirectReportIdentities(owner));
     if (team.length > 0) view.myTeam = team;
   }
   return view;
@@ -922,15 +1117,17 @@ export async function getOwnTimesheetView(
   await connectDb();
   const identity = await getEmployeeIdentity(actor, ownEmployee.id, { separated: true });
   if (!identity) throw new ActionError(EMPLOYEE_GONE);
-  return buildView({ identity, owner: actor }, options);
+  return buildView({ identity, owner: actor, viewer: actor }, options);
 }
 
 /**
- * `/talent/timesheets/<employeeId>`: another employee's timesheet, read-only, for Talent Read or
- * one of the employee's `reportingTo` supervisors (whatever their module access); anyone else
- * gets {@link AccessDeniedError}. Null when there is no such employee or the cut-off is out of
- * range. The view carries directory fields only about the employee: never the date hired or the
- * employment status. Nothing here changes an entry.
+ * `/talent/timesheets/<employeeId>`: another employee's timesheet, read-only, for Talent Read, one
+ * of the employee's `reportingTo` supervisors, or (from step 2.7) anyone who is or was an approver
+ * of that cut-off's timesheet, whatever their module access; anyone else gets
+ * {@link AccessDeniedError}. Null when there is no such employee or the cut-off is out of range.
+ * The view carries directory fields only about the employee: never the date hired or the
+ * employment status. Nothing here changes an entry, and nothing is decided here: an approver gets
+ * "Open in Approvals" (`approval.approverLink`).
  */
 export async function getTimesheetView(
   actor: TalentActor,
@@ -938,8 +1135,17 @@ export async function getTimesheetView(
   options: TimesheetViewOptions = {},
 ): Promise<TimesheetView | null> {
   await connectDb();
-  const identity = await getEmployeeIdentity(actor, employeeId, { separated: true });
-  if (!identity) return null;
-  assertCanViewTimesheet(actor, identity);
-  return buildView({ identity, owner: null }, options);
+  const viewer = await timesheetViewerIdentity(actor, employeeId, async (identity) => {
+    const payrollVersions = await loadPayrollVersions();
+    const day = options.cutOff && isBusinessDate(options.cutOff) ? options.cutOff : businessToday();
+    const period = periodOrNull(day, payrollVersions);
+    if (!period) return false;
+    const stored = await TimesheetModel.findOne(
+      { employeeId: new Types.ObjectId(identity.employeeId), periodStart: instantOf(period.start) },
+      { _id: 1 },
+    ).lean<{ _id: Types.ObjectId }>();
+    return stored ? isTimesheetApprover(actor.id, stored._id.toHexString()) : false;
+  });
+  if (!viewer) return null;
+  return buildView({ identity: viewer.identity, owner: null, viewer: actor }, options);
 }

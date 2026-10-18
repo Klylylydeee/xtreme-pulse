@@ -43,6 +43,8 @@ function onboardingParam(value: string | undefined): OnboardingFilter | null {
 // From step 2.6 (decisions 259 and 274), for HR and the System Administrator only (the service
 // returns `onboarding` counts only for them), the onboarding filter (`?onboarding=incomplete|verify`)
 // and its two tiles; and the required onboarding documents setting, in the same Settings (Talent Owner).
+// From step 2.7 (decision 294) the header's "Timesheets" button opens `/talent/timesheets`, which
+// needs the same Talent Read; it loads nothing here.
 export default async function TalentPage({
   searchParams,
 }: {

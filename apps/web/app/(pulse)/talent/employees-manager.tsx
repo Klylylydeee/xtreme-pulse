@@ -65,6 +65,9 @@ import { OnboardingDocumentsSheet } from './onboarding-section';
 // and the filter "Onboarding: Incomplete | To verify" (`?onboarding=`). Other Talent Read users get
 // neither, since "To verify" would say who has IDs or a bank account on file. Settings (Talent
 // Owner) now offers "Expiry alerts" and "Required onboarding documents".
+//
+// From build step 2.7 (decision 294) the header's "Timesheets" opens the timesheets list
+// (`/talent/timesheets`), which needs Talent Read like this page.
 
 const ONBOARDING_FILTER_LABELS: Record<OnboardingFilter, string> = {
   incomplete: 'Incomplete',
@@ -282,6 +285,11 @@ export function EmployeesManager({
             >
               <Banknote aria-hidden="true" className="size-4.5" />
               Payroll settings
+            </Link>
+            {/* Step 2.7 (decision 294): the timesheets list, Talent Read like this page. */}
+            <Link href="/talent/timesheets" className={buttonVariants({ variant: 'secondary' })}>
+              <CalendarClock aria-hidden="true" className="size-4.5" />
+              Timesheets
             </Link>
             {/* Step 2.5: Talent Read, which this page already needs. */}
             <Button

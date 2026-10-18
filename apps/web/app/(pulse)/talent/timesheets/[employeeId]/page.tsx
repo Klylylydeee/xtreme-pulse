@@ -15,6 +15,11 @@ export const metadata: Metadata = { title: 'Timesheet' };
 // team's timesheets") — another employee's timesheet, read-only: no clock, no Add entry, no edit
 // sheet. Talent Read opens anyone's; a supervisor in the employee's `reportingTo` opens it whatever
 // their module access, and gets only the employee's directory fields. `?cutOff=` picks the cut-off.
+// From step 2.7 (docs/modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-
+// step-27, decision 285) anyone who is or was an approver of that cut-off's timesheet opens it
+// read-only too (directory fields only without Talent Read): the approval's link lands here, the
+// banner shows the status and, for the pending step's approvers, "Open in Approvals"; nothing is
+// decided on this page.
 //
 // The guard is the service itself (`getTimesheetView` decides who may see whom), so it is awaited
 // first, before anything that can suspend, and outside any Suspense boundary: a refusal is a real

@@ -6,6 +6,7 @@ import type { z } from 'zod';
 import { addConfigVersion, type ConfigSetting, listConfigVersions } from '@pulse/core/server';
 import { latestEffectiveDate } from '../../compensation';
 import { PAYROLL_SETTING_KEYS, PAYROLL_SETTING_SCHEMAS } from '../../payroll/schemas';
+import { submissionDeadlineDaysOf, timesheetSettingsSchema } from '../../timesheets/schemas';
 import { talentSeedLoaders } from '../seed';
 import {
   auditEntries,
@@ -22,6 +23,7 @@ import {
   SEED_PREMIUM_RATES,
   SEED_REIMBURSEMENT_SETTINGS,
   SEED_THIRTEENTH_MONTH_EXEMPTION,
+  SEED_TIMESHEET_SETTINGS,
 } from './seed-data';
 import { addPayrollSettingsVersion, getPayrollSettingsView } from './service';
 import {
@@ -33,7 +35,8 @@ import {
 
 // The payroll settings tests: seeding and adding a version (docs/TESTING.md#payroll-settings-tests,
 // build step 2.3, decisions 196–198 in docs/BUILD_PLAN.md; the step 2.4 settings, and from step
-// 2.5 `talent.reimbursementSettings`, decisions 235 and 236, docs/TESTING.md#reimbursement-tests).
+// 2.5 `talent.reimbursementSettings`, decisions 235 and 236, docs/TESTING.md#reimbursement-tests;
+// from step 2.7 the submission deadline, decision 279).
 // Made-up people only.
 
 let NET: Department;
@@ -156,6 +159,19 @@ describe('the step 2.4 settings', () => {
         value: { offsetRatio: '1', extraHours: { overtime: 'overtime', standard: 'offset' } },
       },
     ]);
+  });
+});
+
+describe('the step 2.7 submission deadline', () => {
+  it('is not seeded: the seeded version has no deadline and reads as 1 day', () => {
+    const seeded = PAYROLL_SEED_VERSIONS['talent.timesheetSettings'];
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]?.value).not.toHaveProperty('submissionDeadlineDays');
+    expect(submissionDeadlineDaysOf(SEED_TIMESHEET_SETTINGS)).toBe(1);
+    // A stored version without the field still parses, and reads as 1.
+    const parsed = timesheetSettingsSchema.parse(SEED_TIMESHEET_SETTINGS);
+    expect(submissionDeadlineDaysOf(parsed)).toBe(1);
+    expect(submissionDeadlineDaysOf({ ...parsed, submissionDeadlineDays: 3 })).toBe(3);
   });
 });
 
@@ -399,6 +415,28 @@ describe('adding a version', () => {
       field: 'value.offsetRatio',
     });
     await addPayrollSettingsVersion(hrOwner.actor, settings('1.5'));
+
+    // Step 2.7: the submission deadline runs from 1 to 10 days, in whole days.
+    const deadline = (submissionDeadlineDays: number) => ({
+      key: 'talent.timesheetSettings' as const,
+      effectiveFrom: '2026-11-05',
+      source: 'Made-up policy change',
+      value: {
+        offsetRatio: '1',
+        extraHours: { overtime: 'overtime', standard: 'offset' },
+        submissionDeadlineDays,
+      },
+    });
+    for (const days of [0, 11, 1.5]) {
+      await expect(addPayrollSettingsVersion(hrOwner.actor, deadline(days))).rejects.toMatchObject({
+        field: 'value.submissionDeadlineDays',
+      });
+    }
+    await addPayrollSettingsVersion(hrOwner.actor, deadline(3));
+    const stored = await listConfigVersions(PAYROLL_SETTINGS['talent.timesheetSettings']);
+    expect(stored.find((v) => v.effectiveFrom === '2026-11-05')?.value).toMatchObject({
+      submissionDeadlineDays: 3,
+    });
   });
 
   it('refuses removing an allowance type key', async () => {

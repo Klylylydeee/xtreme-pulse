@@ -53,9 +53,70 @@ export const EXTRA_HOURS_REASON_MAX_LENGTH = 300;
 export const TIME_ENTRY_SOURCES = ['clock', 'manual'] as const;
 export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number];
 
-/** A timesheet's status. Step 2.4 has only `open`; step 2.7 adds the others. */
-export const TIMESHEET_STATUSES = ['open'] as const;
+/**
+ * A timesheet's status (step 2.7, decision 278; docs/modules/talent.md#timesheet-approval-the-dtr-
+ * and-the-offset-balance-build-step-27). `open` and `returned` are filled in by the employee; the
+ * two pending statuses wait for an approver; `approved` is final and locked for good.
+ */
+export const TIMESHEET_STATUSES = [
+  'open',
+  'pendingSupervisor',
+  'pendingHr',
+  'returned',
+  'approved',
+] as const;
 export type TimesheetStatus = (typeof TIMESHEET_STATUSES)[number];
+
+/**
+ * Each status's label. `open` reads "Open" only until the cut-off ends; after it, "Not submitted"
+ * ("Overdue" after the deadline): see `timesheetStatusText` in `submission.ts`.
+ */
+export const TIMESHEET_STATUS_LABELS: Record<TimesheetStatus, string> = {
+  open: 'Open',
+  pendingSupervisor: 'Waiting for supervisor',
+  pendingHr: 'Waiting for HR',
+  returned: 'Returned',
+  approved: 'Approved',
+};
+
+/** The statuses whose time entries and reimbursement lines may change, and that may be submitted. */
+export const TIMESHEET_EDITABLE_STATUSES = [
+  'open',
+  'returned',
+] as const satisfies readonly TimesheetStatus[];
+export type TimesheetEditableStatus = (typeof TIMESHEET_EDITABLE_STATUSES)[number];
+
+/** The statuses waiting for an approver's decision. */
+export const TIMESHEET_PENDING_STATUSES = [
+  'pendingSupervisor',
+  'pendingHr',
+] as const satisfies readonly TimesheetStatus[];
+export type TimesheetPendingStatus = (typeof TIMESHEET_PENDING_STATUSES)[number];
+
+/** True while the timesheet's entries and lines may change: `open` or `returned`. */
+export function isTimesheetEditable(status: TimesheetStatus): status is TimesheetEditableStatus {
+  return (TIMESHEET_EDITABLE_STATUSES as readonly TimesheetStatus[]).includes(status);
+}
+
+/** True while the timesheet waits for the supervisor or HR. */
+export function isTimesheetPending(status: TimesheetStatus): status is TimesheetPendingStatus {
+  return (TIMESHEET_PENDING_STATUSES as readonly TimesheetStatus[]).includes(status);
+}
+
+/** The refusal of a change to a pending timesheet's entries or lines. */
+export const TIMESHEET_PENDING_MESSAGE =
+  "This timesheet is waiting for approval, so it can't change. Ask your approver to return it if something needs fixing.";
+/** The refusal of a change to an approved timesheet's entries or lines. */
+export const TIMESHEET_APPROVED_MESSAGE = 'This timesheet is approved and locked.';
+
+/** Why the timesheet's entries and lines can't change, or null while `open` or `returned`. */
+export function timesheetLockedMessage(status: TimesheetStatus): string | null {
+  if (isTimesheetEditable(status)) return null;
+  return status === 'approved' ? TIMESHEET_APPROVED_MESSAGE : TIMESHEET_PENDING_MESSAGE;
+}
+
+/** A return's remarks: required, up to 1,000 characters. */
+export const RETURN_REMARKS_MAX_LENGTH = 1000;
 
 // ---------------------------------------------------------------------------------------------
 // Clock times
@@ -178,6 +239,18 @@ const DECIMAL = /^\d{1,6}(?:\.\d{1,6})?$/;
 
 const treatmentField = z.enum(EXTRA_HOURS_TREATMENTS, { error: 'Choose overtime or offset.' });
 
+/** The submission deadline runs from 1 to 10 days after the cut-off (step 2.7, decision 279). */
+export const SUBMISSION_DEADLINE_DAYS_MIN = 1;
+export const SUBMISSION_DEADLINE_DAYS_MAX = 10;
+/**
+ * The spec's default deadline, read when a stored version has no `submissionDeadlineDays` (the
+ * seeded 2000-01-01 version included), so no new version is seeded. *Assumption, to be confirmed
+ * by HR* (HANDOFF item 123).
+ */
+export const DEFAULT_SUBMISSION_DEADLINE_DAYS = 1;
+
+const deadlineDaysMessage = `Enter ${SUBMISSION_DEADLINE_DAYS_MIN} to ${SUBMISSION_DEADLINE_DAYS_MAX} days.`;
+
 export const timesheetSettingsSchema = z.object({
   /** Offset hours per hour of claimed extra work, a decimal string above 0 ("1", "1.5"). */
   offsetRatio: z
@@ -194,5 +267,23 @@ export const timesheetSettingsSchema = z.object({
       typeof treatmentField
     >,
   ),
+  /**
+   * Step 2.7: the submission deadline, in days after the cut-off ends (1 to 10). Optional: a
+   * version stored without it reads as {@link DEFAULT_SUBMISSION_DEADLINE_DAYS} through
+   * `submissionDeadlineDaysOf`. Never read the field directly.
+   */
+  submissionDeadlineDays: z
+    .number({ error: 'Enter the submission deadline in days.' })
+    .int('Enter the submission deadline in whole days.')
+    .min(SUBMISSION_DEADLINE_DAYS_MIN, deadlineDaysMessage)
+    .max(SUBMISSION_DEADLINE_DAYS_MAX, deadlineDaysMessage)
+    .optional(),
 });
 export type TimesheetSettings = z.output<typeof timesheetSettingsSchema>;
+
+/** The submission deadline in days after the cut-off: the stored value, or 1 when absent. */
+export function submissionDeadlineDaysOf(
+  settings: Pick<TimesheetSettings, 'submissionDeadlineDays'>,
+): number {
+  return settings.submissionDeadlineDays ?? DEFAULT_SUBMISSION_DEADLINE_DAYS;
+}

@@ -19,6 +19,7 @@ import {
   REIMBURSEMENT_TYPE,
   STALE_REIMBURSEMENT_MESSAGE,
 } from '../../reimbursements/views';
+import { TIMESHEET_APPROVED_MESSAGE, TIMESHEET_PENDING_MESSAGE } from '../../timesheets/schemas';
 import { registerTalentFileAccess } from '../files/registrations';
 import { SEED_REIMBURSEMENT_SETTINGS } from '../payroll-settings/seed-data';
 import { REIMBURSEMENT_SETTINGS_SETTING } from '../payroll-settings/settings';
@@ -42,12 +43,7 @@ import {
 import { TimeEntryModel, TimesheetModel } from '../timesheets/model';
 import { getOwnTimesheetView, getTimesheetView } from '../timesheets/service';
 import { ReimbursementModel } from './model';
-import {
-  addReimbursement,
-  deleteReimbursement,
-  REIMBURSEMENT_TIMESHEET_NOT_OPEN,
-  updateReimbursement,
-} from './service';
+import { addReimbursement, deleteReimbursement, updateReimbursement } from './service';
 
 // The reimbursement line tests (docs/TESTING.md#reimbursement-tests: "Lines", "Limits", "Who sees
 // lines", "The receipt file"; build step 2.5, decisions 237–251 in docs/BUILD_PLAN.md). Made-up
@@ -339,24 +335,43 @@ describe('the filing window', () => {
     expect(edited.version).toBe(2);
   });
 
-  it('refuses a line on a timesheet that isn’t open', async () => {
+  it.each([
+    ['pendingSupervisor', TIMESHEET_PENDING_MESSAGE],
+    ['pendingHr', TIMESHEET_PENDING_MESSAGE],
+    ['approved', TIMESHEET_APPROVED_MESSAGE],
+  ])('refuses a line on a %s timesheet (step 2.7’s lock)', async (status, message) => {
     const p = await employee();
     const line = await add(p);
     const timesheetId = await timesheetOf(p);
     await database()
       .collection('timesheets')
-      .updateOne({ _id: new Types.ObjectId(timesheetId) }, { $set: { status: 'submitted' } });
-    await expect(add(p)).rejects.toThrow(REIMBURSEMENT_TIMESHEET_NOT_OPEN);
+      .updateOne({ _id: new Types.ObjectId(timesheetId) }, { $set: { status } });
+    await expect(add(p)).rejects.toThrow(message);
     await expect(
       updateReimbursement(p.actor, {
         reimbursementId: line.id,
         version: line.version,
         ...lineValues(),
       }),
-    ).rejects.toThrow(REIMBURSEMENT_TIMESHEET_NOT_OPEN);
+    ).rejects.toThrow(message);
     await expect(
       deleteReimbursement(p.actor, { reimbursementId: line.id, version: line.version }),
-    ).rejects.toThrow(REIMBURSEMENT_TIMESHEET_NOT_OPEN);
+    ).rejects.toThrow(message);
+  });
+
+  it('lets a returned timesheet’s lines change again', async () => {
+    const p = await employee();
+    const line = await add(p);
+    const timesheetId = await timesheetOf(p);
+    await database()
+      .collection('timesheets')
+      .updateOne({ _id: new Types.ObjectId(timesheetId) }, { $set: { status: 'returned' } });
+    const edited = await updateReimbursement(p.actor, {
+      reimbursementId: line.id,
+      version: line.version,
+      ...lineValues({ merchant: 'Made-up Diner, fixed' }),
+    });
+    expect(edited.version).toBe(line.version + 1);
   });
 });
 

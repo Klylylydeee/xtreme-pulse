@@ -22,6 +22,7 @@ import {
   noAccessTitle,
   NOT_FOUND_PAGE_TITLE,
   ONBOARDING_HREF,
+  TIMESHEETS_LIST_HREF,
   type NavigationViewer,
   visibleAdminGroups,
   visibleHrefs,
@@ -35,7 +36,8 @@ import {
 // docs/TESTING.md#directory-org-chart-and-command-bar-tests (navigation, step 1.11),
 // docs/TESTING.md#employee-record-tests (My record, step 2.1), the Payroll settings breadcrumb
 // (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4),
-// docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6) and
+// docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6),
+// docs/TESTING.md#timesheet-approval-dtr-and-offset-tests (Timesheets, step 2.7) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -524,6 +526,44 @@ describe('Onboarding and change requests (step 2.6)', () => {
       expect(isEntryActive(getNavEntry('/talent/timesheet'), path)).toBe(false);
       // Talent stays current there for Talent readers, as on the other Talent pages.
       expect(activeEntry(talentReader, path)?.entry.label).toBe('Talent');
+    }
+  });
+});
+
+describe('The timesheets list (step 2.7)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const employeeTimesheet = `${TIMESHEETS_LIST_HREF}/64b7f0c2a1b2c3d4e5f60718`;
+
+  it('reads "Pulse Talent › Timesheets", with Talent current', () => {
+    expect(TIMESHEETS_LIST_HREF).toBe('/talent/timesheets');
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, TIMESHEETS_LIST_HREF)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Timesheets',
+      });
+      expect(activeEntry(groups, TIMESHEETS_LIST_HREF)?.entry.label).toBe('Talent');
+    }
+    expect(isEntryActive(getNavEntry('/talent/timesheet'), TIMESHEETS_LIST_HREF)).toBe(false);
+  });
+
+  it('keeps "Pulse Talent › Timesheet" for one employee’s timesheet, supervisors included', () => {
+    for (const groups of [talentReader, visibleNavigation(newUser), visibleNavigation(hr)]) {
+      expect(breadcrumbFor(groups, employeeTimesheet)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Timesheet',
+      });
+    }
+  });
+
+  it('isn’t a sidebar entry, and reads "No access" without Talent Read', () => {
+    expect(visibleHrefs(systemAdministrator)).not.toContain(TIMESHEETS_LIST_HREF);
+    // A supervisor with no module access opens a team member's timesheet, never the list.
+    for (const someone of [newUser, hr]) {
+      expect(breadcrumbFor(visibleNavigation(someone), TIMESHEETS_LIST_HREF)).toEqual({
+        current: NO_ACCESS_PAGE_TITLE,
+      });
     }
   });
 });

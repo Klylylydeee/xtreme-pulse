@@ -30,6 +30,8 @@ import {
   REIMBURSEMENT_TYPE_NAME_MAX_LENGTH,
   type ReimbursementLimitPer,
   scheduledMinutes,
+  SUBMISSION_DEADLINE_DAYS_MAX,
+  SUBMISSION_DEADLINE_DAYS_MIN,
   TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
   WORK_REGIONS,
@@ -53,6 +55,7 @@ import {
   formatWeekdays,
   setIn,
   type SettingDraft,
+  submissionDeadlineDraft,
 } from './payroll-format';
 import { AGENCY_LABELS, filingWindowText } from './setting-values';
 
@@ -66,6 +69,8 @@ import { AGENCY_LABELS, filingWindowText } from './setting-values';
 // the company work schedule (weekday toggles, start, end, break and grace period) and the
 // timesheet settings (the offset ratio as a decimal, and the extra-hours treatment for each
 // timesheet type). `WorkScheduleFields` is shared with the inspector's "Set schedule" sheet.
+// From build step 2.7 (decision 279) the timesheet settings also take the submission deadline, in
+// days after the cut-off (1 to 10).
 //
 // From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the reimbursement
 // settings: the filing window (0 to 6 previous cut-offs) and the types, edited like the allowance
@@ -879,6 +884,17 @@ function TimesheetSettingsEditor({
             </Select>
           </FormField>
         ))}
+      </FormSection>
+      {/* Build step 2.7 (decision 279). */}
+      <FormSection title="Submission">
+        <TextField
+          label="Submission deadline (days after the cut-off)"
+          kind="integer"
+          value={submissionDeadlineDraft(draft)}
+          onChange={(value) => onChange({ ...draft, submissionDeadlineDays: value })}
+          error={errors['value.submissionDeadlineDays']}
+          hint={`${SUBMISSION_DEADLINE_DAYS_MIN} to ${SUBMISSION_DEADLINE_DAYS_MAX}. Timesheets are due by the end of that day; late ones are still accepted and marked “Submitted late”.`}
+        />
       </FormSection>
     </>
   );

@@ -15,7 +15,7 @@ import type { TalentActor } from '../policy';
 const PASSWORD_HASH = 'made-up-hash-that-must-never-leave';
 
 function coreModel(
-  name: 'Department' | 'Position' | 'Employee' | 'User' | 'Brand' | 'Client',
+  name: 'Department' | 'Position' | 'Employee' | 'User' | 'Brand' | 'Client' | 'Holiday',
 ): Model<unknown> {
   return mongoose.model(name) as Model<unknown>;
 }
@@ -401,4 +401,67 @@ export async function decide(
     remarks,
     version: stored?.version as number,
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.7 helpers (docs/TESTING.md#timesheet-approval-dtr-and-offset-tests).
+
+/**
+ * A nationwide holiday on `date` (a Core `holidays` record, as Core's holiday service would write
+ * it), confirmed unless `status` says draft. Returns its id. Made-up names only.
+ */
+export async function holiday(
+  date: string,
+  {
+    status = 'confirmed',
+    type = 'regular',
+    name = 'Made-up Holiday',
+  }: {
+    status?: 'draft' | 'confirmed';
+    type?: 'regular' | 'specialNonWorking' | 'specialWorking';
+    name?: string;
+  } = {},
+): Promise<string> {
+  const created = (await coreModel('Holiday').create({
+    name,
+    date: new Date(`${date}T00:00:00+08:00`),
+    year: Number(date.slice(0, 4)),
+    type,
+    scope: 'nationwide',
+    location: null,
+    legalBasis: status === 'confirmed' ? 'Made-up Proclamation No. 1' : null,
+    status,
+    source: 'manual',
+    sourceKey: null,
+    declared: false,
+    confirmedAt: status === 'confirmed' ? new Date() : null,
+  })) as { _id: Types.ObjectId };
+  return created._id.toHexString();
+}
+
+/** Confirms, drafts again, or soft-deletes a holiday, as Core's holiday service would. */
+export async function setHoliday(
+  id: string,
+  change: { status?: 'draft' | 'confirmed'; deleted?: boolean },
+): Promise<void> {
+  const set: Record<string, unknown> = {};
+  if (change.status) set.status = change.status;
+  if (change.deleted) set.deletedAt = new Date();
+  await database()
+    .collection('holidays')
+    .updateOne({ _id: new Types.ObjectId(id) }, { $set: set });
+}
+
+/** Sets a timesheet's status directly (a test shortcut past the approval flow). */
+export async function setTimesheetStatus(timesheetId: string, status: string): Promise<void> {
+  await database()
+    .collection('timesheets')
+    .updateOne({ _id: new Types.ObjectId(timesheetId) }, { $set: { status } });
+}
+
+/** A Core approval request, raw. */
+export async function approvalRequest(requestId: string) {
+  return database()
+    .collection('approvalRequests')
+    .findOne({ _id: new Types.ObjectId(requestId) });
 }

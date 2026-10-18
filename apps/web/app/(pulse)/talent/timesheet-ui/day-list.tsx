@@ -19,7 +19,8 @@ import { dayOfMonth, longDayText, shortDayText } from './format';
 // with a "Manual" badge on each manual side, the activity and client on one truncated line, and
 // the day's hours on the right ("OT 2.0 h" over "Ordinary day", or "Offset 2.6 h"). Rest days and
 // holidays carry their label, "Not claimed" and "No time out" are text badges, and a run of empty
-// rest days folds into one row that opens to show them. A list, never a table.
+// rest days folds into one row that opens to show them. A list, never a table. Each day row has the
+// id `day-<date>`, the target of the step 2.7 submit sheet's links.
 
 type Row =
   | { kind: 'day'; day: TimesheetDayView }
@@ -236,7 +237,7 @@ function RestRun({
       {open ? (
         <ul id={listId} className="divide-y divide-separator border-t border-separator">
           {days.map((day) => (
-            <li key={day.hours.date}>
+            <li key={day.hours.date} id={`day-${day.hours.date}`} className="scroll-mt-20">
               <DayRow day={day} onOpen={() => onOpen(day)} />
             </li>
           ))}
@@ -263,7 +264,7 @@ export function DayList({
     >
       {rows.map((row) =>
         row.kind === 'day' ? (
-          <li key={row.day.hours.date}>
+          <li key={row.day.hours.date} id={`day-${row.day.hours.date}`} className="scroll-mt-20">
             <DayRow day={row.day} onOpen={() => onOpenDay(row.day)} />
           </li>
         ) : (

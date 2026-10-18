@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarClock, Plus } from 'lucide-react';
+import { CalendarClock, Lock, Plus } from 'lucide-react';
 import {
   EXTRA_HOURS_TREATMENT_LABELS,
   formatHours,
@@ -19,7 +19,9 @@ import { longDayText } from './format';
 // Spec: docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24 ("Day sheet")
 // — a day's entries, each with its times, activity, client, extra-hours mark and hours, and "Add
 // entry". On the employee's own timesheet an entry opens its edit sheet; read-only views list the
-// entries with no actions.
+// entries with no actions. From step 2.7 the own timesheet is editable only while `open` or
+// `returned`; once it is pending or approved the sheet shows why (`lockedMessage`) instead of the
+// add and edit controls.
 
 function EntryDetails({ entry, treatment }: { entry: TimeEntryView; treatment: string }) {
   const { hours } = entry;
@@ -53,12 +55,15 @@ function EntryDetails({ entry, treatment }: { entry: TimeEntryView; treatment: s
 export function DaySheetContent({
   day,
   editable,
+  lockedMessage = null,
   onAdd,
   onEdit,
 }: {
   day: TimesheetDayView;
   /** The employee's own open timesheet: Add entry, and entries open their edit sheet. */
   editable: boolean;
+  /** The own timesheet while pending or approved: why it can't change. */
+  lockedMessage?: string | null;
   onAdd: () => void;
   onEdit: (entry: TimeEntryView) => void;
 }) {
@@ -77,6 +82,12 @@ export function DaySheetContent({
     <>
       <SheetHeader title={longDayText(hours.date)} description={day.kindLabel} />
       <SheetBody>
+        {lockedMessage ? (
+          <p className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote text-text-secondary shadow-card">
+            <Lock aria-hidden="true" className="mt-px size-4 shrink-0" />
+            <span>{lockedMessage}</span>
+          </p>
+        ) : null}
         <div className="flex flex-col gap-2">
           <DayLabels day={day} />
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-subheadline numeric">

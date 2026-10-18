@@ -316,6 +316,10 @@ export const SEED_WORK_SCHEDULE: WorkSchedule = {
 /**
  * How each timesheet type treats claimed extra hours, and the offset ratio (decision 216).
  * *Assumption, to be confirmed by HR:* the 1:1 ratio.
+ *
+ * Step 2.7's `submissionDeadlineDays` is left out on purpose (decision 279): a version stored
+ * without it reads as 1 day through `submissionDeadlineDaysOf`, so the seeded version stays as it
+ * is and no new version is seeded. HR sets another deadline by adding a version.
  */
 export const SEED_TIMESHEET_SETTINGS: TimesheetSettings = {
   offsetRatio: '1',

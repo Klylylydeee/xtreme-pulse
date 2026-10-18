@@ -15,6 +15,7 @@
     "recover:admin": "tsx scripts/recover-admin.ts",
     "dev:approval": "tsx scripts/dev-approval.ts",
     "dev:expiry-alerts": "tsx scripts/dev-expiry-alerts.ts",
+    "dev:timesheet-reminders": "tsx scripts/dev-timesheet-reminders.ts",
     "test": "vitest run"
   },
   "devDependencies": {

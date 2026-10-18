@@ -48,10 +48,16 @@ import {
   STALE_REIMBURSEMENT_MESSAGE,
 } from '../../reimbursements/views';
 import { versionOn } from '../../timesheets/schedule';
+import {
+  isTimesheetEditable,
+  type TimesheetStatus,
+  timesheetLockedMessage,
+} from '../../timesheets/schemas';
 import type { TimesheetRecordView } from '../../timesheets/views';
 import { inputError } from '../input';
 import { REIMBURSEMENT_SETTINGS_SETTING } from '../payroll-settings/settings';
 import { NO_EMPLOYEE_TIMESHEET, type TalentActor } from '../policy';
+import { type ReceiptClaimDocument, ReceiptClaimModel } from '../receipt-claims/model';
 import {
   assertReceiptNotClaimed,
   claimReceipt,
@@ -81,7 +87,7 @@ import { type ReimbursementDocument, ReimbursementModel } from './model';
 // - Every change is self-service: it acts on the signed-in user's own employee, read from the
 //   database in the transaction, never from the request. Nobody changes another person's lines,
 //   HR and the System Administrator included: another person's line is simply not found.
-// - Checks, in the save's transaction: the timesheet open; the receipt date in the filing window
+// - Checks, in the save's transaction: the timesheet open or returned (step 2.7); the receipt date in the filing window
 //   (from the start of the cut-off N before the line's timesheet to the earlier of its end and
 //   today, on or after the date hired, not after the separation date; N from today's version);
 //   adding also needs the timesheet's cut-off to be today's or one of the N before; the type in
@@ -93,16 +99,26 @@ import { type ReimbursementDocument, ReimbursementModel } from './model';
 //   once outside it, so a refused save rarely leaves a stray file; a stray one never opens (the
 //   file route needs a live line that points at it). A new file on edit replaces the old one.
 // - Each save touches its timesheet (the step 2.4 touch), so step 2.7's submission conflicts
-//   with a save in flight. Audit: `create`, `update` and `delete` on `talent.reimbursement`,
-//   labelled `<employee number> · <receipt date>`, in the same transaction. No notification.
+//   with a save in flight, and the submit checks again that every live line still holds its live
+//   claim (`reimbursementSubmitFacts`, decision 243's second check). Audit: `create`, `update`
+//   and `delete` on `talent.reimbursement`, labelled `<employee number> · <receipt date>`, in the
+//   same transaction. No notification.
 // - Over-limit lines are highlighted, never refused. The client is for tracking only: nothing
 //   here offers a line for billing.
 
 export const REIMBURSEMENT_TIMESHEET_NOT_FOUND = 'This timesheet can’t be found. Reload to see it.';
-export const REIMBURSEMENT_TIMESHEET_NOT_OPEN =
-  'This timesheet is no longer open, so its reimbursements can’t change.';
 export const REIMBURSEMENT_SETTINGS_MISSING =
   'Reimbursements aren’t set up yet. Ask HR to check the payroll settings.';
+
+/**
+ * Lines change only while their timesheet is `open` or `returned` (step 2.7, decision 278): a
+ * pending timesheet refuses with "…waiting for approval…", an approved one with "…approved and
+ * locked."
+ */
+function assertTimesheetEditable(timesheet: { status: TimesheetStatus }): void {
+  const locked = timesheetLockedMessage(timesheet.status);
+  if (locked) throw new ActionError(locked);
+}
 
 type ReimbursementVersions = ConfigVersion<ReimbursementSettings>[];
 type Actor = Awaited<ReturnType<typeof reloadActorAccess>> | TalentActor;
@@ -207,7 +223,7 @@ function checkLine(
   values: LineValues,
   storedTypeKey: string | null,
 ): CheckedLine {
-  if (timesheet.status !== 'open') throw new ActionError(REIMBURSEMENT_TIMESHEET_NOT_OPEN);
+  assertTimesheetEditable(timesheet);
   const n = previousCutOffsToday(versions, today);
   const periodStart = dayOf(timesheet.periodStart);
   if (storedTypeKey === null && !takesNewLines(periodStart, n, payroll, today)) {
@@ -697,7 +713,7 @@ export async function deleteReimbursement(
     const existing = await ownLine(identity, values.reimbursementId, session);
     if (existing.version !== values.version) throw new ActionError(STALE_REIMBURSEMENT_MESSAGE);
     const timesheet = await ownTimesheet(identity, existing.timesheetId, session);
-    if (timesheet.status !== 'open') throw new ActionError(REIMBURSEMENT_TIMESHEET_NOT_OPEN);
+    assertTimesheetEditable(timesheet);
     await touchTimesheet(timesheet._id, current.id, session);
     const deleted = await ReimbursementModel.findOneAndUpdate(
       { _id: existing._id, version: existing.version },
@@ -833,11 +849,86 @@ export async function reimbursementsSectionFor(
     requiresClient: type.requiresClient,
     limit: type.limit,
   }));
-  if (!todayVersion || timesheet.status !== 'open') return section;
+  if (!todayVersion || !isTimesheetEditable(timesheet.status)) return section;
   const n = todayVersion.value.filingWindowPreviousCutOffs;
   section.canEdit = true;
   section.window = receiptWindow(timesheet, employee, n, payroll, today);
   section.canAdd =
     section.window !== null && takesNewLines(timesheet.periodStart, n, payroll, today);
   return section;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.7: what the timesheet submit reads
+
+/** The reimbursement side of a timesheet's submit (step 2.7). */
+export interface ReimbursementSubmitFacts {
+  count: number;
+  totalCentavos: number;
+  /** Lines over a per-receipt or per-day limit (highlighted, never refused). */
+  overLimitCount: number;
+  /**
+   * Live lines whose live claim in `receiptClaims` is missing or belongs to another claim (decision
+   * 243's second check): the submit names them and is refused.
+   */
+  unclaimedLines: { id: string; label: string }[];
+}
+
+/**
+ * The timesheet's live lines as the submit reads them, in `session` when given (the submit's
+ * transaction): their count, total and over-limit count for the approval's summary, and the lines
+ * that no longer hold their receipt claim. Server-only, with no access check: the caller is the
+ * timesheet service, on the employee's own timesheet.
+ */
+export async function reimbursementSubmitFacts(
+  employeeId: string,
+  timesheetId: Types.ObjectId,
+  session: ClientSession | null = null,
+): Promise<ReimbursementSubmitFacts> {
+  await connectDb();
+  const employee = new Types.ObjectId(employeeId);
+  const lines = await ReimbursementModel.find({ timesheetId, employeeId: employee })
+    .sort({ receiptDate: 1, _id: 1 })
+    .session(session)
+    .lean<ReimbursementDocument[]>();
+  if (lines.length === 0) {
+    return { count: 0, totalCentavos: 0, overLimitCount: 0, unclaimedLines: [] };
+  }
+  const dates = [...new Set(lines.map((line) => dayOf(line.receiptDate)))];
+  const [versions, employeeLines, claims] = await Promise.all([
+    listConfigVersions(REIMBURSEMENT_SETTINGS_SETTING, session ? { session } : {}),
+    linesOn(employee, dates, session ?? undefined),
+    ReceiptClaimModel.find({ _id: { $in: lines.map((line) => line.receiptClaimId) } })
+      .session(session)
+      .lean<ReceiptClaimDocument[]>(),
+  ]);
+  const over = overLimitByLine(lines.map(limitLineOf), versions, employeeLines);
+  const claimById = new Map(claims.map((claim) => [claim._id.toHexString(), claim]));
+
+  let totalCentavos = 0;
+  const unclaimedLines: { id: string; label: string }[] = [];
+  for (const line of lines) {
+    totalCentavos += line.amountCentavos;
+    const claim = claimById.get(line.receiptClaimId.toHexString());
+    const held =
+      claim !== undefined &&
+      claim.claimType === REIMBURSEMENT_TYPE &&
+      claim.claimId.equals(line._id) &&
+      sameParts(
+        { merchantTin: claim.merchantTin, receiptKey: claim.receiptKey },
+        storedParts(line),
+      );
+    if (!held) {
+      unclaimedLines.push({
+        id: line._id.toHexString(),
+        label: `${line.merchant}, ${formatDate(dayOf(line.receiptDate))}`,
+      });
+    }
+  }
+  return {
+    count: lines.length,
+    totalCentavos,
+    overLimitCount: lines.filter((line) => over.get(line._id.toHexString())).length,
+    unclaimedLines,
+  };
 }

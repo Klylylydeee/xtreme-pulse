@@ -108,7 +108,6 @@ export {
   getTimesheetView,
   listMyTeam,
   NOT_TIMED_IN,
-  TIMESHEET_NOT_OPEN,
   timeIn,
   timeOut,
   type TimesheetViewOptions,
@@ -121,6 +120,47 @@ export {
   type OpenTimesheetsResult,
   runOpenTimesheets,
 } from './timesheets/open-job';
+// Timesheet approval, the DTR and the offset balance (build step 2.7,
+// docs/modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).
+// - Submit and resubmit: self-service, the own timesheet by its id (no employee id). The status,
+//   banner, submit sheet, DTR segment, offset balance and credit come on the timesheet view.
+// - The approval type `talent.timesheet` is registered by `registerTalentApprovalTypes()` (below).
+// - The timesheets list (`/talent/timesheets`, Talent Read).
+// - The daily `talent.timesheetReminders` job for the worker, and the holidays-changed listener
+//   `talent.recomputeDtr` the worker registers at start-up.
+// - `getDtr` and `getOffsetBalance`: the services steps 2.8, 2.9 and 2.13 read, under the
+//   timesheet's viewing rule.
+export {
+  submitTimesheet,
+  type SubmitTimesheetInput,
+  type SubmitTimesheetResult,
+  TIMESHEET_GONE,
+} from './timesheets/submission';
+export { TIMESHEET_APPROVAL_STEPS, TIMESHEET_APPROVAL_TYPE_LABEL } from './timesheets/approval';
+export {
+  getTimesheetsList,
+  TIMESHEET_LIST_CUT_OFFS,
+  type TimesheetsListOptions,
+} from './timesheets/list';
+export {
+  runTimesheetReminders,
+  TIMESHEET_DUE_EVENT,
+  TIMESHEET_REMINDERS_JOB,
+  TIMESHEET_REMINDERS_SCHEDULE,
+  type TimesheetRemindersResult,
+  TIMESHEETS_MISSING_EVENT,
+} from './timesheets/reminders';
+export { DTR_MAX_DAYS, DTR_RANGE_INVALID, type EmployeeDtr, getDtr } from './dtr/service';
+export {
+  RECOMPUTE_DTR_LISTENER,
+  recomputeDtrOnHolidaysChanged,
+  registerTalentHolidaysChangedListener,
+} from './dtr/listener';
+export {
+  getOffsetBalance,
+  type OffsetReconcileResult,
+  reconcileOffsetCredits,
+} from './offset/service';
 // Reimbursements (build step 2.5): the own timesheet's lines (self-service, no employee id; the
 // segment itself comes on the timesheet view as `reimbursements`), and the register of claimed
 // receipts: `claimReceipt` and `releaseReceiptClaim` run in the caller's transaction and are the
@@ -131,7 +171,6 @@ export {
   deleteReimbursement,
   REIMBURSEMENT_SETTINGS_MISSING,
   REIMBURSEMENT_TIMESHEET_NOT_FOUND,
-  REIMBURSEMENT_TIMESHEET_NOT_OPEN,
   updateReimbursement,
 } from './reimbursements/service';
 export {
@@ -268,6 +307,9 @@ export {
   TIMESHEET_DENIED,
   type TimesheetTarget,
   WORK_SCHEDULE_SET_DENIED,
+  // Step 2.7
+  assertCanSeeTimesheetsList,
+  canSeeTimesheetsList,
   // Step 2.6
   assertCanConfirmNoSupervisor,
   assertCanVerifySensitiveDetails,

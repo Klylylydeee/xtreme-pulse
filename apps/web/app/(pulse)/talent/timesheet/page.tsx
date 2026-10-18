@@ -21,7 +21,10 @@ export const metadata: Metadata = { title: 'Timesheet' };
 // own timesheet, self-service outside module access: every signed-in user with an employee, no
 // Pulse Talent access needed. It takes no employee id from the request: `getOwnTimesheetView`
 // loads the signed-in user's own employee only. `?cutOff=YYYY-MM-DD` (a period start) picks the
-// cut-off; one before the date hired, after today's, or not a period start is not found.
+// cut-off; one before the date hired, after today's, or not a period start is not found. From step
+// 2.7 the view also carries the status banner, the submit sheet ("Submit timesheet" after the
+// cut-off ends), the DTR and the offset credit; the reminders and the submit sheet link here with
+// `?cutOff=` (and `#day-<date>` or `#reimbursement-<id>`).
 //
 // The guard (a signed-in user) runs first, before anything that can suspend; the bootstrap system
 // account, which has no employee, gets an empty state, as on My record. The view loads inside the

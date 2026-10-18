@@ -330,6 +330,11 @@ export function assertCanViewWageOrderList(actor: TalentActor): void {
 //   employee's `reportingTo` (read-only, whatever their module access).
 // - Changing time entries: the employee alone, on their own employee; nobody changes another
 //   person's entries in step 2.4, HR and the System Administrator included.
+// - From step 2.7 (decision 285): anyone who is or was an approver on one of the timesheet's
+//   approval requests (Core's `isApproverFor` on `talent.timesheet`) also opens it, read-only and
+//   whatever their module access, with directory fields only when they lack Talent Read.
+//   Decisions are made on /approvals; corrections still come through a return (HANDOFF item 54).
+// - The timesheets list (step 2.7): Talent Read (HANDOFF item 135).
 
 export const WORK_SCHEDULE_SET_DENIED =
   'Only HR and the System Administrator, with Talent Write, set work schedules.';
@@ -368,18 +373,40 @@ export function isSupervisorOf(actor: TalentActor, target: TimesheetTarget): boo
   return own !== undefined && target.reportingTo.some((supervisor) => supervisor.id === own);
 }
 
-/** True when `actor` may open `target`'s timesheet and schedule (read-only unless their own). */
-export function canViewTimesheet(actor: TalentActor, target: TimesheetTarget): boolean {
+/**
+ * True when `actor` may open `target`'s timesheet and schedule (read-only unless their own).
+ * `approver` is the caller's answer to Core's `isApproverFor` for that timesheet (step 2.7).
+ */
+export function canViewTimesheet(
+  actor: TalentActor,
+  target: TimesheetTarget,
+  { approver = false }: { approver?: boolean } = {},
+): boolean {
   return (
     (actor.employee !== null && actor.employee.id === target.employeeId) ||
     canReadEmployeeRecords(actor) ||
-    isSupervisorOf(actor, target)
+    isSupervisorOf(actor, target) ||
+    approver
   );
 }
 
 /** Throws {@link AccessDeniedError} unless `actor` may open `target`'s timesheet. */
-export function assertCanViewTimesheet(actor: TalentActor, target: TimesheetTarget): void {
-  if (!canViewTimesheet(actor, target)) throw new AccessDeniedError(TIMESHEET_DENIED);
+export function assertCanViewTimesheet(
+  actor: TalentActor,
+  target: TimesheetTarget,
+  options: { approver?: boolean } = {},
+): void {
+  if (!canViewTimesheet(actor, target, options)) throw new AccessDeniedError(TIMESHEET_DENIED);
+}
+
+/** True when `actor` sees the timesheets list (`/talent/timesheets`): Talent Read (item 135). */
+export function canSeeTimesheetsList(actor: TalentActor): boolean {
+  return canReadEmployeeRecords(actor);
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may see the timesheets list. */
+export function assertCanSeeTimesheetsList(actor: TalentActor): void {
+  if (!canSeeTimesheetsList(actor)) throw new AccessDeniedError(TALENT_READ_DENIED);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -12,3 +12,5 @@ export * from './payroll';
 export * from './timesheets';
 export * from './reimbursements';
 export * from './onboarding';
+export * from './offset';
+export * from './dtr';

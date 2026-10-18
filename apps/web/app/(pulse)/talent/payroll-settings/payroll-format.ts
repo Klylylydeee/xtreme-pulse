@@ -1,5 +1,6 @@
 import { centavosToDecimalString } from '@pulse/core';
 import {
+  DEFAULT_SUBMISSION_DEADLINE_DAYS,
   ISO_WEEKDAY_LABELS,
   ISO_WEEKDAYS,
   type IsoWeekday,
@@ -26,6 +27,10 @@ import {
 // From build step 2.5 (docs/modules/talent.md#reimbursements-build-step-25) the Reimbursements
 // view holds `talent.reimbursementSettings`: company policy, like the work schedule. A type's
 // limit draft is '' for no limit, or its amount in pesos and per receipt or per day.
+//
+// From build step 2.7 (decision 279) `talent.timesheetSettings` has the submission deadline, in
+// days after the cut-off (1 to 10). A version without it (the seeded one) reads as 1, so the draft
+// starts from 1 and a new version always stores the number.
 
 export type PayrollView =
   | 'schedule'
@@ -213,6 +218,8 @@ export function emptyDraft<K extends PayrollSettingKey>(key: K): SettingDraft<K>
     'talent.timesheetSettings': {
       offsetRatio: '',
       extraHours: { overtime: 'overtime', standard: 'offset' },
+      // Build step 2.7: the spec's default deadline.
+      submissionDeadlineDays: String(DEFAULT_SUBMISSION_DEADLINE_DAYS),
     },
     // Build step 2.5: the Reimbursements segment.
     'talent.reimbursementSettings': { filingWindowPreviousCutOffs: '', types: [] },
@@ -363,13 +370,36 @@ export function reimbursementDraftToValue(
 }
 
 /**
+ * The submission deadline as the sheet shows it (build step 2.7, decision 279): the draft's text,
+ * or the default when the version it started from has none (the seeded one), so a new version
+ * always stores the number.
+ */
+export function submissionDeadlineDraft(draft: SettingDraft<'talent.timesheetSettings'>): string {
+  return draft.submissionDeadlineDays ?? String(DEFAULT_SUBMISSION_DEADLINE_DAYS);
+}
+
+/**
+ * Timesheet settings as the schema takes them (build step 2.7): the submission deadline as a
+ * number. A blank one stays text, so the schema asks for it rather than storing none.
+ */
+export function timesheetSettingsDraftToValue(
+  draft: SettingDraft<'talent.timesheetSettings'>,
+): unknown {
+  const days = submissionDeadlineDraft(draft);
+  return { ...draft, submissionDeadlineDays: wholeNumber(days) ?? days };
+}
+
+/**
  * The sheet's draft as the Server Action takes it. Amounts stay as typed (the action converts
- * them with `parsePesos`); a work schedule's days and minutes, and the reimbursement filing
- * window, become numbers here.
+ * them with `parsePesos`); a work schedule's days and minutes, the timesheet submission deadline
+ * and the reimbursement filing window become numbers here.
  */
 export function draftToValue(key: PayrollSettingKey, draft: SettingDraft): unknown {
   if (key === 'talent.workSchedule') {
     return scheduleDraftToValue(draft as SettingDraft<'talent.workSchedule'>);
+  }
+  if (key === 'talent.timesheetSettings') {
+    return timesheetSettingsDraftToValue(draft as SettingDraft<'talent.timesheetSettings'>);
   }
   if (key === 'talent.reimbursementSettings') {
     return reimbursementDraftToValue(draft as SettingDraft<'talent.reimbursementSettings'>);

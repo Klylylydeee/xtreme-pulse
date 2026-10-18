@@ -1,4 +1,6 @@
-import type { BusinessDate, TimesheetType } from '@pulse/core';
+import type { BusinessDate, Centavos, TimesheetType } from '@pulse/core';
+import type { DtrDay, DtrTotals } from '../dtr/compute';
+import type { OffsetCreditView } from '../offset/views';
 import type { CutOffKey } from '../payroll/schemas';
 import type { ReimbursementsSectionView } from '../reimbursements/views';
 import type { DayHours, EntryHours, TimesheetTotals } from './compute';
@@ -9,6 +11,7 @@ import type {
   TimesheetStatus,
   WorkSchedule,
 } from './schemas';
+import type { TimesheetListFilter, TimesheetSubmitProblem } from './submission';
 
 // Spec: docs/modules/talent.md#work-schedules-and-daily-time-entries-build-step-24 ("Screens") and
 // docs/DESIGN_SYSTEM.md#layout--components ("Timesheets on a phone") — what the timesheet and
@@ -161,6 +164,145 @@ export interface TeamMemberLink {
   employeeNumber: string;
   /** `/talent/timesheets/<employeeId>`. */
   href: string;
+  /** Step 2.7: their timesheet's status for the latest ended cut-off. */
+  status?: TeamMemberTimesheetStatus;
+}
+
+/** A direct report's timesheet status on My team (step 2.7). */
+export interface TeamMemberTimesheetStatus {
+  periodStart: BusinessDate;
+  periodEnd: BusinessDate;
+  /** Null when the timesheet isn't created yet ("Not submitted"). */
+  status: TimesheetStatus | null;
+  /** "Not submitted", "Overdue", "Waiting for supervisor", … (`timesheetStatusText`). */
+  label: string;
+  /** Not submitted and past the deadline (`isTimesheetOverdue`): the badge's destructive tone. */
+  overdue: boolean;
+  submittedLate: boolean;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.7: submission and approval
+// Spec: docs/modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27
+// ("Screens"). Built by the timesheet service; `submission.ts` holds the wording.
+
+/**
+ * The status banner at the top of the timesheet. `open` (before the cut-off ends) shows none.
+ * `timesheetBannerText` gives its main line.
+ */
+export type TimesheetStatusBannerView =
+  | { kind: 'open' }
+  | { kind: 'notSubmitted'; deadline: BusinessDate; overdue: boolean }
+  | {
+      kind: 'pendingSupervisor';
+      submittedAt: Date;
+      submittedLate: boolean;
+      /** The Supervisor step's approvers, fixed at submit. */
+      approverNames: string[];
+    }
+  | { kind: 'pendingHr'; submittedAt: Date; submittedLate: boolean }
+  | {
+      kind: 'returned';
+      returnedAt: Date;
+      /** Null when the name can't be shown (an inactive or deleted account). */
+      returnedByName: string | null;
+      remarks: string;
+      submittedLate: boolean;
+    }
+  | { kind: 'approved'; approvedAt: Date; approvedByName: string | null; submittedLate: boolean };
+
+/** One blocking problem on the confirmation sheet, named with its message and a link. */
+export interface TimesheetSubmitProblemView {
+  problem: TimesheetSubmitProblem;
+  message: string;
+  /** Where to fix it: the day, the onboarding item, the reimbursement line. */
+  href: string | null;
+}
+
+/** The "Submit timesheet" confirmation sheet. */
+export interface TimesheetSubmitSummaryView {
+  /** "Submit timesheet", or "Resubmit" when returned. */
+  buttonLabel: string;
+  resubmit: boolean;
+  daysPresent: number;
+  daysAbsent: number;
+  daysLate: number;
+  treatment: ExtraHoursTreatment;
+  /** The total overtime or offset minutes. */
+  extraMinutes: number;
+  reimbursementCount: number;
+  reimbursementTotalCentavos: Centavos;
+  manualTimeCount: number;
+  /** True with no entries: the sheet warns that every scheduled day will show as absent. */
+  empty: boolean;
+  /** Empty when the submit may go ahead. */
+  problems: TimesheetSubmitProblemView[];
+}
+
+/** The timesheet's step 2.7 part: status, deadline, submit and approver links. */
+export interface TimesheetApprovalView {
+  /** The status as it reads today ("Not submitted", "Overdue", "Waiting for HR", …). */
+  statusText: string;
+  banner: TimesheetStatusBannerView;
+  deadline: BusinessDate;
+  submittedLate: boolean;
+  /** Own `open` or `returned` timesheet after the cut-off ends: the footer's submit button. */
+  submit: TimesheetSubmitSummaryView | null;
+  /** The viewer is an approver of the current request's pending step: "Open in Approvals". */
+  approverLink: { requestId: string; href: string } | null;
+  /** Why entries and lines can't change, or null while `open` or `returned`. */
+  lockedMessage: string | null;
+}
+
+/** The DTR segment: one row per day, newest first, with totals for the sticky footer. */
+export interface TimesheetDtrSegmentView {
+  /** True on an approved timesheet; otherwise every row shows "Not approved yet". */
+  final: boolean;
+  /** Newest first. */
+  days: DtrDay[];
+  totals: DtrTotals;
+  treatment: ExtraHoursTreatment;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.7: the timesheets list (`/talent/timesheets`, Talent Read)
+
+/** One employee's row. */
+export interface TimesheetListRowView {
+  employeeId: string;
+  name: string;
+  employeeNumber: string;
+  department: string | null;
+  timesheetType: TimesheetType;
+  /** Null when no timesheet is created yet ("Not submitted"). */
+  status: TimesheetStatus | null;
+  filter: TimesheetListFilter;
+  statusText: string;
+  /** Not submitted and past the deadline (`isTimesheetOverdue`): the row's destructive tone. */
+  overdue: boolean;
+  submittedLate: boolean;
+  /** `/talent/timesheets/<employeeId>?cutOff=<period start>`. */
+  href: string;
+}
+
+/** A cut-off the picker offers. */
+export interface TimesheetListCutOffOption {
+  periodStart: BusinessDate;
+  periodEnd: BusinessDate;
+  /** "Sep 11 – 25, 2026". */
+  label: string;
+}
+
+export interface TimesheetListView {
+  cutOff: TimesheetListCutOffOption;
+  deadline: BusinessDate;
+  /** Ended cut-offs, newest first; the latest ended one is the default. */
+  cutOffs: TimesheetListCutOffOption[];
+  /** The tiles' counts, over every row whatever the filter. */
+  counts: Record<TimesheetListFilter, number>;
+  /** The filter in effect, or null for every row. */
+  filter: TimesheetListFilter | null;
+  rows: TimesheetListRowView[];
 }
 
 /** `/talent/timesheet` and `/talent/timesheets/<employeeId>`. */
@@ -179,8 +321,19 @@ export interface TimesheetView {
   totals: TimesheetTotals;
   /** Only on today's cut-off. */
   todayCard: TimesheetTodayView | null;
-  /** Offset treatment only: the balance (0 until steps 2.7 and 2.8) and this cut-off's offset. */
-  offset: { balanceMinutes: number; thisCutOffMinutes: number } | null;
+  /**
+   * Offset treatment only: the balance (the sum of `offsetEntries` from step 2.7) and this
+   * cut-off's offset; from step 2.7, the credit once HR approved ("Credited +X h on Sep 28").
+   */
+  offset: {
+    balanceMinutes: number;
+    thisCutOffMinutes: number;
+    credited?: OffsetCreditView | null;
+  } | null;
+  /** Step 2.7: the status, banner, submit and approver link. */
+  approval?: TimesheetApprovalView;
+  /** Step 2.7: the DTR segment. */
+  dtr?: TimesheetDtrSegmentView;
   /** The previous and next cut-offs' start days, or null when out of range. */
   previousCutOff: BusinessDate | null;
   nextCutOff: BusinessDate | null;

@@ -150,6 +150,13 @@ export const ONBOARDING_HREF = '/talent/onboarding';
 /** Change request pages (step 2.6), opened from Approvals and from My record. */
 export const CHANGE_REQUESTS_HREF = '/talent/change-requests';
 
+/**
+ * The timesheets list (step 2.7, decision 294), for Talent Read: reached from the "Timesheets"
+ * button on `/talent` and from `talent.timesheetsMissing`, never from the sidebar. Another
+ * employee's timesheet sits under it, at `/talent/timesheets/<employeeId>`.
+ */
+export const TIMESHEETS_LIST_HREF = '/talent/timesheets';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -435,10 +442,25 @@ export const SECTION_PAGES: {
    * through the forbidden page's own title.
    */
   openToOthers?: boolean;
+  /** Only `href` itself, not the pages under it: the timesheets list (step 2.7). */
+  exact?: boolean;
+  /**
+   * Only the pages under `href`, not `href` itself: another employee's timesheet
+   * (`/talent/timesheets/<employeeId>`), whose parent path is the timesheets list (step 2.7).
+   */
+  under?: boolean;
 }[] = [
   { href: '/talent/payroll-settings', section: '/talent', title: 'Payroll settings' },
+  // Step 2.7 (decision 294): the timesheets list, "Pulse Talent › Timesheets", Talent Read only.
+  { href: TIMESHEETS_LIST_HREF, section: '/talent', title: 'Timesheets', exact: true },
   // Step 2.4 (decision 231): "Pulse Talent › Timesheet", read-only.
-  { href: '/talent/timesheets', section: '/talent', title: 'Timesheet', openToOthers: true },
+  {
+    href: TIMESHEETS_LIST_HREF,
+    section: '/talent',
+    title: 'Timesheet',
+    openToOthers: true,
+    under: true,
+  },
   // Step 2.6 (decision 275): the own checklist, open to every signed-in user (self-service), and
   // a change request, which its requester, its approvers (a supervisor with no module access
   // included) and Talent readers open. The pages decide who may open them.
@@ -511,6 +533,16 @@ function isAtOrUnder(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** Whether `pathname` is a section page's, as its `exact` or `under` says. */
+function isSectionPageAt(
+  page: { href: string; exact?: boolean; under?: boolean },
+  pathname: string,
+): boolean {
+  if (page.exact) return pathname === page.href;
+  if (page.under) return pathname.startsWith(`${page.href}/`);
+  return isAtOrUnder(page.href, pathname);
+}
+
 /**
  * Whether `pathname` is the entry's page or one of the pages under it. Home and `exact` entries
  * (the admin Overview) match their own path only, and an entry's `exclude` paths never match it.
@@ -570,7 +602,7 @@ export function breadcrumbFor(groups: readonly NavGroup[], pathname: string): Br
         (candidate) =>
           candidate.openToOthers &&
           candidate.section === section.entry.href &&
-          isEntryActive(candidate, pathname),
+          isSectionPageAt(candidate, pathname),
       )
     : undefined;
   if (section && openPage) return { parent: section.entry.title, current: openPage.title };
@@ -579,7 +611,7 @@ export function breadcrumbFor(groups: readonly NavGroup[], pathname: string): Br
   if (!match) return { current: APP_NAME };
   const { group, entry } = match;
   const sectionPage = SECTION_PAGES.find(
-    (candidate) => candidate.section === entry.href && isEntryActive(candidate, pathname),
+    (candidate) => candidate.section === entry.href && isSectionPageAt(candidate, pathname),
   );
   if (sectionPage) return { parent: entry.title, current: sectionPage.title };
   return { parent: group.label === entry.title ? undefined : group.label, current: entry.title };

@@ -23,7 +23,8 @@ import { longDayText } from './format';
 // badge with "₱120.00 over the daily limit", the amount in tabular numerals and the receipt's
 // thumbnail (or a PDF icon). A row opens the line's sheet: the edit form on the own open
 // timesheet, a read-only detail otherwise. "Add reimbursement" shows only when the server says the
-// line may be added (`canAdd`); the server checks again.
+// line may be added (`canAdd`); the server checks again. Each row has the id `reimbursement-<id>`, the
+// target of the step 2.7 submit sheet's links.
 
 /** A type's icon in its tinted tile: the seeded keys get their own, any later type the receipt. */
 function TypeIcon({ typeKey }: { typeKey: string }) {
@@ -172,7 +173,7 @@ export function ReimbursementList({
             </h2>
             <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
               {group.lines.map((line) => (
-                <li key={line.id}>
+                <li key={line.id} id={`reimbursement-${line.id}`} className="scroll-mt-20">
                   <LineRow line={line} onOpen={() => onOpen(line)} />
                 </li>
               ))}

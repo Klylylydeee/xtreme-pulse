@@ -18,6 +18,7 @@ import {
   REIMBURSEMENT_LIMIT_PER_LABELS,
   type ReimbursementType,
   scheduledMinutes,
+  submissionDeadlineDaysOf,
   TIMESHEET_TYPE_TITLES,
   WORK_REGION_LABELS,
   type WorkRegion,
@@ -431,6 +432,11 @@ function WorkScheduleValue({ value }: { value: PayrollSettingValues['talent.work
   );
 }
 
+/** "1 day after the cut-off ends", "3 days after the cut-off ends". */
+export function submissionDeadlineText(days: number): string {
+  return `${days} ${days === 1 ? 'day' : 'days'} after the cut-off ends`;
+}
+
 function TimesheetSettingsValue({
   value,
 }: {
@@ -447,6 +453,11 @@ function TimesheetSettingsValue({
           term: `${TIMESHEET_TYPE_TITLES[type]}, extra hours count as`,
           value: EXTRA_HOURS_TREATMENT_LABELS[value.extraHours[type]],
         })),
+        // Build step 2.7 (decision 279): 1 day when the version has none (the seeded one).
+        {
+          term: 'Submission deadline',
+          value: submissionDeadlineText(submissionDeadlineDaysOf(value)),
+        },
       ]}
     />
   );
