@@ -437,6 +437,7 @@ A separate table on the same timesheet.
 - Either approver can return the timesheet to the employee with remarks; the employee revises and resubmits, and approval starts again from step 2.
 - An approved timesheet is locked. Changes after the payroll run is finalized become adjustments in the next cut-off.
 - If a timesheet is not fully approved when HR prepares the payroll run, the employee still receives their basic pay for the cut-off. Overtime, reimbursements and any absence, late or undertime deductions from that timesheet are settled in the next cut-off once approved. Offset hours from that timesheet are credited to the balance only when it is fully approved.
+- Built in step 2.7: [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).
 
 #### Daily Time Record (DTR)
 - Computed per employee per day from the approved timesheet, schedule, approved leave, approved offset time off and confirmed holidays.
@@ -444,6 +445,7 @@ A separate table on the same timesheet.
 - A scheduled work day with no time entry and no approved paid leave or offset time off is **absent (unpaid)**.
 - Leave without pay and unpaid absences are deducted from pay at the daily rate (half the daily rate for a half day).
 - The DTR is derived; never edit it directly. Confirmed holidays are never counted as absences.
+- Built in step 2.7 (leave and offset time off from step 2.8): [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).
 
 ### Work schedules and daily time entries (build step 2.4)
 
@@ -476,7 +478,7 @@ Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](..
 - `offsetRatio`: offset hours per hour of claimed extra work, a decimal string (seeded `"1"`; *Assumption:* 1:1)
 - `extraHours`: how each timesheet type treats claimed extra hours, `{ overtime: 'overtime', standard: 'offset' }`. This is the spec's "setting per timesheet type"; the computation reads it, never the type name.
 
-Step 2.7 adds the submission deadline in a later version. It is edited in the same Work schedule segment, under the same rules.
+Step 2.7 adds the submission deadline, `submissionDeadlineDays`, which reads as 1 on a version stored without it, so no new version is seeded (decision 279). It is edited in the same Work schedule segment, under the same rules.
 
 **Timesheets.**
 
@@ -675,6 +677,130 @@ The line shows by how much, for example "₱120.00 over the daily limit".
 - **The footer** shows "Reimbursements ₱1,234.50 · 3 receipts" while the segment is shown.
 - **Payroll settings** gets the Reimbursements segment; **`/talent`** gets "Check a receipt" for Talent Read.
 
+### Timesheet approval, the DTR and the offset balance (build step 2.7)
+
+Spec written first; not built yet. Decisions 277–298 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The new fields, the new collection and the setting change are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership), the attendance rules in [Attendance and the DTR](../COMPLIANCE.md#attendance-and-the-dtr-build-step-27), and who may see what in [Exceptions to module access](../../SECURITY.md#exceptions-to-module-access). Step 2.7 adds submission, the deadline and its reminders, the HR list of timesheets by status, approval by any one supervisor and then HR through Core's [approvals engine](core.md#approvals), the lock, crediting offset hours to a derived offset balance, the Daily Time Record, and the holidays-changed listener. Leave and offset time off on the DTR, opening balances and offset usage come in step 2.8; pay in step 2.9.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 123–137), to be confirmed by HR, the accountant, counsel or the user.
+
+**Statuses** (`TIMESHEET_STATUSES`, replacing step 2.4's single `open`):
+
+| Status | Label | Meaning |
+|---|---|---|
+| `open` | "Open" until the cut-off ends, then "Not submitted" ("Overdue" after the deadline) | The employee fills it in. Entries and reimbursement lines can change |
+| `pendingSupervisor` | "Waiting for supervisor" | Submitted; the supervisor step is pending |
+| `pendingHr` | "Waiting for HR" | The supervisor approved it, or the step was skipped |
+| `returned` | "Returned" | An approver returned it with remarks. Entries and lines can change again; the employee resubmits |
+| `approved` | "Approved" | HR approved it. Locked for good |
+
+- **Moves.** `open` or `returned` → `pendingSupervisor` (or straight to `pendingHr` when the supervisor step is skipped) on submit; `pendingSupervisor` → `pendingHr` when a supervisor approves; either pending status → `returned` on a return, or → `approved` when HR approves. Nothing else moves a status. There is no withdraw (the engine has none, as in decision 272) and no reopen: an approved timesheet is never changed (*Assumption*).
+- **What can change when.** Time entries and reimbursement lines are added, edited and deleted only while their timesheet is `open` or `returned`. On a pending timesheet the refusal reads "This timesheet is waiting for approval, so it can't change. Ask your approver to return it if something needs fixing."; on an approved one, "This timesheet is approved and locked." (*Assumption:* a pending timesheet can't be changed or withdrawn by the employee.)
+- **Stored on the timesheet:** `status`, `submittedAt` (the latest submit), `approvalRequestId` (the current request), `supervisorApprovedAt` and `supervisorApprovedBy`, `approvedAt` and `approvedBy` (HR), `returnedAt`, `returnedBy` and `returnRemarks` (the latest return). The write guard allows these only through the timesheet service, besides step 2.4's touch.
+
+**The submission deadline.** `talent.timesheetSettings` gains `submissionDeadlineDays`, a whole number from 1 to 10. A version stored without it, the seeded 2000-01-01 version included, reads as **1** (the spec's default), so no new version is seeded; HR changes it by adding a version in the Work schedule segment of Payroll settings, under the step 2.3 rules (*Assumption*: 1 day). This replaces step 2.4's "step 2.7 adds the submission deadline in a later version".
+
+- **The deadline** of a timesheet is the end of the Manila day `periodEnd + submissionDeadlineDays`, with N from the version in effect on `periodEnd`. A period shortened by a new pay schedule uses its own end.
+- **Submission opens** on the Manila day after `periodEnd` and stays open after the deadline: a late timesheet is still accepted and marked "Submitted late" (submitted on a day after the deadline). Before the cut-off ends there is no Submit button, and the service refuses with "You can submit this timesheet from <day after the cut-off>." (*Assumption:* not on the cut-off's last day, and late submissions are accepted.)
+
+**Submitting** (self-service: the employee's own timesheet only, no employee id taken from the request). In one transaction, after step 2.4's touch, so a save still in flight conflicts and retries:
+
+- the timesheet is the actor's own and is `open` or `returned`, and today is after its `periodEnd`
+- the onboarding gate `fileTimeRequest` passes (`assertOnboardingGate`): the `reportingTo` item is done, which also covers an employee with "No supervisor" confirmed or a Board member ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26))
+- no entry is still open ("Time out first: <day> has no time out."), and every closed entry has an activity
+- every live reimbursement line still holds its live claim in `receiptClaims` (the second check promised by decision 243); a line whose claim is missing or belongs to another claim is named and refused
+- the employee's account is active
+
+A timesheet with no entries can be submitted; the confirmation warns that every scheduled day will show as absent (*Assumption*). The submit sets the status, `submittedAt` and `approvalRequestId`, submits the approval request (below) in the same transaction, and writes an `update` audit entry on `talent.timesheet`, labelled `<employee number> · <period start>`, with the reason "Submitted" (or "Resubmitted").
+
+**Approval** (the approval type `talent.timesheet`, registered by `registerTalentApprovalTypes()` beside `talent.changeRequest`, so `apps/web/lib/approval-types.ts` needs no change):
+
+- **Steps:** (1) `reportingTo`, labelled "Supervisor", `whenEmpty: 'skip'`; (2) `anyOf` `{ set: 'hr' }`, labelled "HR", `whenEmpty: 'systemAdministrator'`. The engine leaves out inactive supervisors and the requester, so an HR employee's own timesheet goes to the other HR users at step 2, and to the System Administrators only when the requester is the only active HR user ([Reporting lines](core.md#reporting-lines)). Approvers are fixed at submit.
+- **Decisions:** approve and return only, as [Approvals](core.md#approvals) says for timesheets. A return needs remarks.
+- **Title** "Timesheet: <first last> · Sep 11 – 25, 2026"; **summary**: the timesheet type, worked hours, total overtime or offset, the number of manual times, and the reimbursement count and total with the number over a limit (no sensitive field); **link** `/talent/timesheets/<employeeId>?cutOff=<period start>`; **record** `talent.timesheet`, the timesheet id, its audit label.
+- **`onStepApproved`** for the Supervisor step: `pendingHr`, with `supervisorApprovedAt` and `supervisorApprovedBy`, and an `update` audit entry ("Approved by supervisor").
+- **`onSettled`**, in the decision's transaction:
+  - **approve** (HR's): `approved`, `approvedAt`, `approvedBy`; the offset credit below; an `update` audit entry ("Approved"). From then on the timesheet is locked.
+  - **return** (at either step): `returned`, with `returnedAt`, `returnedBy` and `returnRemarks`; an `update` audit entry with the remarks as its reason.
+- **Resubmitting** a returned timesheet submits a new request with `previousRequestId`, which starts again at the Supervisor step.
+- **Approved as a whole.** Approving approves everything on the timesheet: every claimed overtime or offset minute and every reimbursement line. To drop a claim, an approver returns it with remarks (*Assumption*).
+- **Notifications** are the engine's: `core.approvalRequested` to the supervisors and then to HR ("timesheets waiting for approval"), `core.approvalSettled` to the other approvers, and `core.approvalApproved` or `core.approvalReturned` to the employee ("timesheet returned with remarks or approved"). Talent sends no extra one for these.
+
+**Who may see a timesheet** (adding to step 2.4's rule): the employee, Talent Read, the `reportingTo` supervisors, and now anyone who is or was an approver on one of its approval requests (Core's `isApproverFor` on `talent.timesheet` and the timesheet's id), read-only and whatever their module access ([Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)). An HR approver without Talent Read gets the directory fields only, as a supervisor does. Nobody but the employee changes entries or lines, HR included: corrections still come through a return (*Assumption*, keeping item 54).
+
+**The offset balance** (Standard timesheet; [Offset balance & offset time off](#offset-balance--offset-time-off)). It is the sum of the employee's **offset entries**, in whole minutes, never stored or edited:
+
+- **The collection `offsetEntries`**, insert-only: the employee, the kind (`OFFSET_ENTRY_KINDS`: `opening` and `usage` from step 2.8; `credit` and `adjustment` from step 2.7), the signed minutes, the Manila day it counts from, the timesheet (for a credit or an adjustment), a reason, and who wrote it (null for the system). One `credit` per timesheet, by a partial unique index.
+- **The credit.** When HR approves a timesheet, the hook writes one `credit` of the timesheet's offset total as the DTR computes it at that moment (the sum of each day's rounded offset), dated the approval day. It is written when the total is above 0, or when the timesheet's extra hours are treated as offset (a 0-minute credit records that the timesheet was credited). An Overtime timesheet earns no credit unless `extraHours` treats it as offset. Audit: `create` on `talent.offsetEntry`, labelled `<employee number> · <YYYY-MM-DD>`, in the decision's transaction.
+- **Adjustments** come only from the holidays-changed listener (below). The balance can go below zero after one; offset time off (step 2.8) then waits until it is positive again (*Assumption*). There is no manual offset correction in step 2.7 (*Assumption*).
+- **Who sees it:** whoever may see the employee's timesheet. It isn't sensitive.
+- **On the timesheet,** the Offset card shows the balance ("Balance 12.5 h"), with "+X h this cut-off, credited when HR approves your timesheet" until it is approved and "Credited +X h on Sep 28" after.
+
+**The Daily Time Record** ([Daily Time Record (DTR)](#daily-time-record-dtr)). Derived when read and never stored, like step 2.4's hours: the pure `computeDtr` in `packages/talent/src/dtr/` builds on `computeTimesheet`, and Talent's `getDtr(actor, employeeId, from, to)` loads its inputs. Every period not yet finalized is therefore always current. It covers each day from the later of the period start and the date hired to the earliest of the period end, the separation date and today.
+
+- **Day statuses** (`DTR_DAY_STATUSES`), first match wins:
+
+  | Status | When |
+  |---|---|
+  | `holiday` | A confirmed nationwide holiday (a regular holiday or a special non-working day), worked or not. Never an absence |
+  | `restDay` | The schedule doesn't list the weekday |
+  | `onLeavePaid`, `offsetPaid`, `leaveWithoutPay` | Approved leave or offset time off covers the day (step 2.8; never produced in step 2.7) |
+  | `present` | A scheduled work day with worked minutes above 0 |
+  | `absentUnpaid` | A scheduled work day with no worked minutes |
+
+  A special working day is a scheduled work day. Worked minutes, overtime and offset still show on a holiday or rest day that was worked.
+- **Late minutes**, on a `present` day only: when the first time in is later than the scheduled start by more than the grace period, the late minutes count from the scheduled start; within the grace period they are 0 (*Assumption*).
+- **Undertime minutes**, on a `present` day only: the scheduled minutes (the span less the break) after the first time in that no entry covers, so leaving early and a gap in the middle both count. Work after the scheduled end never makes up a late start or undertime (Labor Code Art. 88; *Assumption*).
+- **Night differential minutes** are step 2.4's paid minutes inside the night window: scheduled worked minutes plus, on the Overtime timesheet, claimed extra minutes. Standard employees get them for their scheduled night hours.
+- **Extra hours:** overtime by kind (Overtime timesheet) or offset minutes earned (Standard), exactly as step 2.4 computes them.
+- **Final or preview.** Days on an approved timesheet are `final`; the others are a preview ("Not approved yet"), which payroll (step 2.9) treats as the spec says for a timesheet that isn't fully approved.
+- **Not in step 2.7:** whether an unworked regular holiday is paid (the day before), the daily-rate deductions and half days: steps 2.8 and 2.9 apply them to the DTR's figures.
+
+**Hand-checked DTR cases.** With the seeded schedule (08:00–17:00, break 12:00–13:00, grace 15 minutes), `hoursPerDay` 8, the night window 22:00–06:00 and `offsetRatio` 1. Each extra-hours entry is marked.
+
+| # | Case | Expected |
+|---|---|---|
+| D1 | Ordinary day, 08:10–17:00 | Present; late 0 (within grace); undertime 0; worked 7.8 h |
+| D2 | Ordinary day, 08:16–17:00 | Present; late 16 min; undertime 0 |
+| D3 | Ordinary day, 08:15–17:00 | Present; late 0 (exactly the grace period) |
+| D4 | Ordinary day, 08:00–16:00 | Present; undertime 60 min |
+| D5 | Ordinary day, 08:00–12:00 and 14:00–17:00 | Present; undertime 60 min (13:00–14:00); worked 7.0 h |
+| D6 | Ordinary day, 08:30–17:30 | Present; late 30 min; undertime 0; extra 0 (the late start isn't made up) |
+| D7 | Ordinary day, no entry | Absent (unpaid) |
+| D8 | Saturday, no entry | Rest day |
+| D9 | Monday 2026-11-30, confirmed regular holiday, no entry | Holiday (not absent). With the holiday a draft: absent (unpaid) |
+| D10 | Standard, ordinary day, 08:00–19:00 | Present; offset 120 min (2.0 h); night differential 0 |
+| D11 | Overtime (a Driver), ordinary day, 08:00–23:30 | Present; ordinary day 6.5 h; night differential 1.5 h |
+| D12 | Standard, an own schedule 14:00–23:00 (break 18:00, 60 minutes), 14:00–23:00 | Present; late 0; night differential 1.0 h; offset 0 |
+| D13 | Credit: a Standard timesheet with D10 and step 2.4's case 10 (155 min), approved by HR | One `credit` of 275 min (4.6 h); the balance rises by 4.6 h |
+| D14 | Holiday changed: an approved Standard timesheet with Monday 2026-11-30, 08:00–17:00 marked, credited while the holiday was a draft (0 min) | Confirming the holiday adds an `adjustment` of +480 min (8.0 h); deleting it again adds −480 min |
+
+**The holidays-changed listener** `talent.recomputeDtr`, registered with Core's `registerHolidaysChangedListener` by the worker ([Holiday calendar](core.md#holiday-calendar), [Cross-module integration](../ARCHITECTURE.md#cross-module-integration)):
+
+- The DTR is derived when read, so no stored DTR needs recomputing. What the listener recomputes is the one stored value derived from it: the offset credits of **approved** timesheets whose period holds one of the changed dates.
+- For each, in its own transaction (after step 2.4's touch on the timesheet): the target is the DTR's offset total now; the credited total is the sum of the timesheet's `credit` and `adjustment` entries; a difference becomes an `adjustment` entry with the reason "Holiday changed: <YYYY-MM-DD>", audited as a `create` with no actor (a system action). It is idempotent: a second run finds no difference.
+- It applies to finalized payroll periods too, because offset hours are never pay (*Assumption*). The employee is notified in the same transaction: `talent.offsetAdjusted`, "Your offset balance changed by +8.0 h: the holidays on Nov 30 changed", linking to that timesheet (*Assumption*: the spec lists no such event).
+- Timesheets not yet approved need nothing: their DTR and offset are read fresh, and their credit is computed at HR approval.
+- From step 2.9 the payroll run stores the DTR figures it paid, so a holiday change to a finalized period becomes an adjustment in the next cut-off there, and step 2.9 extends this listener to draft runs. A lost job (decision 132) is accepted; step 2.10 reconciles at finalize.
+
+**Reminders and the missing list** (the job `talent.timesheetReminders`, daily at 08:00 Asia/Manila, cron `0 8 * * *`; [Background jobs](../ARCHITECTURE.md#background-jobs)). Only timesheets whose deadline is yesterday, today or tomorrow are read, so old cut-offs never remind anyone (*Assumption*):
+
+- **`talent.timesheetDue`** to the employee, for an `open` or `returned` timesheet with an active account: on the day submission opens ("Your timesheet for Sep 11 – 25 is ready to submit, due <deadline>"), on the deadline day ("due today") and on the day after ("overdue"). At most one per timesheet per Manila day (`notify()`'s `dedupeKey` `talent.timesheetDue:<timesheet id>:<YYYY-MM-DD>`). Link `/talent/timesheet?cutOff=<period start>`.
+- **`talent.timesheetsMissing`** to every active HR user (the System Administrators when none is active), on the day after the deadline, when any timesheet of that period is still `open` or `returned`: "<N> timesheets not submitted for Sep 11 – 25", once per period (`dedupeKey` `talent.timesheetsMissing:<period start>`). Link `/talent/timesheets?cutOff=<period start>&status=notSubmitted`.
+- Separated employees and inactive accounts get no reminder, and their last timesheet is left for HR's separation step (step 2.14; *Assumption*).
+- `pnpm dev:timesheet-reminders [--date YYYY-MM-DD]` runs the job once in development, like `pnpm dev:expiry-alerts`; it refuses in production.
+
+**Screens** (phone first; see [Timesheets on a phone](../DESIGN_SYSTEM.md#layout--components)).
+
+- **The status banner** at the top of `/talent/timesheet` and `/talent/timesheets/<employeeId>`: "Submitted Sep 26 · Waiting for supervisor" (with the approvers' names), "Waiting for HR", "Returned by <name> on <date>" with the remarks, "Approved by <name> on <date> · Locked", or, after the cut-off ends, "Not submitted · Due Sep 26" ("Overdue" after it). "Submitted late" shows as a text badge.
+- **Submit.** On the employee's own `open` or `returned` timesheet after the cut-off ends, the sticky footer's primary button reads "Submit timesheet" ("Resubmit" when returned). It opens a confirmation sheet: days present, absent and late, the total overtime or offset, the reimbursement total, the count of manual times, any blocking problem (an entry with no time out, a missing onboarding item) named with a link, and "You can't change it while it's waiting for approval."
+- **The DTR segment.** The segmented control becomes "Daily entries | Reimbursements | DTR". The DTR lists one row per day, newest first: the status as a text badge, late and undertime minutes, night differential, and overtime or offset, with "Not approved yet" on a preview. Totals sit in the sticky footer while it shows.
+- **An approver** sees "Waiting for your approval · Open in Approvals", linking to `/approvals?request=<id>`, where the decision is made. Nothing is decided on the timesheet page.
+- **My team** shows each person's status for the latest ended cut-off.
+- **`/talent/timesheets`**, the timesheets list, for Talent Read: a cut-off picker (the latest ended cut-off by default), tiles counting Not submitted, Waiting for supervisor, Waiting for HR, Returned and Approved (each a filter, `?status=`), and one row per employee with their department, timesheet type, status, "Submitted late" and a link to the timesheet. It is a list, never a table, on a phone. It is reached from a "Timesheets" button on `/talent` and from `talent.timesheetsMissing`; its breadcrumb reads "Pulse Talent › Timesheets". The list is the on-screen form of the [HR report](#hr-reports) "Timesheet status per cut-off"; its PDF and Excel exports come in step 2.16 (*Assumption:* Talent Read, not HR only, sees it).
+- **Payroll settings › Work schedule** gets the "Submission deadline (days after the cut-off)" field on `talent.timesheetSettings`.
+
+**Cross-module.** `getDtr` and `getOffsetBalance(actor, employeeId)` are Talent services for steps 2.8, 2.9 and 2.13, and for Pulse Ops' reads of approved overtime in Phase 4 ([Cross-module integration](../ARCHITECTURE.md#cross-module-integration)).
+
 ## Leave
 
 Leave is fully integrated with timesheets and payroll: approved paid leave shows on the DTR as paid, and every day not covered becomes a pay deduction.
@@ -717,6 +843,7 @@ Applies to employees on the Standard timesheet.
 - Offset hours are never converted to cash, including at separation (company policy; keep as a setting).
 - If an employee moves to a position on the Overtime timesheet, their remaining offset balance stays usable.
 - Offset time off approved after a payroll run is finalized is applied as an adjustment in the next cut-off.
+- From build step 2.7 the balance is the sum of `offsetEntries`: a `credit` when HR approves a Standard timesheet, and an `adjustment` when a holiday change alters an approved timesheet's offset ([Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)). Opening and usage entries come in step 2.8.
 
 ## Opening balances at go-live
 
@@ -969,5 +1096,6 @@ An employee can only be set to **Terminated** once the required process is compl
 - **Employees:** timesheet due soon, timesheet returned with remarks or approved, leave or offset time off approved or rejected, payslip ready, document or certification expiring, notice received (NTE, NOD, TN).
 - **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)); their team's change requests to contact details and skills waiting for their approval (from step 2.6, through the approvals engine).
 - **From step 2.6** ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)): the employee hears the outcome of each change request (approved, returned or rejected); HR hears of change requests waiting for HR, government IDs or a bank account to verify (`talent.verificationNeeded`; for an HR employee, the Board members and the System Administrators instead) and 201 documents an employee uploaded (`talent.documentUploaded`); Board members hear of an HR employee's ID and bank change requests.
+- **From step 2.7** ([Timesheet approval, the DTR and the offset balance](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)): the employee gets `talent.timesheetDue` (ready to submit, due today, overdue) and `talent.offsetAdjusted` (a holiday change altered an approved timesheet's offset); HR gets `talent.timesheetsMissing` the day after the deadline; the approval events (waiting for the supervisor or HR, returned, approved) are the approvals engine's.
 - **HR:** new users needing module access, company details still missing, timesheets waiting for HR approval, leave and offset time off requests waiting for HR approval (requesters with an empty `reportingTo`), missing timesheets at the deadline, payroll run or final pay approved or returned, remittance due dates, probation, contract and document alerts, minimum wage flags, due-process deadlines.
 - **Board of Directors:** payroll runs and final pay waiting for approval.

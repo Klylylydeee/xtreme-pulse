@@ -466,11 +466,37 @@ Added in build step 2.6 ([Onboarding checklist and change requests](modules/tale
 - **Approval types.** `apps/web/lib/approval-types.ts` registers the change request type and the e-signature signer, and is safe to call on every request.
 - **Results (2026-10-18).** `pnpm test` passes: 82 files, 1394 tests. Still checked by hand: the screens in a browser, in light and dark and at phone width, and the Done when against a running app ([HANDOFF › 2.6 hands-on checks](HANDOFF.md#26-hands-on-checks-by-the-user-signed-in)).
 
+## Timesheet approval, DTR and offset tests
+
+Planned for build step 2.7 ([Timesheet approval, the DTR and the offset balance](modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27), decisions 277–298). Not written yet.
+
+- **Where.** Next to the code they test: `packages/talent/src/dtr/` and `packages/talent/src/timesheets/` (the pure DTR, deadline and status rules), `packages/talent/src/offset/`, `packages/talent/src/server/` (`timesheets/`, `offset/`, `dtr/`, `reimbursements/`, `payroll-settings/` for the new field), `apps/worker/src/talent-jobs.test.ts` and `apps/web/lib/navigation.test.ts`. The same fixed "today" as the timesheet tests, 2026-09-14 10:00 Manila, moved where a test needs a day after a cut-off.
+- **The DTR.** Cases D1–D12 in [the hand-checked DTR cases](modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27), each as its own test. Also: a holiday on a rest day is a holiday; a special working day with no entry is absent; days before the date hired and after the separation date aren't listed; a day on an approved timesheet is `final` and one on a pending timesheet isn't; an open entry counts nothing.
+- **The deadline.** With `submissionDeadlineDays` 1, the cut-off 2026-09-11 to 2026-09-25 is due 2026-09-26; submission opens 2026-09-26; a submit on 2026-09-27 is "Submitted late". A version stored without the field reads 1; a version with 3 moves the deadline; 0 and 11 are refused.
+- **Submitting.**
+  - Refused: before the cut-off ends, another person's timesheet, a pending or approved one, an open entry, a missing `reportingTo` item (the gate's message names it), a reimbursement line whose claim is gone, an inactive account.
+  - Allowed: an empty timesheet; an employee with "No supervisor" confirmed (the supervisor step is skipped, status `pendingHr`); a Board member with no supervisor.
+  - A time entry save and a submit at once: exactly one wins, three times running, and an entry never lands on a submitted timesheet.
+  - Each submit writes the approval request and the `update` audit entry in one transaction.
+- **Approval and the Done when.**
+  - A Standard employee submits; their supervisor (with no module access) returns it with remarks: status `returned`, remarks stored, the employee notified. The employee edits an entry and resubmits: a new request linked to the old one starts at the Supervisor step. The supervisor approves: `pendingHr`. HR approves: `approved`, locked, and one `credit` entry of the offset total (case D13): the balance rises.
+  - After approval, adding, editing or deleting an entry or a reimbursement line is refused; a pending timesheet refuses them too, with the spec's messages.
+  - HR's own timesheet goes to the other HR users at the HR step, and to the System Administrators when they are the only HR user. A second supervisor is told it was settled.
+  - Reject isn't offered. Approving twice can't credit twice (the unique credit index).
+  - An HR approver without Talent Read opens the timesheet read-only with directory fields only; someone with no part in it gets 403.
+- **The offset balance.** The sum of entries; an Overtime timesheet earns no credit; an Overtime timesheet whose setting treats extra hours as offset does. `offsetEntries` refuses updates and deletes.
+- **The holidays-changed listener.** Case D14: confirming a holiday adds +480 minutes, deleting it −480, a second run adds nothing; a pending timesheet gets no entry; the employee gets `talent.offsetAdjusted`; the audit entry has no actor.
+- **Reminders.** With a fixed date: the employee of an open timesheet is reminded on the opening day, the deadline day and the day after, once each even when the job runs twice; a submitted or approved timesheet, an inactive account and a cut-off long past get nothing; HR gets one `talent.timesheetsMissing` with the right count the day after the deadline, and the System Administrators when no HR user is active.
+- **The timesheets list.** Talent Read sees the counts per status and the rows for a cut-off; without Talent Read it is refused.
+- **Settings and navigation.** The Work schedule segment's new field follows the step 2.3 rules. `/talent/timesheets` resolves to Pulse Talent with the breadcrumb "Pulse Talent › Timesheets", and `/talent/timesheets/<id>` keeps "Pulse Talent › Timesheet".
+- **Worker.** `talent.timesheetReminders` is registered once with cron `0 8 * * *`, and the worker registers the `talent.recomputeDtr` listener at start-up.
+
 ## Hand calculations
 
 The riskiest code computes money, time and deadlines. Until automated tests exist, check these by hand against a worked example and keep the example in the step's notes:
 
 - Timesheet hours (build step 2.4), automated in the [timesheet and work schedule tests](#timesheet-and-work-schedule-tests) and checked again on a phone: case 1 (08:00–19:00 on an ordinary day, ordinary day 2.0 h), case 5 (a Driver 08:00–23:30, ordinary day 6.5 h and night differential 1.5 h), case 7 (08:00–19:00 on a regular holiday, holiday 8.0 h + 2.0 h beyond 8) and case 10 (Standard, 07:55 manual to 19:30, offset 2.6 h with "Manual" shown)
+- The DTR and the offset credit (build step 2.7), automated in the [timesheet approval, DTR and offset tests](#timesheet-approval-dtr-and-offset-tests) and checked again on a phone: D2 (08:16 in, late 16 min), D7 (no entry, absent), D9 (an unworked confirmed holiday, never absent) and D13 (a returned, resubmitted and approved Standard timesheet credits 4.6 h)
 - A payroll line for one Overtime-timesheet and one Standard-timesheet employee, from the seeded rates (build step 2.9)
 - Billing milestones that sum exactly to the contract value, with the remainder on the last one (step 4.3)
 - SLA due times across business hours, weekends and holidays (step 6.4)

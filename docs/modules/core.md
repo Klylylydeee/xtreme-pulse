@@ -290,7 +290,7 @@ Built in step 1.11. Home (`/`) is open to every signed-in user and shows only th
 3. **HR confirms against the official proclamation:** each year's holidays are declared by Presidential Proclamation, published in the Official Gazette, usually a few months before the year starts. HR checks the drafts against it, moves dates that were shifted, adds missing ones, deletes ones not declared, and confirms.
 4. **Ad-hoc declarations:** Eid'l Fitr and Eid'l Adha are declared by separate proclamation close to the date, and special non-working days can be declared at any time (e.g. weather or national events). HR adds them when announced, and all users are notified.
 5. **Reminders:** if next year has no confirmed holidays by December 1, alert HR and the System Administrator weekly until it is done.
-6. Adding or changing a holiday recomputes the DTR for payroll periods not yet finalized. Finalized periods get adjustments in the next payroll. (From Phase 2: in step 1.10 the holidays-changed event has no listeners, see below.)
+6. Adding or changing a holiday recomputes the DTR for payroll periods not yet finalized. Finalized periods get adjustments in the next payroll. (From Phase 2: in step 1.10 the holidays-changed event has no listeners, see below. From build step 2.7 Pulse Talent registers `talent.recomputeDtr`: the DTR is derived when read, so the listener reconciles the offset credits of approved timesheets covering the changed dates, see [Timesheet approval, the DTR and the offset balance](talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).)
 
 Built in step 1.10 (the details follow; the collection and its indexes are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership)):
 
@@ -419,7 +419,7 @@ Every approval in the app, for reference. The linked section is the rule; this t
 
 | Request | Approved by | Rule |
 |---|---|---|
-| Timesheet | Any one supervisor, then HR | [Submission & approval](talent.md#submission--approval) |
+| Timesheet | Any one supervisor, then HR (build step 2.7, `talent.timesheet`; the supervisor step is skipped for an empty `reportingTo`) | [Submission & approval](talent.md#submission--approval), [Timesheet approval, the DTR and the offset balance](talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27) |
 | Leave, offset time off | Any one supervisor. HR if the requester has an empty `reportingTo`; the System Administrator for HR's own request | [Leave](talent.md#leave), [Offset time off](talent.md#offset-balance--offset-time-off) |
 | Employee record change | HR or any one supervisor; sensitive fields HR or System Administrator only, and for HR staff a Board member or the System Administrator (build step 2.6, `talent.changeRequest`) | [Self-service & record changes](talent.md#self-service--record-changes), [Onboarding checklist and change requests](talent.md#onboarding-checklist-and-change-requests-build-step-26) |
 | Regularization evaluation | Completed by a supervisor, reviewed by HR | [Probation & contract tracking](talent.md#probation--contract-tracking) |

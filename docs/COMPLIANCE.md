@@ -94,6 +94,16 @@ Step 2.4 counts hours for display; pay follows in step 2.9 ([Work schedules and 
 - **Night differential** (Labor Code Art. 86) counts paid hours inside the `talent.premiumRates` night window (10:00 PM to 6:00 AM): the scheduled worked minutes plus, on the Overtime timesheet, the claimed extra minutes. For Standard employees it counts the scheduled worked minutes only, since claimed extra minutes become offset hours, not pay; the DTR (step 2.7) uses that figure.
 - **No minimum overtime block** and no rounding to 15 or 30 minutes: hours come from exact minutes. Seconds are dropped from each time in and time out, so a clocked 08:00:42 counts as 08:00.
 
+## Attendance and the DTR (build step 2.7)
+
+Step 2.7 derives the Daily Time Record and records attendance; the deductions at the daily rate follow in step 2.9 ([Timesheet approval, the DTR and the offset balance](modules/talent.md#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)). Each rule below is an *Assumption, to be confirmed by HR or counsel* ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check), items 123–137):
+
+- **Lates and the grace period.** A first time in more than the grace period (seeded 15 minutes) after the scheduled start counts as late from the scheduled start; within it, nothing is late. The grace period is company policy, not law.
+- **Undertime and no make-up.** Scheduled minutes after the first time in that no entry covers are undertime, whether at the end or in the middle of the day. Work after the scheduled end doesn't offset a late start or undertime (Labor Code Art. 88: undertime isn't offset by overtime).
+- **Absences.** A scheduled work day with no worked minutes and no approved leave or offset time off is absent (unpaid). A confirmed holiday is never an absence, worked or not. Whether an unworked regular holiday is paid depends on the day before (the 100% rule in [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off)); step 2.9 applies it.
+- **Offset hours** are credited only when HR approves the timesheet, and change afterwards only through a holiday change. They are never paid or converted to cash, so a holiday change adjusts them even for a finalized payroll period. The offset arrangement is company policy in the Standard-timesheet employment contract (see [Labor Code and DOLE](#labor-code-and-dole)).
+- **Submission.** Late timesheets are accepted. Approval covers the whole timesheet; claimed overtime is paid only once the timesheet is approved ([Submission & approval](modules/talent.md#submission--approval)).
+
 ## Reimbursement receipts (build step 2.5)
 
 Step 2.5 records reimbursement lines with their receipts; payment as a separate non-taxable line follows in step 2.9 ([Reimbursements](modules/talent.md#reimbursements-build-step-25)). Each rule below is an *Assumption, to be confirmed by the accountant* ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check), items 62–65 and 73):

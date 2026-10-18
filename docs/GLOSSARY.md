@@ -62,7 +62,12 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Overtime timesheet | Timesheet type whose extra hours are paid as overtime (HVAC technicians, drivers) |
 | Standard timesheet | Timesheet type whose extra hours become offset hours (all other positions) |
 | DTR | Daily Time Record: the per-day attendance computed from the timesheet ([Daily Time Record (DTR)](modules/talent.md#daily-time-record-dtr)) |
-| Undertime | Leaving before the scheduled end of the day |
+| Undertime | Leaving before the scheduled end of the day. From build step 2.7, any scheduled minutes after the first time in that no time entry covers |
+| Late | A first time in more than the grace period after the scheduled start; the late minutes count from the scheduled start (build step 2.7) |
+| Grace period | The minutes after the scheduled start within which a time in isn't late (seeded 15 minutes, set on the work schedule) |
+| Submission deadline | The last day to submit a timesheet: a set number of days after the cut-off ends (seeded 1). Later submissions are accepted and marked "Submitted late" |
+| Returned (timesheet) | Sent back to the employee by an approver with remarks; the employee fixes it and resubmits, and approval starts again from the supervisor |
+| Offset entry | One dated line of the offset balance: an opening, a credit (when HR approves a timesheet), an adjustment (when a holiday change alters it) or a usage (offset time off). The balance is their sum |
 | Night differential | The premium for work between 10:00 PM and 6:00 AM |
 | VL, SL | Vacation Leave, Sick Leave |
 | SIL | Service Incentive Leave, the Labor Code's 5 days, met by paid VL |
