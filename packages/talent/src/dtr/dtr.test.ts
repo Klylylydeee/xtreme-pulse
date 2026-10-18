@@ -7,8 +7,22 @@ import {
   type TimesheetHoliday,
 } from '../timesheets/compute';
 import type { WorkScheduleAssignmentInput } from '../timesheets/schedule';
-import { computeDtr, type Dtr, type DtrDay, type DtrInput, lateAndUndertime } from './compute';
-import { DTR_DAY_STATUS_LABELS, DTR_DAY_STATUSES } from './statuses';
+import {
+  computeDtr,
+  type Dtr,
+  type DtrDay,
+  type DtrInput,
+  dtrDayHalves,
+  type DtrTimeOffInput,
+  lateAndUndertime,
+} from './compute';
+import {
+  DTR_DAY_STATUS_LABELS,
+  DTR_DAY_STATUSES,
+  type DtrTimeOffPortion,
+  type DtrTimeOffStatus,
+  dtrTimeOffLabel,
+} from './statuses';
 
 // The DTR tests (docs/TESTING.md#timesheet-approval-dtr-and-offset-tests, build step 2.7,
 // decisions 288–291 in docs/BUILD_PLAN.md): the hand-checked cases D1–D12 of
@@ -107,6 +121,25 @@ const BONIFACIO: TimesheetHoliday = {
 
 // Monday 2026-09-14, an ordinary day.
 const MONDAY = '2026-09-14';
+
+/** One day of approved time off (step 2.8): VL for leave, Offset for offset time off. */
+function off(
+  date: string,
+  status: DtrTimeOffStatus,
+  portion: DtrTimeOffPortion = 'whole',
+  extra: Partial<DtrTimeOffInput> = {},
+): DtrTimeOffInput {
+  const kind = status === 'offsetPaid' ? 'offset' : 'leave';
+  return {
+    date,
+    status,
+    portion,
+    kind,
+    shortName: kind === 'offset' ? 'Offset' : 'VL',
+    requestId: `req-${date}-${portion}`,
+    ...extra,
+  };
+}
 
 // ---------------------------------------------------------------------------------------------
 
@@ -309,10 +342,10 @@ describe('day statuses', () => {
     const result = dtr({
       entries: [entry('2026-09-16', '08:00', '17:00')],
       timeOff: [
-        { date: MONDAY, status: 'onLeavePaid' },
-        { date: '2026-09-15', status: 'leaveWithoutPay' },
-        { date: '2026-09-16', status: 'offsetPaid' },
-        { date: '2026-09-12', status: 'onLeavePaid' },
+        off(MONDAY, 'onLeavePaid'),
+        off('2026-09-15', 'leaveWithoutPay'),
+        off('2026-09-16', 'offsetPaid'),
+        off('2026-09-12', 'onLeavePaid'),
       ],
     });
     expect(dayOf(result, MONDAY).status).toBe('onLeavePaid');
@@ -324,7 +357,10 @@ describe('day statuses', () => {
 
   it('refuses a time off status that is not one', () => {
     expect(() =>
-      dtr({ entries: [], timeOff: [{ date: MONDAY, status: 'present' as never }] }),
+      dtr({
+        entries: [],
+        timeOff: [{ ...off(MONDAY, 'onLeavePaid'), status: 'present' as never }],
+      }),
     ).toThrow(RangeError);
   });
 
@@ -452,5 +488,274 @@ describe('the days listed, final and totals', () => {
 
   it('the period start is the first day when hired earlier', () => {
     expect(dtr({ entries: [] }).from).toBe(SEPTEMBER.periodStart);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: time off on the DTR (docs/TESTING.md#leave-and-time-off-tests, decision 315): the DTR
+// side of the hand-checked cases L4–L8, O1 and O5 of
+// docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28, from hand-built
+// inputs (the balances themselves are server tests).
+
+// Monday 2026-11-02, an ordinary day in the Oct 26 – Nov 10 cut-off.
+const NOV_2 = '2026-11-02';
+
+/** The DTR of a cut-off (October's unless given), with the given entries and time off. */
+function withTimeOff(
+  entries: TimeEntryHoursInput[],
+  timeOff: DtrTimeOffInput[],
+  options: { type?: TimesheetType; holidays?: TimesheetHoliday[]; period?: typeof OCTOBER } = {},
+): Dtr {
+  return dtr(
+    {
+      ...(options.period ?? OCTOBER),
+      entries,
+      timeOff,
+      holidays: options.holidays ?? [],
+    },
+    options.type,
+  );
+}
+
+/** The first time off part of a day. */
+function firstPart(day: DtrDay) {
+  const part = day.timeOff[0];
+  if (!part) throw new Error(`${day.date} has no time off.`);
+  return part;
+}
+
+const unmarked = { marked: false };
+
+describe('time off on the DTR: the hand-checked cases', () => {
+  it('L4: VL Nov 30 – Dec 1 with Nov 30 a confirmed holiday — Nov 30 Holiday, 1 day of leave', () => {
+    const result = withTimeOff(
+      [],
+      [off('2026-11-30', 'onLeavePaid'), off('2026-12-01', 'onLeavePaid')],
+      { holidays: [BONIFACIO], period: NOVEMBER },
+    );
+    const holiday = dayOf(result, '2026-11-30');
+    expect(holiday.status).toBe('holiday');
+    expect(holiday.timeOff).toEqual([]);
+    expect(dayOf(result, '2026-12-01').status).toBe('onLeavePaid');
+    expect(result.totals.paidLeaveDays).toBe(1);
+    expect(result.totals.days.onLeavePaid).toBe(1);
+  });
+
+  it('L5: VL for 3 days, the last without pay — leaveWithoutPayDays 1', () => {
+    const result = withTimeOff(
+      [],
+      [
+        off(NOV_2, 'onLeavePaid'),
+        off('2026-11-03', 'onLeavePaid'),
+        off('2026-11-04', 'leaveWithoutPay'),
+      ],
+    );
+    expect(dayOf(result, NOV_2).status).toBe('onLeavePaid');
+    expect(dayOf(result, NOV_2).leaveWithoutPayDays).toBe(0);
+    const last = dayOf(result, '2026-11-04');
+    expect(last.status).toBe('leaveWithoutPay');
+    expect(DTR_DAY_STATUS_LABELS[last.status]).toBe('Leave without pay');
+    expect(last.leaveWithoutPayDays).toBe(1);
+    expect(last.absentMinutes).toBe(0);
+    expect(result.totals.paidLeaveDays).toBe(2);
+    expect(result.totals.leaveWithoutPayDays).toBe(1);
+    expect(result.totals.days.leaveWithoutPay).toBe(1);
+  });
+
+  it('L6: half-day VL, first half, worked 13:00–17:00 — present, late 0, undertime 0', () => {
+    const result = withTimeOff(
+      [entry(NOV_2, '13:00', '17:00', unmarked)],
+      [off(NOV_2, 'onLeavePaid', 'firstHalf')],
+    );
+    const d = dayOf(result, NOV_2);
+    expect(d.status).toBe('present');
+    expect(d.lateMinutes).toBe(0);
+    expect(d.undertimeMinutes).toBe(0);
+    expect(d.absentMinutes).toBe(0);
+    expect(d.timeOff).toHaveLength(1);
+    const part = firstPart(d);
+    expect(part.minutes).toBe(240);
+    expect(part.intervals).toEqual([{ start: at(NOV_2, '08:00'), end: at(NOV_2, '12:00') }]);
+    expect(dtrTimeOffLabel(part)).toBe('Half day VL (paid)');
+    expect(result.totals.paidLeaveDays).toBe(0.5);
+    expect(result.totals.days.present).toBe(1);
+  });
+
+  it('L7: half-day VL, first half, first time in 13:20 — late 20 min from 13:00', () => {
+    const late = withTimeOff(
+      [entry(NOV_2, '13:20', '17:00', unmarked)],
+      [off(NOV_2, 'onLeavePaid', 'firstHalf')],
+    );
+    expect(dayOf(late, NOV_2).status).toBe('present');
+    expect(dayOf(late, NOV_2).lateMinutes).toBe(20);
+    expect(dayOf(late, NOV_2).undertimeMinutes).toBe(0);
+    expect(late.totals.lateDays).toBe(1);
+    // 13:15 is within the 15-minute grace period from the uncovered start.
+    const grace = withTimeOff(
+      [entry(NOV_2, '13:15', '17:00', unmarked)],
+      [off(NOV_2, 'onLeavePaid', 'firstHalf')],
+    );
+    expect(dayOf(grace, NOV_2).lateMinutes).toBe(0);
+  });
+
+  it('L8: half-day VL, second half, nothing worked — on leave (paid), absentMinutes 240', () => {
+    const result = withTimeOff([], [off(NOV_2, 'onLeavePaid', 'secondHalf')]);
+    const d = dayOf(result, NOV_2);
+    expect(d.status).toBe('onLeavePaid');
+    expect(d.absentMinutes).toBe(240);
+    expect(d.lateMinutes).toBe(0);
+    expect(d.undertimeMinutes).toBe(0);
+    expect(firstPart(d).intervals).toEqual([
+      { start: at(NOV_2, '13:00'), end: at(NOV_2, '17:00') },
+    ]);
+    expect(result.totals.absentMinutes).toBe(240);
+    expect(result.totals.paidLeaveDays).toBe(0.5);
+  });
+
+  it('O1: offset 13:00–17:00, worked 08:00–12:00 — present, "Offset (paid) 4.0 h", undertime 0', () => {
+    const result = withTimeOff(
+      [entry(NOV_2, '08:00', '12:00', unmarked)],
+      [off(NOV_2, 'offsetPaid', 'part', { intervals: [{ fromTime: '13:00', toTime: '17:00' }] })],
+      { type: 'standard' },
+    );
+    const d = dayOf(result, NOV_2);
+    expect(d.status).toBe('present');
+    expect(d.lateMinutes).toBe(0);
+    expect(d.undertimeMinutes).toBe(0);
+    expect(d.absentMinutes).toBe(0);
+    expect(firstPart(d).minutes).toBe(240);
+    expect(dtrTimeOffLabel(firstPart(d))).toBe('Offset (paid) 4.0 h');
+    expect(result.totals.offsetMinutesUsed).toBe(240);
+    expect(result.totals.paidLeaveDays).toBe(0);
+  });
+
+  it('O5 (the DTR side): whole-day offset time off — Offset (paid), 480 min used', () => {
+    const result = withTimeOff([], [off(NOV_2, 'offsetPaid')], { type: 'standard' });
+    const d = dayOf(result, NOV_2);
+    expect(d.status).toBe('offsetPaid');
+    expect(DTR_DAY_STATUS_LABELS[d.status]).toBe('Offset (paid)');
+    expect(firstPart(d).minutes).toBe(480);
+    expect(d.absentMinutes).toBe(0);
+    expect(result.totals.offsetMinutesUsed).toBe(480);
+    expect(result.totals.days.offsetPaid).toBe(1);
+  });
+});
+
+describe('time off on the DTR: the rules', () => {
+  it('a whole day of leave is on leave (paid) even when worked, with no late or undertime', () => {
+    const d = dayOf(
+      withTimeOff([entry(NOV_2, '10:00', '11:00', unmarked)], [off(NOV_2, 'onLeavePaid')]),
+      NOV_2,
+    );
+    expect(d.status).toBe('onLeavePaid');
+    expect(d.lateMinutes).toBe(0);
+    expect(d.undertimeMinutes).toBe(0);
+    expect(d.absentMinutes).toBe(0);
+    expect(dtrTimeOffLabel(firstPart(d))).toBe('On leave (paid) · VL');
+  });
+
+  it('time off on a rest day is never charged: the rest day is shown', () => {
+    const result = withTimeOff(
+      [],
+      [off('2026-10-31', 'offsetPaid'), off('2026-11-01', 'onLeavePaid')],
+    );
+    expect(dayOf(result, '2026-10-31').status).toBe('restDay');
+    expect(dayOf(result, '2026-11-01').timeOff).toEqual([]);
+    expect(result.totals.offsetMinutesUsed).toBe(0);
+    expect(result.totals.paidLeaveDays).toBe(0);
+  });
+
+  it('a partly covered day counts undertime only against the uncovered minutes', () => {
+    const d = dayOf(
+      withTimeOff(
+        [entry(NOV_2, '13:00', '16:00', unmarked)],
+        [off(NOV_2, 'onLeavePaid', 'firstHalf')],
+      ),
+      NOV_2,
+    );
+    expect(d.status).toBe('present');
+    expect(d.lateMinutes).toBe(0);
+    expect(d.undertimeMinutes).toBe(60);
+  });
+
+  it('a half paid and a half without pay cover the day: on leave (paid), 0.5 without pay', () => {
+    const result = withTimeOff(
+      [],
+      [off(NOV_2, 'onLeavePaid', 'firstHalf'), off(NOV_2, 'leaveWithoutPay', 'secondHalf')],
+    );
+    const d = dayOf(result, NOV_2);
+    expect(d.status).toBe('onLeavePaid');
+    expect(d.timeOff).toHaveLength(2);
+    expect(d.absentMinutes).toBe(0);
+    expect(d.leaveWithoutPayDays).toBe(0.5);
+    const unpaid = d.timeOff[1];
+    expect(unpaid && dtrTimeOffLabel(unpaid)).toBe('Half day leave without pay');
+    expect(result.totals.paidLeaveDays).toBe(0.5);
+    expect(result.totals.leaveWithoutPayDays).toBe(0.5);
+  });
+
+  it('a half day without pay and nothing worked: leave without pay, 240 min absent', () => {
+    const d = dayOf(withTimeOff([], [off(NOV_2, 'leaveWithoutPay', 'firstHalf')]), NOV_2);
+    expect(d.status).toBe('leaveWithoutPay');
+    expect(d.leaveWithoutPayDays).toBe(0.5);
+    expect(d.absentMinutes).toBe(240);
+  });
+
+  it('offset over the break covers only scheduled minutes', () => {
+    const result = withTimeOff(
+      [entry(NOV_2, '08:00', '11:00', unmarked), entry(NOV_2, '15:00', '17:00', unmarked)],
+      [off(NOV_2, 'offsetPaid', 'part', { intervals: [{ fromTime: '11:00', toTime: '15:00' }] })],
+      { type: 'standard' },
+    );
+    const d = dayOf(result, NOV_2);
+    expect(firstPart(d).minutes).toBe(180);
+    expect(d.status).toBe('present');
+    expect(d.undertimeMinutes).toBe(0);
+    expect(result.totals.offsetMinutesUsed).toBe(180);
+  });
+
+  it('a day without time off keeps step 2.7 behaviour, with the new fields at 0', () => {
+    const d = oneDay(MONDAY, [entry(MONDAY, '08:00', '16:00')]);
+    expect(d.timeOff).toEqual([]);
+    expect(d.absentMinutes).toBe(0);
+    expect(d.leaveWithoutPayDays).toBe(0);
+    expect(d.undertimeMinutes).toBe(60);
+  });
+
+  it('splits a schedule with no break at its midpoint, rounded down', () => {
+    const halves = dtrDayHalves(NOV_2, { ...SEED_WORK_SCHEDULE, breakMinutes: 0 });
+    expect(halves.firstHalf).toEqual({ start: at(NOV_2, '08:00'), end: at(NOV_2, '12:30') });
+    expect(halves.secondHalf).toEqual({ start: at(NOV_2, '12:30'), end: at(NOV_2, '17:00') });
+    const withBreak = dtrDayHalves(NOV_2, SEED_WORK_SCHEDULE);
+    expect(withBreak.firstHalf.end).toEqual(at(NOV_2, '12:00'));
+    expect(withBreak.secondHalf.start).toEqual(at(NOV_2, '13:00'));
+  });
+
+  it('lateAndUndertime with the whole day covered is zero', () => {
+    const halves = dtrDayHalves(NOV_2, SEED_WORK_SCHEDULE);
+    const covered = [halves.firstHalf, halves.secondHalf];
+    expect(
+      lateAndUndertime(NOV_2, SEED_WORK_SCHEDULE, [entry(NOV_2, '15:00', '16:00')], covered),
+    ).toMatchObject({ lateMinutes: 0, undertimeMinutes: 0 });
+  });
+
+  it('refuses part of a day without times, part-day leave, and a mismatched kind', () => {
+    expect(() => withTimeOff([], [off(NOV_2, 'offsetPaid', 'part')])).toThrow(RangeError);
+    const partLeave = off(NOV_2, 'onLeavePaid', 'part', {
+      intervals: [{ fromTime: '13:00', toTime: '17:00' }],
+    });
+    expect(() => withTimeOff([], [partLeave])).toThrow(RangeError);
+    const mismatched = off(NOV_2, 'onLeavePaid', 'whole', { kind: 'offset' });
+    expect(() => withTimeOff([], [mismatched])).toThrow(RangeError);
+  });
+
+  it('labels whole-day leave without pay plainly', () => {
+    const part = {
+      status: 'leaveWithoutPay',
+      portion: 'whole',
+      shortName: 'VL',
+      minutes: 480,
+    } as const;
+    expect(dtrTimeOffLabel(part)).toBe('Leave without pay');
   });
 });

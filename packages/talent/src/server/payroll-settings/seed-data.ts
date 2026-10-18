@@ -16,6 +16,12 @@ import type {
 } from '../../payroll/schemas';
 import type { ReimbursementSettings } from '../../reimbursements/schemas';
 import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
+import {
+  LEAVE_SETTINGS_SEED_EFFECTIVE_FROM,
+  LEAVE_SETTINGS_SEED_SOURCE,
+  type LeaveSettings,
+  SEED_LEAVE_SETTINGS,
+} from '../../time-off/settings';
 
 // Spec: docs/COMPLIANCE.md#seeded-payroll-rates-build-step-23 (decisions 193–196 in
 // docs/BUILD_PLAN.md) — the figures `pnpm seed:admin` seeds, each with its issuance, link and
@@ -487,4 +493,25 @@ export function isSeededVersion(
   return PAYROLL_SEED_VERSIONS[key].some(
     (seed) => seed.effectiveFrom === effectiveFrom && seed.source === source,
   );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: `talent.leaveSettings` (decisions 300, 301 and 323 in docs/BUILD_PLAN.md), one version
+// from 2000-01-01 with no go-live date and the ten types of the spec (every figure an
+// *Assumption*, HANDOFF items 150–155). `pnpm seed:admin` adds it only when the setting has none.
+
+/** The seeded `talent.leaveSettings` version. */
+export const LEAVE_SEED_VERSION: Readonly<{
+  effectiveFrom: BusinessDate;
+  value: Readonly<LeaveSettings>;
+  source: string;
+}> = Object.freeze({
+  effectiveFrom: LEAVE_SETTINGS_SEED_EFFECTIVE_FROM,
+  value: SEED_LEAVE_SETTINGS,
+  source: LEAVE_SETTINGS_SEED_SOURCE,
+});
+
+/** True when a stored `talent.leaveSettings` version is the seeded one (same date and source). */
+export function isSeededLeaveVersion(effectiveFrom: BusinessDate, source: string | null): boolean {
+  return effectiveFrom === LEAVE_SEED_VERSION.effectiveFrom && source === LEAVE_SEED_VERSION.source;
 }

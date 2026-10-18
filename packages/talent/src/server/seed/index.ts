@@ -2,8 +2,8 @@ import { connectDb } from '@pulse/db';
 import { addConfigVersion, ConfigVersionExistsError, listConfigVersions } from '@pulse/core/server';
 import type { SeedLoader, SeedLoaderResult } from '@pulse/core/server/seed';
 import { PAYROLL_SETTING_KEYS, type PayrollSettingKey } from '../../payroll/schemas';
-import { PAYROLL_SEED_VERSIONS } from '../payroll-settings/seed-data';
-import { PAYROLL_SETTINGS } from '../payroll-settings/settings';
+import { LEAVE_SEED_VERSION, PAYROLL_SEED_VERSIONS } from '../payroll-settings/seed-data';
+import { LEAVE_SETTINGS_SETTING, PAYROLL_SETTINGS } from '../payroll-settings/settings';
 import { ONBOARDING_SEED_VERSION, ONBOARDING_SETTINGS_SETTING } from '../onboarding/settings';
 
 // Spec: docs/modules/core.md#bootstrap-system-administrator-account ("Talent payroll settings")
@@ -73,10 +73,37 @@ const onboardingSettingsLoader: SeedLoader = {
 };
 
 /**
+ * `talent.leaveSettings` (build step 2.8, decision 323): the leave types, the offset time off
+ * minimum and the go-live date (null), seeded once from 2000-01-01 like the payroll settings.
+ */
+const leaveSettingsLoader: SeedLoader = {
+  name: LEAVE_SETTINGS_SETTING.key,
+  async run(): Promise<SeedLoaderResult> {
+    await connectDb();
+    const existing = await listConfigVersions(LEAVE_SETTINGS_SETTING);
+    if (existing.length > 0) return { added: 0, skipped: 1 };
+    try {
+      await addConfigVersion(LEAVE_SETTINGS_SETTING, {
+        effectiveFrom: LEAVE_SEED_VERSION.effectiveFrom,
+        value: structuredClone(LEAVE_SEED_VERSION.value),
+        source: LEAVE_SEED_VERSION.source,
+        actorId: null,
+      });
+      return { added: 1, skipped: 0 };
+    } catch (error) {
+      // Another seed run added it at the same moment.
+      if (!(error instanceof ConfigVersionExistsError)) throw error;
+      return { added: 0, skipped: 1 };
+    }
+  },
+};
+
+/**
  * Pulse Talent's seed loaders: one per payroll setting, in the settings' order, then the
- * onboarding setting.
+ * onboarding setting, then (from step 2.8) the leave settings.
  */
 export const talentSeedLoaders: readonly SeedLoader[] = [
   ...PAYROLL_SETTING_KEYS.map((key) => payrollSettingLoader(key)),
   onboardingSettingsLoader,
+  leaveSettingsLoader,
 ];

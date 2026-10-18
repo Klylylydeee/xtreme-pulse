@@ -17,6 +17,7 @@ import {
   person,
 } from '../testing/fixtures';
 import {
+  LEAVE_SEED_VERSION,
   PAYROLL_SEED_VERSIONS,
   SEED_ALLOWANCE_TYPES,
   SEED_PAYROLL_SETTINGS,
@@ -25,8 +26,16 @@ import {
   SEED_THIRTEENTH_MONTH_EXEMPTION,
   SEED_TIMESHEET_SETTINGS,
 } from './seed-data';
-import { addPayrollSettingsVersion, getPayrollSettingsView } from './service';
 import {
+  addLeaveSettingsVersion,
+  addPayrollSettingsVersion,
+  getLeaveSettingsView,
+  getPayrollSettingsView,
+} from './service';
+import { SEED_LEAVE_SETTINGS } from '../../time-off/settings';
+import {
+  LEAVE_SETTINGS_SETTING,
+  leaveSettingsOn,
   PAYROLL_SETTINGS,
   PREMIUM_RATES_SETTING,
   REIMBURSEMENT_SETTINGS_SETTING,
@@ -232,6 +241,7 @@ describe('seeding', () => {
     expect(talentSeedLoaders.map((loader) => loader.name)).toEqual([
       ...PAYROLL_SETTING_KEYS,
       'talent.onboardingSettings',
+      'talent.leaveSettings',
     ]);
 
     const first = await runSeed();
@@ -503,5 +513,100 @@ describe('adding a version', () => {
     );
     expect(entries).toHaveLength(1);
     expect(entries[0]?.record.label).toBe('talent.reimbursementSettings from 2026-11-04');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: `talent.leaveSettings` (docs/TESTING.md#leave-and-time-off-tests, "Settings and the
+// seed"; decisions 300, 301, 306 and 323). The go-live lock is in the opening balances tests.
+
+describe('the leave settings', () => {
+  const leaveVersion = (value: unknown, effectiveFrom = '2026-11-10') => ({
+    effectiveFrom,
+    source: 'Made-up HR memo',
+    value,
+  });
+
+  it('seeds the ten types once, from 2000-01-01, with no go-live date', async () => {
+    const versions = await listConfigVersions(LEAVE_SETTINGS_SETTING);
+    expect(versions.map((v) => [v.effectiveFrom, v.source])).toEqual([
+      ['2000-01-01', LEAVE_SEED_VERSION.source],
+    ]);
+    expect(versions[0]?.value.goLiveDate).toBeNull();
+    expect(versions[0]?.value.types.map((type) => type.key)).toEqual([
+      'vacation',
+      'sick',
+      'maternity',
+      'maternitySoloParent',
+      'maternityMiscarriage',
+      'maternityExtension',
+      'paternity',
+      'soloParent',
+      'vawc',
+      'specialLeaveWomen',
+    ]);
+    expect(hasFractionalNumber(LEAVE_SEED_VERSION.value)).toBe(false);
+    const loader = talentSeedLoaders.find((entry) => entry.name === 'talent.leaveSettings');
+    expect(await loader?.run()).toEqual({ added: 0, skipped: 1 });
+    expect(await leaveSettingsOn('2026-10-12')).toEqual(versions[0]?.value);
+  });
+
+  it('shows the Leave segment to Talent Read, with "Add version" for HR or the System Administrator with Talent Owner', async () => {
+    const view = await getLeaveSettingsView(reader.actor);
+    expect(view).toMatchObject({ canAddVersion: false, goLiveDateLocked: false });
+    expect(view.inEffect).toMatchObject({ effectiveFrom: '2000-01-01', seeded: true });
+    expect((await getLeaveSettingsView(hrOwner.actor)).canAddVersion).toBe(true);
+    await expect(getLeaveSettingsView(netOwner.actor)).resolves.toBeTruthy();
+  });
+
+  it('refuses a duplicate key, a dropped key, crediting on another type, bad days and offset minutes', async () => {
+    const types = structuredClone(SEED_LEAVE_SETTINGS.types);
+    const value = (change: object) => ({ ...structuredClone(SEED_LEAVE_SETTINGS), ...change });
+    const refusals = [
+      value({ types: [...types, types[0]] }),
+      value({
+        types: types.map((t, i) => (i === 2 ? { ...t, crediting: types[0]?.crediting } : t)),
+      }),
+      value({ types: types.map((t, i) => (i === 0 ? { ...t, days: '5.3' } : t)) }),
+      value({ offsetTimeOff: { minimumMinutes: 10, stepMinutes: 30 } }),
+      value({ offsetTimeOff: { minimumMinutes: 60, stepMinutes: 481 } }),
+    ];
+    for (const refused of refusals) {
+      await expect(
+        addLeaveSettingsVersion(hrOwner.actor, leaveVersion(refused)),
+      ).rejects.toBeInstanceOf(ActionError);
+    }
+    await expect(
+      addLeaveSettingsVersion(hrOwner.actor, leaveVersion(value({ types: types.slice(1) }))),
+    ).rejects.toThrow(/can't be removed, only retired: keep vacation/);
+    await expect(
+      addLeaveSettingsVersion(hrWriter.actor, leaveVersion(value({}))),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(
+      addLeaveSettingsVersion(netOwner.actor, leaveVersion(value({}))),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+  });
+
+  it('adds a version with the go-live date and a retired type, audited', async () => {
+    const value = {
+      ...structuredClone(SEED_LEAVE_SETTINGS),
+      goLiveDate: '2026-11-16',
+      types: SEED_LEAVE_SETTINGS.types.map((type) =>
+        type.key === 'maternityExtension' ? { ...type, active: false } : type,
+      ),
+    };
+    const added = await addLeaveSettingsVersion(adminOwner.actor, leaveVersion(value));
+    expect(added.effectiveFrom).toBe('2026-11-10');
+    await expect(
+      addLeaveSettingsVersion(adminOwner.actor, leaveVersion(value)),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    expect((await leaveSettingsOn('2026-11-10')).goLiveDate).toBe('2026-11-16');
+    expect((await leaveSettingsOn('2026-11-09')).goLiveDate).toBeNull();
+    const view = await getLeaveSettingsView(reader.actor);
+    expect(view.scheduled.map((v) => v.effectiveFrom)).toEqual(['2026-11-10']);
+    const entries = (await auditEntries('core.configVersion')).filter(
+      (entry) => entry.record.id.toHexString() === added.id,
+    );
+    expect(entries[0]?.record.label).toBe('talent.leaveSettings from 2026-11-10');
   });
 });

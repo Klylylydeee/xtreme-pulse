@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertOffsetEntryMinutes,
+  availableOffsetMinutes,
   creditedOffsetMinutes,
   formatSignedHours,
   holidayChangedReason,
@@ -10,7 +12,13 @@ import {
   offsetReconcileDifference,
   shouldWriteOffsetCredit,
 } from './entries';
-import { offsetBalanceText, offsetCreditedText, offsetPendingCreditText } from './views';
+import {
+  offsetAvailableText,
+  offsetBalanceText,
+  offsetCreditedText,
+  offsetPendingCreditText,
+  offsetUsageText,
+} from './views';
 
 // The pure offset balance rules of step 2.7 (docs/TESTING.md#timesheet-approval-dtr-and-offset-
 // tests, "The offset balance" and the listener's reconcile; decisions 286, 287 and 292 in
@@ -87,5 +95,27 @@ describe('the Offset card', () => {
       'Credited +4.6 h on Sep 28',
     );
     expect(formatSignedHours(0)).toBe('0.0 h');
+  });
+});
+
+describe('the available offset balance (step 2.8)', () => {
+  it('holds pending offset time off, and a balance at or below zero allows none', () => {
+    expect(availableOffsetMinutes(600, [])).toBe(600);
+    expect(availableOffsetMinutes(600, [240, 120])).toBe(240);
+    expect(availableOffsetMinutes(-60, [])).toBe(-60);
+    expect(() => availableOffsetMinutes(600, [-1])).toThrow(RangeError);
+    expect(offsetAvailableText({ balanceMinutes: 600, availableMinutes: 600 })).toBeNull();
+    expect(offsetAvailableText({ balanceMinutes: 600, availableMinutes: 240 })).toBe(
+      'Available 4.0 h',
+    );
+    expect(offsetUsageText({ minutes: -480, effectiveOn: '2026-11-02' })).toBe(
+      'Offset time off −8.0 h · Nov 2',
+    );
+  });
+
+  it('checks an entry’s minutes against its kind', () => {
+    expect(() => assertOffsetEntryMinutes('opening', -1)).toThrow(RangeError);
+    expect(() => assertOffsetEntryMinutes('usage', -480)).not.toThrow();
+    expect(() => assertOffsetEntryMinutes('adjustment', 30)).not.toThrow();
   });
 });

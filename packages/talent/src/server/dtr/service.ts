@@ -15,13 +15,15 @@ import {
   listConfigVersions,
   listConfirmedHolidays,
 } from '@pulse/core/server';
-import { computeDtr, type Dtr } from '../../dtr/compute';
+import { computeDtr, type Dtr, type DtrTimeOffInput } from '../../dtr/compute';
 import type { CutOffPeriod } from '../../payroll/lookups';
 import type { NightWindow, TimeEntryHoursInput } from '../../timesheets/compute';
 import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
+import { canSeeConfidentialFor } from '../leave/service';
 import { PREMIUM_RATES_SETTING, TIMESHEET_SETTINGS_SETTING } from '../payroll-settings/settings';
 import type { TalentActor } from '../policy';
 import { dayOf, instantOf } from '../shared';
+import { approvedTimeOffInputs } from '../time-off/days';
 import { isTimesheetApprover, timesheetViewerIdentity } from '../timesheets/access';
 import {
   type TimeEntryDocument,
@@ -48,6 +50,10 @@ import {
 //   timesheet view, the submit summary, HR's offset credit and the holidays-changed listener use it.
 // - `getDtr(actor, employeeId, from, to)` is the service steps 2.8, 2.9 and 2.13 (and Pulse Ops'
 //   approved overtime in Phase 4) read, under the timesheet's viewing rule.
+// - Step 2.8 (decision 315): both pass every **approved** leave and offset time off request
+//   covering the days to `computeDtr` (`approvedTimeOffInputs`, server/time-off/days.ts). A
+//   confidential type's short name reads "Leave" unless the viewer is the employee, HR or the
+//   System Administrator.
 
 /** The longest range `getDtr` returns, in days. */
 export const DTR_MAX_DAYS = 93;
@@ -138,6 +144,8 @@ export interface DtrOfInput {
   /** Narrows the days listed (getDtr's range). */
   from?: BusinessDate;
   to?: BusinessDate;
+  /** Step 2.8: the approved time off on the period's days (`approvedTimeOffInputs`). */
+  timeOff?: readonly DtrTimeOffInput[];
 }
 
 /** One cut-off's DTR from loaded sources (pure apart from the inputs). */
@@ -160,7 +168,7 @@ export function dtrOf(input: DtrOfInput): Dtr {
     dateHired: input.subject.dateHired,
     separationDate: input.subject.separationDate,
     today: input.today,
-    timeOff: [],
+    timeOff: input.timeOff ?? [],
   });
 }
 
@@ -178,17 +186,24 @@ export async function timesheetDtr(
     session = null,
     today = businessToday(),
     payrollVersions,
-  }: LoadOptions & { today?: BusinessDate } = {},
+    canSeeConfidential = false,
+  }: LoadOptions & { today?: BusinessDate; canSeeConfidential?: boolean } = {},
 ): Promise<{ dtr: Dtr; entries: TimeEntryDocument[]; sources: DtrSources }> {
   const employeeId = timesheet.employeeId.toHexString();
   const period = { start: dayOf(timesheet.periodStart), end: dayOf(timesheet.periodEnd) };
-  const [sources, entries] = await Promise.all([
+  const [sources, entries, timeOff] = await Promise.all([
     loadDtrSources(
       employeeId,
       { from: period.start, to: period.end },
       { session, payrollVersions },
     ),
     loadTimeEntries(employeeId, { from: period.start, to: period.end }, session),
+    approvedTimeOffInputs(
+      employeeId,
+      subject,
+      { from: period.start, to: period.end },
+      { session, canSeeConfidential },
+    ),
   ]);
   const dtr = dtrOf({
     subject,
@@ -198,6 +213,7 @@ export async function timesheetDtr(
     sources,
     entries,
     today,
+    timeOff,
   });
   return { dtr, entries, sources };
 }
@@ -281,9 +297,15 @@ export async function getDtr(
   const first = periods[0];
   const last = periods[periods.length - 1];
   if (!first || !last) return { employeeId, from, to, periods: [] };
-  const [sources, entries] = await Promise.all([
+  const [sources, entries, timeOff] = await Promise.all([
     loadDtrSources(employeeId, { from: first.start, to: last.end }, { payrollVersions }),
     loadTimeEntries(employeeId, { from, to }),
+    approvedTimeOffInputs(
+      employeeId,
+      identity,
+      { from, to },
+      { canSeeConfidential: canSeeConfidentialFor(actor, identity.employeeId) },
+    ),
   ]);
   const result: Dtr[] = [];
   for (const period of periods) {
@@ -304,6 +326,7 @@ export async function getDtr(
         today,
         from,
         to,
+        timeOff: timeOff.filter((day) => day.date >= period.start && day.date <= period.end),
       }),
     );
   }

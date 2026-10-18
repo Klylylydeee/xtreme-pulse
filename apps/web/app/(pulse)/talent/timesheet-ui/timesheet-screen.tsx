@@ -3,7 +3,15 @@
 import { type ReactNode, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { CalendarDays, ChevronLeft, ChevronRight, Lock, Send, UsersRound } from 'lucide-react';
+import {
+  CalendarDays,
+  CalendarHeart,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  Send,
+  UsersRound,
+} from 'lucide-react';
 import { type BusinessDate, formatPeso } from '@pulse/core';
 import {
   formatHours,
@@ -61,7 +69,8 @@ import { TodayCard } from './today-card';
 // submit-sheet problem on this timesheet opens that day's or line's sheet; `#day-<date>` and
 // `#reimbursement-<id>` in the address do the same on load. My team shows each person's status
 // for the latest ended cut-off. An approver gets "Open in Approvals" in the banner; nothing is
-// decided here.
+// decided here. From step 2.8 each My team row also links to that person's time off
+// (`timeOffHref`, `/talent/time-off/<employeeId>`, read-only), and the DTR shows approved time off.
 //
 // `view.own` is the employee's own timesheet (clock, add, edit, delete). Anyone else's is
 // read-only: no clock, no Add entry, no edit sheet; the server refuses every change anyway.
@@ -120,7 +129,7 @@ function MyTeam({ team }: { team: NonNullable<TimesheetView['myTeam']> }) {
       </h2>
       <ul className="flex flex-col divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
         {team.map((member) => (
-          <li key={member.employeeId}>
+          <li key={member.employeeId} className="flex flex-col">
             <Link
               href={
                 member.status ? `${member.href}?cutOff=${member.status.periodStart}` : member.href
@@ -153,6 +162,17 @@ function MyTeam({ team }: { team: NonNullable<TimesheetView['myTeam']> }) {
               <span className="sr-only">, open their timesheet</span>
               <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-text-tertiary" />
             </Link>
+            {member.timeOffHref ? (
+              // Step 2.8: their time off, read-only, beside the timesheet link (never nested).
+              <Link
+                href={member.timeOffHref}
+                className="flex min-h-11 items-center gap-2 border-t border-separator/60 px-4 py-2 text-footnote font-semibold text-accent transition-colors duration-fast hover:bg-accent-subtle/40 focus-visible:outline-offset-[-2px]"
+              >
+                <CalendarHeart aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
+                Time off
+                <span className="sr-only">, {member.name}</span>
+              </Link>
+            ) : null}
           </li>
         ))}
       </ul>

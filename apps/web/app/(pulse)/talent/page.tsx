@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { EMPLOYMENT_STATUSES, type EmploymentStatus } from '@pulse/core';
 import { type CurrentUser, listBrandOptions, listDirectoryDepartments } from '@pulse/core/server';
 import {
+  canManageOpeningBalances,
   getExpiryAlertSettings,
   getOnboardingSettings,
   listEmployeeRecords,
@@ -45,6 +46,8 @@ function onboardingParam(value: string | undefined): OnboardingFilter | null {
 // and its two tiles; and the required onboarding documents setting, in the same Settings (Talent Owner).
 // From step 2.7 (decision 294) the header's "Timesheets" button opens `/talent/timesheets`, which
 // needs the same Talent Read; it loads nothing here.
+// From step 2.8 the header's "Opening balances" shows only for Talent Write and HR or the System
+// Administrator (`canManageOpeningBalances`); `/talent/opening-balances` checks again.
 export default async function TalentPage({
   searchParams,
 }: {
@@ -102,6 +105,7 @@ async function Employees({
       onboardingSettings={onboardingSettings}
       onboarding={list.onboarding ? onboarding : null}
       onboardingCounts={list.onboarding ?? null}
+      canOpenOpeningBalances={canManageOpeningBalances(user)}
     />
   );
 }

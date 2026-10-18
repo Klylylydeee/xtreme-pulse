@@ -76,12 +76,15 @@ import {
   type TimesheetTodayView,
   type TimesheetView,
 } from '../../timesheets/views';
+import { employeeTimeOffHref } from '../../time-off/kinds';
 import { inputError } from '../input';
+import { canSeeConfidentialFor } from '../leave/service';
 import { offsetBalanceOf, timesheetOffsetCredit } from '../offset/service';
 import { PREMIUM_RATES_SETTING, TIMESHEET_SETTINGS_SETTING } from '../payroll-settings/settings';
 import { NO_EMPLOYEE_TIMESHEET, type TalentActor } from '../policy';
 import { reimbursementsSectionFor } from '../reimbursements/service';
 import { auditLabelOf, dayOf, EMPLOYEE_GONE, instantOf } from '../shared';
+import { approvedTimeOffInputs } from '../time-off/days';
 import {
   listCompanyScheduleVersions,
   loadWorkScheduleAssignments,
@@ -129,6 +132,10 @@ import { gatherSubmit, showsSubmit, submitSummaryView } from './submission';
 // the view adds the status, its banner and the submit sheet (`approval`), the DTR segment (`dtr`,
 // derived like the hours), the offset balance and credit, and My team's statuses. Approvers of a
 // timesheet open it read-only (timesheets/access.ts), and decide on /approvals only.
+//
+// Step 2.8 (decisions 315 and 319): the DTR segment includes approved leave and offset time off
+// (server/time-off/days.ts; a confidential type reads "Leave" to anyone but the employee, HR and
+// the System Administrator), and My team links to each person's time off (`timeOffHref`).
 
 const MS_PER_MINUTE = 60_000;
 const MAX_ENTRY_MINUTES = MINUTES_PER_DAY;
@@ -727,6 +734,7 @@ async function teamLinks(identities: EmployeeIdentity[]): Promise<TeamMemberLink
       name: nameOf(directory),
       employeeNumber: directory.employeeNumber,
       href: `/talent/timesheets/${directory.employeeId}`,
+      timeOffHref: employeeTimeOffHref(directory.employeeId),
     };
     const status = statuses.get(directory.employeeId);
     if (status) link.status = status;
@@ -923,6 +931,7 @@ async function buildView(
     premiumRates,
     settings,
     clients,
+    timeOff,
   ] = await Promise.all([
     timesheet.id
       ? TimeEntryModel.find({
@@ -939,6 +948,14 @@ async function buildView(
     listConfigVersions(PREMIUM_RATES_SETTING),
     listConfigVersions(TIMESHEET_SETTINGS_SETTING),
     listClientOptions(),
+    // Step 2.8: approved time off on the DTR, a confidential type's name only for the employee,
+    // HR and the System Administrator.
+    approvedTimeOffInputs(
+      identity.employeeId,
+      identity,
+      { from: period.start, to: period.end },
+      { canSeeConfidential: canSeeConfidentialFor(viewer, identity.employeeId) },
+    ),
   ]);
 
   const dtrInputs = {
@@ -970,7 +987,7 @@ async function buildView(
     dateHired: identity.dateHired,
     separationDate: identity.separationDate,
     today,
-    timeOff: [],
+    timeOff,
   });
   const approval = await approvalViewOf(stored, timesheet, {
     identity,

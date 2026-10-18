@@ -465,3 +465,160 @@ export async function approvalRequest(requestId: string) {
     .collection('approvalRequests')
     .findOne({ _id: new Types.ObjectId(requestId) });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8 helpers (docs/TESTING.md#leave-and-time-off-tests).
+
+/**
+ * Sets an employee's regularization date (or clears it) on their Talent employee record, creating
+ * the record when there is none, as the employee record service would.
+ */
+export async function setRegularizationDate(
+  employee: Person,
+  regularizationDate: string | null,
+): Promise<void> {
+  await database()
+    .collection('employeeRecords')
+    .updateOne(
+      { employeeId: new Types.ObjectId(employee.employeeId) },
+      {
+        $set: {
+          regularizationDate: regularizationDate
+            ? new Date(`${regularizationDate}T00:00:00+08:00`)
+            : null,
+        },
+        $setOnInsert: { workRegion: 'NCR', createdAt: new Date(), updatedAt: new Date() },
+      },
+      { upsert: true },
+    );
+}
+
+/** Sets an employee's sex on their Talent employee record, as the employee record service would. */
+export async function setSex(employee: Person, sex: 'female' | 'male' | null): Promise<void> {
+  await database()
+    .collection('employeeRecords')
+    .updateOne(
+      { employeeId: new Types.ObjectId(employee.employeeId) },
+      {
+        $set: { sex },
+        $setOnInsert: { workRegion: 'NCR', createdAt: new Date(), updatedAt: new Date() },
+      },
+      { upsert: true },
+    );
+}
+
+/** Changes an employee's employment status, as Core's user service would. */
+export async function setEmploymentStatus(
+  employee: Person,
+  employmentStatus: EmploymentStatus,
+): Promise<void> {
+  await coreModel('Employee').updateOne(
+    { _id: new Types.ObjectId(employee.employeeId) },
+    { $set: { employmentStatus } },
+  );
+}
+
+/**
+ * Adds a `talent.leaveSettings` version from `effectiveFrom`: the seeded value with `change`
+ * applied (for example the go-live date), as HR's "Add version" would. Returns its value.
+ */
+export async function setLeaveSettings(
+  change: Partial<import('../../time-off/settings').LeaveSettings>,
+  effectiveFrom = '2000-01-02',
+): Promise<import('../../time-off/settings').LeaveSettings> {
+  const { addConfigVersion } = await import('@pulse/core/server');
+  const { SEED_LEAVE_SETTINGS } = await import('../../time-off/settings');
+  const { LEAVE_SETTINGS_SETTING } = await import('../payroll-settings/settings');
+  const value = { ...structuredClone(SEED_LEAVE_SETTINGS), ...change };
+  await addConfigVersion(LEAVE_SETTINGS_SETTING, {
+    effectiveFrom,
+    value,
+    source: 'Made-up test version',
+    actorId: null,
+  });
+  return value;
+}
+
+/**
+ * A time off request stored straight in `timeOffRequests` (a test shortcut past filing, for the
+ * balance services' holdings), with the documented fields. Returns its id.
+ */
+export async function storedTimeOffRequest(
+  employee: Person,
+  fields: {
+    kind: 'leave' | 'offset';
+    status: 'pending' | 'returned' | 'approved' | 'rejected' | 'cancelled';
+    startDate: string;
+    endDate?: string;
+    leaveTypeKey?: string | null;
+    chargeableHalfDays?: number | null;
+    paidHalfDays?: number | null;
+    minutes?: number | null;
+  },
+): Promise<string> {
+  const id = new Types.ObjectId();
+  await database()
+    .collection('timeOffRequests')
+    .insertOne({
+      _id: id,
+      employeeId: new Types.ObjectId(employee.employeeId),
+      kind: fields.kind,
+      status: fields.status,
+      leaveTypeKey: fields.leaveTypeKey ?? null,
+      startDate: new Date(`${fields.startDate}T00:00:00+08:00`),
+      endDate: new Date(`${fields.endDate ?? fields.startDate}T00:00:00+08:00`),
+      chargeableHalfDays: fields.chargeableHalfDays ?? null,
+      paidHalfDays: fields.paidHalfDays ?? null,
+      minutes: fields.minutes ?? null,
+    });
+  return id.toHexString();
+}
+
+/**
+ * A leave balance for a `credited` type, stored straight in `leaveEntries` as one `adjustment` of
+ * `halfDays` dated `effectiveOn` (a test shortcut past the opening balances page).
+ */
+export async function leaveBalanceEntry(
+  employee: Person,
+  typeKey: string,
+  halfDays: number,
+  effectiveOn = '2026-01-01',
+): Promise<void> {
+  await database()
+    .collection('leaveEntries')
+    .insertOne({
+      employeeId: new Types.ObjectId(employee.employeeId),
+      typeKey,
+      kind: 'adjustment',
+      halfDays,
+      effectiveOn: new Date(`${effectiveOn}T00:00:00+08:00`),
+      year: null,
+      sourceType: null,
+      sourceId: null,
+      reason: 'Made-up test balance',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: null,
+      updatedBy: null,
+    });
+}
+
+/** An offset balance, stored straight in `offsetEntries` as one `adjustment` of `minutes`. */
+export async function offsetBalanceEntry(employee: Person, minutes: number): Promise<void> {
+  await database()
+    .collection('offsetEntries')
+    .insertOne({
+      employeeId: new Types.ObjectId(employee.employeeId),
+      kind: 'adjustment',
+      minutes,
+      effectiveOn: new Date('2026-01-01T00:00:00+08:00'),
+      timesheetId: null,
+      sourceType: null,
+      sourceId: null,
+      reason: 'Made-up test balance',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: null,
+      updatedBy: null,
+    });
+}

@@ -22,6 +22,13 @@ import { EmployeeRecordModel } from '../employee-records/model';
 import { ChangeRequestModel } from '../change-requests/model';
 import { CHANGE_REQUEST_TYPE } from '../change-requests/service';
 import { changeRequestAuditLabel } from '../../onboarding/change-requests';
+import {
+  PAYROLL_OPENING_ENTRY_TYPE,
+  PAYROLL_OPENING_FIELDS,
+  PayrollOpeningEntryModel,
+  type PayrollOpeningField,
+  payrollOpeningPath,
+} from '../opening-balances/model';
 
 // Spec: SECURITY.md#sensitive-data ("Registered reveals", decision 166 in docs/BUILD_PLAN.md) —
 // Talent's revealable fields. The reveal Server Action calls `registerTalentSensitiveReveals()`
@@ -116,7 +123,8 @@ async function assignmentEmployee(
  * `bankAccount`, labelled `<employee number> · <section>`): `talent.employeeRecord` (`tin`,
  * `sss`, `philhealth`, `pagibig` as `governmentId`, `bankAccountNumber` as `bankAccount`) and `talent.compensationEntry`
  * (`basicSalary` as `salary`), and from step 2.3 `talent.allowanceAssignment` (`amount` as
- * `allowances`). Safe to call on every request.
+ * `allowances`), and from step 2.8 `talent.payrollOpeningEntry` (the seven year-to-date pay figures
+ * as `salary`, labelled `<employee number> · <year>`). Safe to call on every request.
  */
 export function registerTalentSensitiveReveals(): void {
   registerSensitiveReveal(EMPLOYEE_RECORD_TYPE, {
@@ -213,4 +221,36 @@ export function registerTalentSensitiveReveals(): void {
         : null;
     },
   });
+
+  registerSensitiveReveal(PAYROLL_OPENING_ENTRY_TYPE, {
+    module: 'talent',
+    fields: Object.fromEntries(PAYROLL_OPENING_FIELDS.map((field) => [field, 'salary' as const])),
+    async loadValue(ownerId, field) {
+      const id = objectIdOf(ownerId);
+      if (!id || !(PAYROLL_OPENING_FIELDS as readonly string[]).includes(field)) return null;
+      const path = payrollOpeningPath(field as PayrollOpeningField);
+      await connectDb();
+      const entry = await PayrollOpeningEntryModel.findById(id).select(`+${path}`).lean();
+      return entry ? (entry[path] ?? null) : null;
+    },
+    async subject(ownerId) {
+      const entry = await payrollOpeningOf(ownerId);
+      return entry ? getSensitiveSubject(entry.employeeId) : null;
+    },
+    async label(ownerId) {
+      const entry = await payrollOpeningOf(ownerId);
+      if (!entry) return null;
+      const employee = await employeeAuditLabel(entry.employeeId);
+      return employee ? `${employee.employeeNumber} · ${entry.year}` : null;
+    },
+  });
+}
+
+async function payrollOpeningOf(
+  ownerId: string,
+): Promise<{ employeeId: Types.ObjectId; year: number } | null> {
+  const id = objectIdOf(ownerId);
+  if (!id) return null;
+  await connectDb();
+  return PayrollOpeningEntryModel.findById(id, { employeeId: 1, year: 1 }).lean();
 }

@@ -16,6 +16,8 @@ export interface OffsetEntryView {
   minutes: number;
   effectiveOn: BusinessDate;
   timesheetId: string | null;
+  /** Step 2.8: the time off request of a `usage` entry (or the listener's), else null or absent. */
+  timeOffRequestId?: string | null;
   reason: string | null;
   createdAt: Date;
 }
@@ -25,6 +27,30 @@ export interface OffsetBalanceView {
   employeeId: string;
   /** May be below zero after an adjustment. */
   balanceMinutes: number;
+}
+
+/**
+ * Step 2.8: the balance with what pending offset time off holds. `availableMinutes` is the
+ * balance less `pendingMinutes` (`availableOffsetMinutes`).
+ */
+export interface OffsetAvailableBalanceView extends OffsetBalanceView {
+  pendingMinutes: number;
+  availableMinutes: number;
+}
+
+/** The Offset card's second line while pending offset time off holds some: "Available 4.0 h". */
+export function offsetAvailableText(
+  balance: Pick<OffsetAvailableBalanceView, 'balanceMinutes' | 'availableMinutes'>,
+): string | null {
+  if (balance.availableMinutes === balance.balanceMinutes) return null;
+  const text = formatHours(Math.abs(balance.availableMinutes));
+  return `Available ${balance.availableMinutes < 0 ? '−' : ''}${text}`;
+}
+
+/** A usage entry's line: "Offset time off −8.0 h · Nov 2" (a give-back reads "+8.0 h"). */
+export function offsetUsageText(entry: Pick<OffsetEntryView, 'minutes' | 'effectiveOn'>): string {
+  const sign = entry.minutes < 0 ? '−' : '+';
+  return `Offset time off ${sign}${formatHours(Math.abs(entry.minutes))} · ${formatShortDay(entry.effectiveOn)}`;
 }
 
 /** A timesheet's credit, once HR approved it: "Credited +4.6 h on Sep 28". */

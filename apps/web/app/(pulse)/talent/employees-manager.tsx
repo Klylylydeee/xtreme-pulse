@@ -7,6 +7,7 @@ import {
   Banknote,
   CalendarClock,
   CircleCheck,
+  ClipboardList,
   FileCheck,
   Receipt,
   Search,
@@ -41,6 +42,7 @@ import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge, plural } from '@/components/org-structure';
 import { PersonAvatar } from '@/components/person-avatar';
+import { OPENING_BALANCES_HREF } from '@/lib/navigation';
 import { CheckReceiptSheet } from './check-receipt-sheet';
 import { ExpiryAlertsSheet } from './employee-documents-sheets';
 import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
@@ -68,6 +70,11 @@ import { OnboardingDocumentsSheet } from './onboarding-section';
 //
 // From build step 2.7 (decision 294) the header's "Timesheets" opens the timesheets list
 // (`/talent/timesheets`), which needs Talent Read like this page.
+//
+// From build step 2.8 (docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28)
+// "Opening balances" opens `/talent/opening-balances`, shown only when the server says the user
+// may open it (`canOpenOpeningBalances`: Talent Write and HR or the System Administrator); the
+// page checks again.
 
 const ONBOARDING_FILTER_LABELS: Record<OnboardingFilter, string> = {
   incomplete: 'Incomplete',
@@ -178,6 +185,7 @@ export function EmployeesManager({
   onboardingSettings,
   onboarding,
   onboardingCounts,
+  canOpenOpeningBalances = false,
 }: {
   rows: EmployeeListRow[];
   stats: { status: EmploymentStatus; count: number }[];
@@ -196,6 +204,8 @@ export function EmployeesManager({
   onboarding: OnboardingFilter | null;
   /** Step 2.6: the onboarding tiles; null for anyone but HR and the System Administrator. */
   onboardingCounts: { incomplete: number; toVerify: number } | null;
+  /** Step 2.8: Talent Write and HR or the System Administrator (the page checks again). */
+  canOpenOpeningBalances?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -291,6 +301,15 @@ export function EmployeesManager({
               <CalendarClock aria-hidden="true" className="size-4.5" />
               Timesheets
             </Link>
+            {canOpenOpeningBalances ? (
+              <Link
+                href={OPENING_BALANCES_HREF}
+                className={buttonVariants({ variant: 'secondary' })}
+              >
+                <ClipboardList aria-hidden="true" className="size-4.5" />
+                Opening balances
+              </Link>
+            ) : null}
             {/* Step 2.5: Talent Read, which this page already needs. */}
             <Button
               variant="secondary"

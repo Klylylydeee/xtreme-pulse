@@ -221,6 +221,9 @@ describe('offset entries', () => {
     expect(await getOffsetBalance(p.actor, p.employeeId)).toEqual({
       employeeId: p.employeeId,
       balanceMinutes: 120,
+      // Step 2.8: no pending offset time off holds any of it.
+      pendingMinutes: 0,
+      availableMinutes: 120,
     });
     expect((await getOffsetBalance(boss.actor, p.employeeId))?.balanceMinutes).toBe(120);
     expect((await getOffsetBalance(hr.actor, p.employeeId))?.balanceMinutes).toBe(120);

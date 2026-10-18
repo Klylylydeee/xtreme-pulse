@@ -78,7 +78,7 @@ export interface GatheredSubmit {
 }
 
 /** The `reportingTo` item for the `fileTimeRequest` gate, as it is now (or in `session`). */
-async function onboardingGateStatus(
+export async function onboardingGateStatus(
   employeeId: string,
   session: ClientSession | null,
 ): Promise<OnboardingGateStatus> {

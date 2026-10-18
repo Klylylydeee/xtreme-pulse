@@ -37,8 +37,17 @@ import {
   canViewWageOrderList,
   type TalentActor,
 } from '../policy';
-import { isSeededVersion } from './seed-data';
-import { PAYROLL_SETTINGS, payrollSettingVersionOn } from './settings';
+import {
+  type LeaveSettings,
+  leaveSettingsSchema,
+  leaveSettingsVersionProblemMessage,
+  leaveSettingsVersionProblems,
+} from '../../time-off/settings';
+import { LeaveEntryModel } from '../leave/model';
+import { OffsetEntryModel } from '../offset/model';
+import { PayrollOpeningEntryModel } from '../opening-balances/model';
+import { isSeededLeaveVersion, isSeededVersion } from './seed-data';
+import { LEAVE_SETTINGS_SETTING, PAYROLL_SETTINGS, payrollSettingVersionOn } from './settings';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Payroll settings
 // page"), SECURITY.md#module-access-rwo and docs/RUNBOOK.md#a-wrong-payroll-settings-version-was-added
@@ -272,6 +281,189 @@ export async function addPayrollSettingsVersion(
   } catch (error) {
     // Another version for that date committed first (the unique key and effective date).
     if (error instanceof ConfigVersionExistsError) throw versionExists(key, effectiveFrom);
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: the Leave segment (`talent.leaveSettings`; decisions 300 and 306 in
+// docs/BUILD_PLAN.md). Viewing is Talent Read; adding a version is Talent Owner and HR or the
+// System Administrator, under the same date rules as the payroll settings, plus: a leave type's
+// key, once added, stays in every later version (retire it with `active: false`), and once any
+// opening entry exists (leave, offset or year-to-date pay) the go-live date can't change.
+
+/** One `talent.leaveSettings` version on the Leave segment. */
+export interface LeaveSettingsVersionView {
+  id: string;
+  effectiveFrom: BusinessDate;
+  value: LeaveSettings;
+  source: string | null;
+  /** True for the version `pnpm seed:admin` added. */
+  seeded: boolean;
+  status: 'inEffect' | 'scheduled' | 'past';
+}
+
+/** The Leave segment of Payroll settings. */
+export interface LeaveSettingsView {
+  today: BusinessDate;
+  /** Talent Owner and HR or the System Administrator: "Add version". */
+  canAddVersion: boolean;
+  inEffect: LeaveSettingsVersionView | null;
+  /** Versions taking effect after today, soonest first. */
+  scheduled: LeaveSettingsVersionView[];
+  /** Every version, newest first. */
+  history: LeaveSettingsVersionView[];
+  earliestEffectiveFrom: BusinessDate | null;
+  latestEffectiveFrom: BusinessDate;
+  /** True once an opening entry exists: a new version must keep the go-live date. */
+  goLiveDateLocked: boolean;
+}
+
+/** True once any opening entry exists: leave, offset or year-to-date pay. */
+export async function openingEntryExists(session: ClientSession | null = null): Promise<boolean> {
+  await connectDb();
+  const [leave, offset, pay] = await Promise.all([
+    LeaveEntryModel.exists({ kind: 'opening' }).session(session),
+    OffsetEntryModel.exists({ kind: 'opening' }).session(session),
+    PayrollOpeningEntryModel.exists({}).session(session),
+  ]);
+  return Boolean(leave || offset || pay);
+}
+
+/** The Leave segment: Talent Read. */
+export async function getLeaveSettingsView(actor: TalentActor): Promise<LeaveSettingsView> {
+  assertCanReadEmployeeRecords(actor);
+  await connectDb();
+  const today = businessToday();
+  const versions = await listConfigVersions(LEAVE_SETTINGS_SETTING);
+  const inEffectId = versions.find((version) => version.effectiveFrom <= today)?.id ?? null;
+  const history = versions.map((version): LeaveSettingsVersionView => ({
+    id: version.id,
+    effectiveFrom: version.effectiveFrom,
+    value: version.value,
+    source: version.source,
+    seeded: isSeededLeaveVersion(version.effectiveFrom, version.source),
+    status:
+      version.effectiveFrom > today ? 'scheduled' : version.id === inEffectId ? 'inEffect' : 'past',
+  }));
+  const latest = versions[0];
+  return {
+    today,
+    canAddVersion: canAddPayrollSettingsVersion(actor),
+    inEffect: history.find((version) => version.status === 'inEffect') ?? null,
+    scheduled: history.filter((version) => version.status === 'scheduled').reverse(),
+    history,
+    earliestEffectiveFrom: latest ? addDays(latest.effectiveFrom, 1) : null,
+    latestEffectiveFrom: latestEffectiveDate(today),
+    goLiveDateLocked: await openingEntryExists(),
+  };
+}
+
+/** "Add version" on the Leave segment: the effective date, the source and the whole value. */
+export interface LeaveSettingsVersionInput {
+  effectiveFrom: unknown;
+  source: unknown;
+  value: unknown;
+}
+
+const leaveVersionMetaSchema = payrollSettingsVersionSchema.pick({
+  effectiveFrom: true,
+  source: true,
+});
+
+/**
+ * Adds a `talent.leaveSettings` version from `effectiveFrom`, with its source. Talent Owner and HR
+ * or the System Administrator, checked again in the transaction. Refused: a date on or before the
+ * latest version's or more than a year ahead, a dropped type key, and a changed go-live date once
+ * an opening entry exists. The `create` entry on `core.configVersion` is written in the same
+ * transaction.
+ */
+export async function addLeaveSettingsVersion(
+  actor: TalentActor,
+  input: LeaveSettingsVersionInput,
+): Promise<{ id: string; effectiveFrom: BusinessDate }> {
+  assertCanAddPayrollSettingsVersion(actor);
+  const meta = leaveVersionMetaSchema.safeParse(input);
+  if (!meta.success) throw inputError(meta.error.issues);
+  const parsedValue = leaveSettingsSchema.safeParse(input.value);
+  if (!parsedValue.success) {
+    throw inputError(
+      parsedValue.error.issues.map((issue) => ({ ...issue, path: ['value', ...issue.path] })),
+    );
+  }
+  const { effectiveFrom, source } = meta.data;
+  const value = parsedValue.data;
+  const today = businessToday();
+  await connectDb();
+  const exists = () =>
+    new ActionError(
+      `A version of the leave settings already takes effect on ${formatDate(effectiveFrom)}. Versions can’t be changed: add one with a later date.`,
+      { field: 'effectiveFrom' },
+    );
+
+  try {
+    return await withTransaction(async (session) => {
+      const current = await reloadActorAccess({ id: actor.id }, session);
+      assertCanAddPayrollSettingsVersion(current);
+      const versions = await listConfigVersions(LEAVE_SETTINGS_SETTING, { session });
+      const latest = versions[0];
+      if (latest && effectiveFrom === latest.effectiveFrom) throw exists();
+      if (latest && effectiveFrom < latest.effectiveFrom) {
+        throw new ActionError(
+          `The effective date must be after ${formatDate(latest.effectiveFrom)}, the latest version’s date. A wrong version is replaced by a newer one.`,
+          { field: 'effectiveFrom' },
+        );
+      }
+      if (effectiveFrom > latestEffectiveDate(today)) {
+        throw new ActionError('The effective date can be at most a year from today.', {
+          field: 'effectiveFrom',
+        });
+      }
+      const locked = await openingEntryExists(session);
+      // Every earlier version's keys stay; the go-live date is compared with the latest version's.
+      for (const version of versions) {
+        const [problem] = leaveSettingsVersionProblems(version.value, value, {
+          openingEntryExists: version === latest && locked,
+        });
+        if (problem) {
+          throw new ActionError(leaveSettingsVersionProblemMessage(problem), {
+            field: problem.kind === 'goLiveLocked' ? 'value.goLiveDate' : 'value',
+          });
+        }
+      }
+      const version = await addConfigVersion(LEAVE_SETTINGS_SETTING, {
+        effectiveFrom,
+        value,
+        source,
+        actorId: new Types.ObjectId(current.id),
+        session,
+      });
+      await recordAudit(
+        {
+          actorId: current.id,
+          actorEmail: current.email,
+          module: 'core',
+          action: 'create',
+          record: {
+            type: 'core.configVersion',
+            id: version.id,
+            label: `${LEAVE_SETTINGS_SETTING.key} from ${version.effectiveFrom}`,
+          },
+          before: null,
+          after: {
+            key: version.key,
+            effectiveFrom: version.effectiveFrom,
+            value: version.value,
+            source: version.source,
+          },
+        },
+        { session },
+      );
+      return { id: version.id, effectiveFrom: version.effectiveFrom };
+    });
+  } catch (error) {
+    // Another version for that date committed first (the unique key and effective date).
+    if (error instanceof ConfigVersionExistsError) throw exists();
     throw error;
   }
 }

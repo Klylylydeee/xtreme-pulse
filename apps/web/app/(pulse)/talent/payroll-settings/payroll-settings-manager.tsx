@@ -15,6 +15,7 @@ import {
   SEEDED_VERSION_NOTE,
   type WorkRegion,
 } from '@pulse/talent';
+import type { LeaveSettingsView } from '@pulse/talent/server';
 import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
 import { PageHeader } from '@pulse/ui/components/page-header';
@@ -27,6 +28,7 @@ import { BelowMinimumWageSheet, useBelowWageList } from './below-minimum-wage-sh
 import { PAYROLL_VIEWS, type PayrollView, TABLE_SETTINGS } from './payroll-format';
 import { type BelowWageRenderer, SettingValue } from './setting-values';
 import type { AllowanceEditorContext } from './value-editors';
+import { LeaveSettingsSegment } from './leave-settings';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Payroll settings
 // page", decisions 197, 198, 207 and 208 in docs/BUILD_PLAN.md) — `/talent/payroll-settings`.
@@ -40,6 +42,9 @@ import type { AllowanceEditorContext } from './value-editors';
 // - Each setting shows its version in effect ("In effect since <date> · Source: …"), its scheduled
 //   versions and its history, read-only; a seeded version carries the seeded note.
 // - "Add version" (Talent Owner and HR or the System Administrator: `canAddVersion`) opens a sheet.
+// - Build step 2.8: a Leave segment (`leave-settings.tsx`) shows `talent.leaveSettings`, its own
+//   versioned setting (the go-live date, offset time off and the leave types), with its own
+//   "Add version" sheet.
 // - Minimum wage: for a viewer who may see them, each version and region shows the count of active
 //   employees paid below it and "View list", with no amounts.
 
@@ -252,7 +257,14 @@ function BelowWageCell({
   );
 }
 
-export function PayrollSettingsManager({ view }: { view: PayrollSettingsView }) {
+export function PayrollSettingsManager({
+  view,
+  leave,
+}: {
+  view: PayrollSettingsView;
+  /** Build step 2.8: the Leave segment. */
+  leave: LeaveSettingsView;
+}) {
   const router = useRouter();
   const [current, setCurrent] = useState<PayrollView>('schedule');
   const [adding, setAdding] = useState<PayrollSettingKey | null>(null);
@@ -320,7 +332,7 @@ export function PayrollSettingsManager({ view }: { view: PayrollSettingsView }) 
         </Link>
         <PageHeader
           title="Payroll settings"
-          description="Pay schedule, contribution tables, tax brackets, premium rates, minimum wages, allowance types, the work schedule and reimbursements. Each change is a new version from its own date."
+          description="Pay schedule, contribution tables, tax brackets, premium rates, minimum wages, allowance types, the work schedule, reimbursements and leave. Each change is a new version from its own date."
         />
       </div>
 
@@ -355,6 +367,14 @@ export function PayrollSettingsManager({ view }: { view: PayrollSettingsView }) 
       </div>
 
       <div className="flex flex-col gap-10">
+        {current === 'leave' ? (
+          <LeaveSettingsSegment
+            view={leave}
+            onAdded={(message) => {
+              setNotice(message);
+            }}
+          />
+        ) : null}
         {section?.keys.map((key) => (
           <SettingSection
             key={key}

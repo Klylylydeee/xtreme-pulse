@@ -166,6 +166,8 @@ export interface TeamMemberLink {
   href: string;
   /** Step 2.7: their timesheet's status for the latest ended cut-off. */
   status?: TeamMemberTimesheetStatus;
+  /** Step 2.8: `/talent/time-off/<employeeId>`, their time off (read-only). */
+  timeOffHref?: string;
 }
 
 /** A direct report's timesheet status on My team (step 2.7). */

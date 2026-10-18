@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import type { CurrentUser } from '@pulse/core/server';
-import { getPayrollSettingsView } from '@pulse/talent/server';
+import { getLeaveSettingsView, getPayrollSettingsView } from '@pulse/talent/server';
 import { requireModulePage } from '@/lib/auth';
 import { PayrollSettingsLoading } from './payroll-settings-loading';
 import { PayrollSettingsManager } from './payroll-settings-manager';
@@ -15,7 +15,8 @@ export const metadata: Metadata = { title: 'Payroll settings' };
 // boundary, and loading errors go to the (pulse) error boundary. The rates aren't sensitive. The
 // service decides who may add a version (`canAddVersion`: Talent Owner and HR or the System
 // Administrator) and who gets the minimum wage counts (HR, Accounting or the System
-// Administrator); the actions check again. Nothing here is logged or cached.
+// Administrator); the actions check again. From step 2.8 the Leave segment's settings load beside
+// them (`getLeaveSettingsView`, Talent Read). Nothing here is logged or cached.
 export default async function PayrollSettingsPage() {
   const user = await requireModulePage('talent', 'read');
   return (
@@ -26,6 +27,9 @@ export default async function PayrollSettingsPage() {
 }
 
 async function PayrollSettings({ user }: { user: CurrentUser }) {
-  const view = await getPayrollSettingsView(user);
-  return <PayrollSettingsManager view={view} />;
+  const [view, leave] = await Promise.all([
+    getPayrollSettingsView(user),
+    getLeaveSettingsView(user),
+  ]);
+  return <PayrollSettingsManager view={view} leave={leave} />;
 }

@@ -4,11 +4,13 @@ import {
   employeeAuditLabel,
   getEmployeeIdentity,
   getSensitiveSubject,
+  isApproverFor,
   registerFileAccess,
   type StoredFile,
 } from '@pulse/core/server';
 import { documentCategoryOf } from '../../fixed-sets';
 import { REIMBURSEMENT_TYPE } from '../../reimbursements/views';
+import { TIME_OFF_REQUEST_TYPE } from '../../time-off/kinds';
 import { CERTIFICATION_TYPE, E_SIGNATURE_TYPE, EMPLOYEE_DOCUMENT_TYPE } from '../../views';
 import { type CertificationRecord, CertificationModel } from '../certifications/model';
 import { documentLabel } from '../documents/service';
@@ -17,11 +19,13 @@ import { type ESignatureRecord, ESignatureModel } from '../e-signatures/model';
 import {
   canOpenCertificationAttachment,
   canSeeDocumentCategory,
+  canOpenTimeOffAttachment,
   canSeeESignatureImage,
   canViewTimesheet,
 } from '../policy';
 import { type ReimbursementDocument, ReimbursementModel } from '../reimbursements/model';
 import { objectIdOf } from '../shared';
+import { type TimeOffRequestDocument, TimeOffRequestModel } from '../time-off/model';
 
 // Spec: docs/ARCHITECTURE.md#file-storage ("Access by owner type", "Sensitive file views are
 // audit-logged") and SECURITY.md#sensitive-data (decisions 175, 179, 181 and 182 in
@@ -39,9 +43,25 @@ import { objectIdOf } from '../shared';
 //   line, for whoever may open its timesheet (the employee, Talent Read or a `reportingTo`
 //   supervisor), unlogged: a receipt isn't sensitive. A deleted line's or a replaced receipt
 //   doesn't open.
+// - `talent.timeOffRequest` (build step 2.8, decision 317): a leave request's attachment, treated
+//   as a medical certificate, for the employee, HR or the System Administrator with Talent Read,
+//   and the request's approvers (Core's `isApproverFor`), never Accounting as such. Every open is
+//   audit-logged (`auditView`), labelled with the request's number (never its type, so a
+//   confidential one stays hidden). A replaced attachment no longer opens.
 //
 // Each check reads the record the file belongs to and requires that record to point at this very
 // file, so a replaced or stray file never opens through someone else's record.
+
+async function timeOffRequestOf(file: StoredFile): Promise<TimeOffRequestDocument | null> {
+  const ownerId = objectIdOf(file.ownerId);
+  const fileId = objectIdOf(file.id);
+  if (!ownerId || !fileId) return null;
+  await connectDb();
+  return TimeOffRequestModel.findOne({
+    _id: ownerId,
+    attachmentFileId: fileId,
+  }).lean<TimeOffRequestDocument>();
+}
 
 async function documentOf(file: StoredFile): Promise<EmployeeDocumentRecord | null> {
   const ownerId = objectIdOf(file.ownerId);
@@ -55,8 +75,9 @@ let registered = false;
 
 /**
  * Registers Talent's file access checks (`talent.employeeDocument` with its audited views,
- * `talent.eSignature`, `talent.certification` and `talent.reimbursement`). Safe to call on every
- * request: it registers once per process (per bundle in Next).
+ * `talent.eSignature`, `talent.certification`, `talent.reimbursement`, and `talent.timeOffRequest`
+ * with its audited views). Safe to call on every request: it registers once per process (per
+ * bundle in Next).
  */
 export function registerTalentFileAccess(): void {
   if (registered) return;
@@ -136,6 +157,37 @@ export function registerTalentFileAccess(): void {
       throw error;
     }
   });
+
+  registerFileAccess(
+    TIME_OFF_REQUEST_TYPE,
+    async (user, file) => {
+      const request = await timeOffRequestOf(file);
+      if (!request) return false;
+      const employeeId = request.employeeId.toHexString();
+      if (canOpenTimeOffAttachment(user, employeeId)) return true;
+      const approver = await isApproverFor(
+        user.id,
+        TIME_OFF_REQUEST_TYPE,
+        request._id.toHexString(),
+      );
+      return canOpenTimeOffAttachment(user, employeeId, { approver });
+    },
+    {
+      auditView: {
+        module: 'talent',
+        async record(file) {
+          const request = await timeOffRequestOf(file);
+          if (!request) throw new Error('The time off request for this file is missing.');
+          const employee = await employeeAuditLabel(request.employeeId);
+          return {
+            type: TIME_OFF_REQUEST_TYPE,
+            id: request._id,
+            label: employee ? `${employee.employeeNumber} · ${request.number}` : request.number,
+          };
+        },
+      },
+    },
+  );
 
   registered = true;
 }

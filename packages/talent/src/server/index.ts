@@ -153,6 +153,7 @@ export {
 export { DTR_MAX_DAYS, DTR_RANGE_INVALID, type EmployeeDtr, getDtr } from './dtr/service';
 export {
   RECOMPUTE_DTR_LISTENER,
+  type RecomputeDtrResult,
   recomputeDtrOnHolidaysChanged,
   registerTalentHolidaysChangedListener,
 } from './dtr/listener';
@@ -161,6 +162,126 @@ export {
   type OffsetReconcileResult,
   reconcileOffsetCredits,
 } from './offset/service';
+// Leave balances, crediting, opening balances and the leave settings (build step 2.8,
+// docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28; chunk C).
+// - `getLeaveBalances` and `getOffsetBalance` (now with the available balance): the employee,
+//   Talent Read, a `reportingTo` supervisor, or an approver of one of their time off requests.
+// - The writers the time off service calls in its transactions: `writeLeaveUsage`,
+//   `writeLeaveAdjustment`, `writeOffsetUsage`, and the available balances it checks.
+// - The daily `talent.leaveCredits` job for the worker.
+// - `/talent/opening-balances` (Talent Write and HR or the System Administrator; year-to-date pay
+//   under the salary rule) and the inspector's year-to-date pay (whoever may reveal `salary`).
+// - The Leave segment of Payroll settings.
+export {
+  availableLeaveHalfDaysOf,
+  canSeeConfidentialFor,
+  type EntryAuthor,
+  getLeaveBalances,
+  insertLeaveEntry,
+  isRegularizationDateMissing,
+  LEAVE_TYPE_NOT_CREDITED,
+  leaveBalanceOf,
+  leaveEntriesOf,
+  listLeaveEntries,
+  TIME_OFF_DENIED,
+  timeOffViewerIdentity,
+  writeLeaveAdjustment,
+  writeLeaveUsage,
+} from './leave/service';
+export {
+  isTimeOffApproverOf,
+  pendingLeavePaidHalfDays,
+  pendingOffsetMinutes,
+  perYearUsedHalfDays,
+} from './leave/holdings';
+export {
+  LEAVE_CREDITS_JOB,
+  LEAVE_CREDITS_SCHEDULE,
+  type LeaveCreditsResult,
+  runLeaveCredits,
+} from './leave/credits';
+export { availableOffsetMinutesOf, offsetBalanceOf, writeOffsetUsage } from './offset/service';
+export {
+  addLeaveCorrection,
+  addOffsetCorrection,
+  assertCanManageOpeningBalances,
+  canEnterOpeningBalances,
+  canManageOpeningBalances,
+  enterLeaveOpening,
+  enterOffsetOpening,
+  enterPayrollOpening,
+  getOpeningBalances,
+  getPayrollOpeningSection,
+  type OpeningBalanceRow,
+  OPENING_BALANCES_DENIED,
+  type OpeningBalancesView,
+  type OpeningLeaveCell,
+  OWN_OPENING_BALANCES_DENIED,
+  PAYROLL_OPENING_STALE,
+  type PayrollOpeningInput,
+  payrollOpeningInputSchema,
+  type PayrollOpeningSectionView,
+  type PayrollOpeningVersionView,
+} from './opening-balances/service';
+export {
+  PAYROLL_OPENING_ENTRY_TYPE,
+  PAYROLL_OPENING_FIELD_LABELS,
+  PAYROLL_OPENING_FIELDS,
+  type PayrollOpeningField,
+} from './opening-balances/model';
+export { LEAVE_SETTINGS_SETTING, leaveSettingsOn } from './payroll-settings/settings';
+export {
+  addLeaveSettingsVersion,
+  getLeaveSettingsView,
+  type LeaveSettingsVersionInput,
+  type LeaveSettingsVersionView,
+  type LeaveSettingsView,
+  openingEntryExists,
+} from './payroll-settings/service';
+// Leave and offset time off requests (build step 2.8,
+// docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28; chunk D).
+// - Self-service (no employee id): `fileTimeOff`, `resendTimeOff`, `cancelTimeOff`,
+//   `previewTimeOff` and `getOwnTimeOff` act on the signed-in user's own employee.
+// - Read-only: `getEmployeeTimeOff` (`/talent/time-off/<employeeId>`) and `getTimeOffRequestPage`
+//   (`/talent/time-off-requests/<id>`) for the employee, Talent Read, a `reportingTo` supervisor
+//   and the request's approvers.
+// - `talent.leave` and `talent.offsetTimeOff` are registered by `registerTalentApprovalTypes()`;
+//   the attachment's file access by `registerTalentFileAccess()`; the listener's reconcile runs in
+//   `talent.recomputeDtr`.
+export {
+  cancelTimeOff,
+  type EmployeeTimeOffView,
+  type FiledTimeOff,
+  fileTimeOff,
+  getEmployeeTimeOff,
+  getOwnTimeOff,
+  getTimeOffRequestPage,
+  type OwnTimeOffView,
+  previewTimeOff,
+  resendTimeOff,
+  TIME_OFF_ACCOUNT_INACTIVE,
+  TIME_OFF_KIND_FIXED,
+  TIME_OFF_NOT_CANCELLABLE,
+  TIME_OFF_NOT_RETURNED,
+  TIME_OFF_REQUEST_DENIED,
+  TIME_OFF_REQUEST_GONE,
+  type TimeOffEmployeeView,
+  type TimeOffRequestPageView,
+  type TimeOffSheetLeaveType,
+} from './time-off/service';
+export {
+  LEAVE_TYPE_NO_ATTACHMENT,
+  LEAVE_TYPE_UNKNOWN,
+  OFFSET_NO_ATTACHMENT,
+  TimeOffRefusedError,
+} from './time-off/checks';
+export {
+  isHrRequester,
+  registerTimeOffApprovalTypes,
+  timeOffApprovalSteps,
+} from './time-off/approval';
+export { approvedTimeOffInputs } from './time-off/days';
+export { reconcileTimeOffRequests, type TimeOffReconcileResult } from './time-off/reconcile';
 // Reimbursements (build step 2.5): the own timesheet's lines (self-service, no employee id; the
 // segment itself comes on the timesheet view as `reimbursements`), and the register of claimed
 // receipts: `claimReceipt` and `releaseReceiptClaim` run in the caller's transaction and are the
@@ -310,6 +431,9 @@ export {
   // Step 2.7
   assertCanSeeTimesheetsList,
   canSeeTimesheetsList,
+  // Step 2.8
+  canOpenTimeOffAttachment,
+  NO_EMPLOYEE_TIME_OFF,
   // Step 2.6
   assertCanConfirmNoSupervisor,
   assertCanVerifySensitiveDetails,

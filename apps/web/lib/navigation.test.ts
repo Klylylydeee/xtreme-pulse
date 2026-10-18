@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { emptyModuleAccess, fullModuleAccess, type ModuleAccess } from '@pulse/core';
 import { canOpenAdminArea, type DepartmentRole } from '@pulse/core/server';
 import {
+  employeeTimeOffHref,
+  OWN_TIME_OFF_HREF as TALENT_OWN_TIME_OFF_HREF,
+  timeOffRequestHref,
+} from '@pulse/talent';
+import {
   activeEntry,
   ADMIN_ENTRIES,
   ADMIN_GROUPS,
@@ -22,6 +27,9 @@ import {
   noAccessTitle,
   NOT_FOUND_PAGE_TITLE,
   ONBOARDING_HREF,
+  OPENING_BALANCES_HREF,
+  OWN_TIME_OFF_HREF,
+  TIME_OFF_REQUESTS_HREF,
   TIMESHEETS_LIST_HREF,
   type NavigationViewer,
   visibleAdminGroups,
@@ -37,7 +45,8 @@ import {
 // docs/TESTING.md#employee-record-tests (My record, step 2.1), the Payroll settings breadcrumb
 // (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4),
 // docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6),
-// docs/TESTING.md#timesheet-approval-dtr-and-offset-tests (Timesheets, step 2.7) and
+// docs/TESTING.md#timesheet-approval-dtr-and-offset-tests (Timesheets, step 2.7), Time off and the
+// opening balances (step 2.8, docs/TESTING.md#leave-and-time-off-tests) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -77,7 +86,7 @@ const systemAccount = viewer({
 
 // Pulse Core, for every signed-in user with an employee: Home, then Approvals (step 1.9), then
 // Holidays (step 1.10), then Directory and Org chart (step 1.11), then My record (step 2.1), then
-// Timesheet (step 2.4).
+// Timesheet (step 2.4), then Time off (step 2.8).
 const CORE_HREFS = [
   '/',
   '/approvals',
@@ -86,6 +95,7 @@ const CORE_HREFS = [
   '/org-chart',
   '/talent/me',
   '/talent/timesheet',
+  '/talent/time-off',
 ];
 
 const HR_ADMIN_HREFS = [
@@ -564,6 +574,86 @@ describe('The timesheets list (step 2.7)', () => {
       expect(breadcrumbFor(visibleNavigation(someone), TIMESHEETS_LIST_HREF)).toEqual({
         current: NO_ACCESS_PAGE_TITLE,
       });
+    }
+  });
+});
+
+describe('Time off and the opening balances (step 2.8)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const withEmployee = [newUser, hr, systemAdministrator];
+  const employeeTimeOff = employeeTimeOffHref('64b7f0c2a1b2c3d4e5f60718');
+  const request = timeOffRequestHref('64b7f0c2a1b2c3d4e5f60719');
+
+  it('uses the same paths as @pulse/talent', () => {
+    expect(OWN_TIME_OFF_HREF).toBe(TALENT_OWN_TIME_OFF_HREF);
+    expect(employeeTimeOff.startsWith(`${OWN_TIME_OFF_HREF}/`)).toBe(true);
+    expect(request.startsWith(`${TIME_OFF_REQUESTS_HREF}/`)).toBe(true);
+    expect(OPENING_BALANCES_HREF).toBe('/talent/opening-balances');
+  });
+
+  it('sits in Pulse Core right after Timesheet for every user with an employee', () => {
+    for (const someone of withEmployee) {
+      const hrefs = visibleNavigation(someone)[0]?.entries.map((entry) => entry.href) ?? [];
+      expect(hrefs.indexOf(OWN_TIME_OFF_HREF)).toBe(hrefs.indexOf('/talent/timesheet') + 1);
+    }
+    const entry = getNavEntry(OWN_TIME_OFF_HREF);
+    expect(entry).toMatchObject({ label: 'Time off', title: 'Time off', employeeOnly: true });
+    expect(entry.module).toBeUndefined();
+    expect(entry.adminArea).toBeUndefined();
+    expect(visibleHrefs(newUser)).toContain(OWN_TIME_OFF_HREF);
+  });
+
+  it('is never shown to the bootstrap system account', () => {
+    expect(visibleHrefs(systemAccount)).not.toContain(OWN_TIME_OFF_HREF);
+  });
+
+  it('reads "Pulse Core › Time off" on the own page, Talent access or not', () => {
+    for (const someone of [...withEmployee, systemAccount]) {
+      expect(breadcrumbFor(visibleNavigation(someone), OWN_TIME_OFF_HREF)).toEqual({
+        parent: 'Pulse Core',
+        current: 'Time off',
+      });
+    }
+    expect(activeEntry(talentReader, OWN_TIME_OFF_HREF)?.entry.label).toBe('Time off');
+    expect(isEntryActive(getNavEntry('/talent'), OWN_TIME_OFF_HREF)).toBe(false);
+  });
+
+  it('names another employee’s time off and a request in Pulse Talent, supervisors included', () => {
+    for (const groups of [talentReader, visibleNavigation(newUser), visibleNavigation(hr)]) {
+      expect(breadcrumbFor(groups, employeeTimeOff)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Time off',
+      });
+      expect(breadcrumbFor(groups, request)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Time off request',
+      });
+    }
+    // Talent stays current there for Talent readers; the own time off entry isn't.
+    for (const path of [employeeTimeOff, request]) {
+      expect(activeEntry(talentReader, path)?.entry.label).toBe('Talent');
+      expect(isEntryActive(getNavEntry(OWN_TIME_OFF_HREF), path)).toBe(false);
+      expect(isEntryActive(getNavEntry('/talent/timesheet'), path)).toBe(false);
+    }
+  });
+
+  it('reads "Pulse Talent › Opening balances" for Talent, and "No access" without it', () => {
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, OPENING_BALANCES_HREF)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Opening balances',
+      });
+      expect(activeEntry(groups, OPENING_BALANCES_HREF)?.entry.label).toBe('Talent');
+    }
+    expect(breadcrumbFor(visibleNavigation(hr), OPENING_BALANCES_HREF)).toEqual({
+      current: NO_ACCESS_PAGE_TITLE,
+    });
+    for (const someone of [newUser, systemAdministrator]) {
+      const hrefs = visibleHrefs(someone);
+      expect(hrefs).not.toContain(OPENING_BALANCES_HREF);
+      expect(hrefs).not.toContain(TIME_OFF_REQUESTS_HREF);
     }
   });
 });

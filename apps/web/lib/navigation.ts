@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarClock,
   CalendarDays,
+  CalendarHeart,
   ChartColumn,
   Contact,
   Handshake,
@@ -64,6 +65,12 @@ export type NavEntry = {
    * `/talent/me`, which is My record in Pulse Core (step 2.1).
    */
   exclude?: readonly string[];
+  /**
+   * Paths that belong to another entry on themselves only, not the pages under them: Talent's
+   * `/talent/time-off`, the own time off in Pulse Core (step 2.8), while
+   * `/talent/time-off/<employeeId>` stays Talent's.
+   */
+  excludeExact?: readonly string[];
 };
 
 /** The sidebar counts, by what they count. */
@@ -157,6 +164,25 @@ export const CHANGE_REQUESTS_HREF = '/talent/change-requests';
  */
 export const TIMESHEETS_LIST_HREF = '/talent/timesheets';
 
+/**
+ * The employee's own time off (step 2.8,
+ * docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28, decision 319):
+ * in Pulse Core after Timesheet, though it lives under `/talent`. Another employee's time off sits
+ * under it, at `/talent/time-off/<employeeId>`, in Pulse Talent. The same path as `@pulse/talent`'s
+ * `OWN_TIME_OFF_HREF` (this file stays free of module imports; the navigation test checks both).
+ */
+export const OWN_TIME_OFF_HREF = '/talent/time-off';
+
+/** A time off request's page (step 2.8), `/talent/time-off-requests/<id>`, opened from Approvals. */
+export const TIME_OFF_REQUESTS_HREF = '/talent/time-off-requests';
+
+/**
+ * The opening balances page (step 2.8), Talent Write and HR or the System Administrator: reached
+ * from the "Opening balances" button on `/talent` and the inspector's Time off section, never from
+ * the sidebar.
+ */
+export const OPENING_BALANCES_HREF = '/talent/opening-balances';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -234,6 +260,20 @@ export const CORE_ENTRIES: NavEntry[] = [
     Icon: CalendarClock,
     employeeOnly: true,
   },
+  {
+    // Step 2.8 (docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28,
+    // decision 319): the employee's own leave and offset time off, self-service outside module
+    // access (SECURITY.md#exceptions-to-module-access). Listed after Timesheet for every user with
+    // an employee, never for the bootstrap system account. The own page only (`exact`): another
+    // employee's time off, under it, is Pulse Talent's.
+    href: OWN_TIME_OFF_HREF,
+    label: 'Time off',
+    title: 'Time off',
+    description: 'Your leave and offset balances, and your leave and offset time off requests',
+    Icon: CalendarHeart,
+    employeeOnly: true,
+    exact: true,
+  },
 ];
 
 /** The ERP modules, in build order. */
@@ -245,9 +285,10 @@ export const MODULE_ENTRIES: NavEntry[] = [
     description: 'People & Culture',
     Icon: Users,
     module: 'talent',
-    // My record and the own timesheet are Pulse Core's, so Talent isn't current there (decisions
-    // 170 and 231).
+    // My record, the own timesheet and the own time off are Pulse Core's, so Talent isn't current
+    // there (decisions 170, 231 and 319). Another employee's time off, under it, stays Talent's.
     exclude: [MY_RECORD_HREF, OWN_TIMESHEET_HREF],
+    excludeExact: [OWN_TIME_OFF_HREF],
   },
   {
     href: '/engage',
@@ -466,6 +507,23 @@ export const SECTION_PAGES: {
   // included) and Talent readers open. The pages decide who may open them.
   { href: ONBOARDING_HREF, section: '/talent', title: 'Onboarding', openToOthers: true },
   { href: CHANGE_REQUESTS_HREF, section: '/talent', title: 'Change request', openToOthers: true },
+  // Step 2.8 (decision 319): another employee's time off ("Pulse Talent › Time off") and a time off
+  // request, which supervisors and the request's approvers open whatever their module access (the
+  // pages decide who may open them), and the opening balances page, for Talent Write.
+  {
+    href: OWN_TIME_OFF_HREF,
+    section: '/talent',
+    title: 'Time off',
+    openToOthers: true,
+    under: true,
+  },
+  {
+    href: TIME_OFF_REQUESTS_HREF,
+    section: '/talent',
+    title: 'Time off request',
+    openToOthers: true,
+  },
+  { href: OPENING_BALANCES_HREF, section: '/talent', title: 'Opening balances' },
 ];
 
 /**
@@ -545,14 +603,21 @@ function isSectionPageAt(
 
 /**
  * Whether `pathname` is the entry's page or one of the pages under it. Home and `exact` entries
- * (the admin Overview) match their own path only, and an entry's `exclude` paths never match it.
+ * (the admin Overview) match their own path only, and an entry's `exclude` paths (and its
+ * `excludeExact` paths themselves) never match it.
  */
 export function isEntryActive(
-  entry: { href: string; exact?: boolean; exclude?: readonly string[] },
+  entry: {
+    href: string;
+    exact?: boolean;
+    exclude?: readonly string[];
+    excludeExact?: readonly string[];
+  },
   pathname: string,
 ): boolean {
   if (entry.href === '/' || entry.exact) return pathname === entry.href;
   if (entry.exclude?.some((path) => isAtOrUnder(path, pathname))) return false;
+  if (entry.excludeExact?.includes(pathname)) return false;
   return isAtOrUnder(entry.href, pathname);
 }
 

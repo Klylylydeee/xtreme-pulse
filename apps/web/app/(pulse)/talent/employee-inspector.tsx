@@ -28,7 +28,14 @@ import {
 } from './employee-record-sections';
 import { RecordSectionSheet, WorkScheduleSheet } from './employee-record-sheets';
 import { MarkVerifiedButton, OnboardingBlock, useEmployeeOnboarding } from './onboarding-section';
+import { CorrectionSheet, usePayrollOpening } from './opening-balances/opening-balance-sheets';
 import { PhotoControls } from './photo-controls';
+import {
+  PayrollOpeningBlock,
+  TimeOffBlock,
+  type TimeOffSectionData,
+  useTimeOffSection,
+} from './time-off-section';
 
 // Spec: docs/modules/talent.md#the-employee-record-build-step-21 (decision 168) — the employee
 // record in the inspector on `/talent` (a full-height sheet on a phone). `?employee=<employeeId>`
@@ -54,6 +61,11 @@ import { PhotoControls } from './photo-controls';
 // Onboarding section loads on its own too (`onboarding-section.tsx`), with "Confirm no supervisor",
 // and the Government IDs and Payroll bank account headers get "Mark verified" when the server's
 // `can` flags allow it. A refused action shows its message above the record.
+//
+// From step 2.8 (docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28)
+// a Time off section follows Work schedule, and the Compensation section ends with year-to-date
+// pay at go-live; each loads on its own (`time-off-section.tsx`). "Add correction" opens its
+// sheet beside the panel like the others.
 
 const LOAD_FAILED = 'This record couldn’t load. Check your connection and try again.';
 
@@ -209,7 +221,8 @@ export interface InspectorTools {
 type OpenSheet =
   | { type: 'section'; section: RecordSectionKey; session: number }
   | { type: 'document'; sheet: DocumentSheet; session: number }
-  | { type: 'schedule'; session: number };
+  | { type: 'schedule'; session: number }
+  | { type: 'correction'; data: TimeOffSectionData; session: number };
 
 /** What the list already knows, for the title while the record loads. */
 export interface EmployeePreview {
@@ -241,6 +254,8 @@ export function EmployeeInspector({
   const { state, reload } = useEmployeeRecord(employeeId, session, separated);
   const schedule = useWorkSchedule(employeeId, session);
   const onboarding = useEmployeeOnboarding(employeeId, session, separated);
+  const timeOff = useTimeOffSection(employeeId, session);
+  const payrollOpening = usePayrollOpening(employeeId, session);
   const scheduleSection = schedule.state.status === 'done' ? schedule.state.section : null;
   const view = state.status === 'done' ? state.view : null;
   const title = view
@@ -274,6 +289,12 @@ export function EmployeeInspector({
     setSheetOpen(true);
   }
 
+  function openCorrectionSheet(data: TimeOffSectionData) {
+    remember();
+    setSheet((previous) => ({ type: 'correction', data, session: (previous?.session ?? 0) + 1 }));
+    setSheetOpen(true);
+  }
+
   function openScheduleSheet() {
     remember();
     setSheet((previous) => ({ type: 'schedule', session: (previous?.session ?? 0) + 1 }));
@@ -289,6 +310,8 @@ export function EmployeeInspector({
     reload();
     schedule.reload();
     onboarding.reload();
+    timeOff.reload();
+    payrollOpening.reload();
     router.refresh();
   }
 
@@ -337,6 +360,22 @@ export function EmployeeInspector({
                 name={title}
               />
             }
+            timeOff={
+              <TimeOffBlock
+                state={timeOff.state}
+                onRetry={timeOff.reload}
+                employeeId={employeeId}
+                name={title}
+                onCorrect={openCorrectionSheet}
+              />
+            }
+            payrollOpening={
+              <PayrollOpeningBlock
+                state={payrollOpening.state}
+                onRetry={payrollOpening.reload}
+                employeeId={employeeId}
+              />
+            }
             notice={notice && notice.for === `${employeeId}:${session}` ? notice : null}
             onboarding={(record) => (
               <OnboardingBlock
@@ -370,7 +409,22 @@ export function EmployeeInspector({
       {view && sheet ? (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent aria-describedby={undefined} onCloseAutoFocus={sheetFocus.onCloseAutoFocus}>
-            {sheet.type === 'schedule' ? (
+            {sheet.type === 'correction' ? (
+              <CorrectionSheet
+                key={sheet.session}
+                employeeId={view.employeeId}
+                name={title}
+                leaveTypes={sheet.data.leave.balances.map((balance) => ({
+                  key: balance.typeKey,
+                  name: balance.name,
+                  shortName: balance.shortName,
+                }))}
+                onSaved={(message) => {
+                  setSheetOpen(false);
+                  changed(message);
+                }}
+              />
+            ) : sheet.type === 'schedule' ? (
               scheduleSection ? (
                 <WorkScheduleSheet
                   key={sheet.session}
@@ -430,6 +484,8 @@ function RecordBody({
   imageUpload,
   onPhotoChanged,
   workSchedule,
+  timeOff,
+  payrollOpening,
   notice,
   onboarding,
   sectionActions,
@@ -441,6 +497,10 @@ function RecordBody({
   imageUpload: UploadHints['image'];
   onPhotoChanged: (message: string) => void;
   workSchedule: ReactNode;
+  /** Step 2.8: the Time off section, after Work schedule. */
+  timeOff: ReactNode;
+  /** Step 2.8: year-to-date pay at go-live, shown in Compensation for salary viewers only. */
+  payrollOpening: ReactNode;
   notice: Notice | null;
   /** Step 2.6: the Onboarding section, after the record. */
   onboarding: (record: EmployeeRecordView) => ReactNode;
@@ -549,7 +609,13 @@ function RecordBody({
         view={view}
         onEdit={onEdit}
         documentHandlers={documentHandlers}
-        workSchedule={workSchedule}
+        workSchedule={
+          <>
+            {workSchedule}
+            {timeOff}
+          </>
+        }
+        payrollOpening={view.compensation ? payrollOpening : null}
         photoSlot={
           <PhotoControls
             target={{ kind: 'employee', employeeId: view.employeeId }}

@@ -40,6 +40,7 @@ import {
   type WorkScheduleAssignmentView,
   type WorkScheduleSectionView,
 } from '@pulse/talent';
+import type { PayrollOpeningSectionView } from '@pulse/talent/server';
 import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
 import { MaskedField, type MaskedFieldRevealResult } from '@pulse/ui/components/masked-field';
@@ -91,6 +92,12 @@ import {
 //   Work schedule section follows Employment (`WorkScheduleSection`, passed in as `workSchedule`
 //   because it loads on its own): the schedule in effect, the scheduled changes and the history,
 //   with "Set schedule" and "Timesheet" in the inspector. A schedule isn't sensitive.
+// - From step 2.8 (docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28)
+//   the Compensation section ends with "Year-to-date pay at go-live" (`payrollOpening`, loaded on
+//   its own and passed in only for a viewer who may reveal `salary`): Entered or Not entered, and
+//   each of the seven figures masked `••••` until revealed through the same audit-logged reveal
+//   action (owner type `talent.payrollOpeningEntry`). `PayrollOpeningCards` is shared with the
+//   opening balances sheet.
 
 /** The sections that take an extra action from the caller (step 2.6). */
 export type RecordSectionActionKey = 'personal' | 'governmentIds' | 'bankAccount' | 'skills';
@@ -174,6 +181,7 @@ export function EmployeeRecordSections({
   documentHandlers,
   photoSlot,
   workSchedule,
+  payrollOpening,
   showESignature = true,
   sectionActions,
 }: {
@@ -185,6 +193,8 @@ export function EmployeeRecordSections({
   photoSlot?: ReactNode;
   /** The Work schedule section (step 2.4), after Employment. */
   workSchedule?: ReactNode;
+  /** Step 2.8: year-to-date pay at go-live, at the end of Compensation (salary viewers only). */
+  payrollOpening?: ReactNode;
   /** False on `/talent/me`, which shows the e-signature in its own section. */
   showESignature?: boolean;
   /**
@@ -308,7 +318,7 @@ export function EmployeeRecordSections({
 
       {workSchedule}
 
-      {view.compensation || view.allowances ? (
+      {view.compensation || view.allowances || payrollOpening ? (
         <RecordSection
           title="Compensation"
           action={
@@ -327,6 +337,7 @@ export function EmployeeRecordSections({
               onAssign={onEdit && can.assignAllowance ? () => onEdit('allowance') : undefined}
             />
           ) : null}
+          {payrollOpening}
         </RecordSection>
       ) : null}
 
@@ -488,6 +499,91 @@ function CompensationEntryRow({ entry }: { entry: CompensationEntryView }) {
       </p>
       <p className="px-4 text-footnote break-words text-text-primary">{entry.reason}</p>
     </li>
+  );
+}
+
+// --- Step 2.8: year-to-date pay at go-live ------------------------------------------------------
+
+/** One year-to-date pay figure's label, in the order the server lists them. */
+export interface PayrollOpeningFieldLabel {
+  field: string;
+  label: string;
+}
+
+/**
+ * Year-to-date pay at go-live: Entered or Not entered, then the latest entry's seven figures,
+ * masked with no digits until revealed one by one (audit-logged), and the corrections it
+ * superseded. `action` is the caller's "Enter" or "Correct", in the heading.
+ */
+export function PayrollOpeningCards({
+  section,
+  fields,
+  action,
+}: {
+  section: PayrollOpeningSectionView;
+  fields: readonly PayrollOpeningFieldLabel[];
+  action?: ReactNode;
+}) {
+  const headingId = useId();
+  const { current, history, goLiveDate, year } = section;
+  const figure = (version: NonNullable<typeof current>, field: string) =>
+    version.figures[field as keyof typeof version.figures];
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 pl-4">
+        <h4 id={headingId} className="text-footnote font-semibold text-text-secondary">
+          Year-to-date pay at go-live
+        </h4>
+        {action}
+      </div>
+      <RecordCard
+        footer={
+          goLiveDate === null
+            ? 'Set the go-live date in Payroll settings › Leave first.'
+            : `As of ${formatDate(goLiveDate)}, for ${year}. Payslips, 13th month pay and BIR Form 2316 build on it.`
+        }
+      >
+        <Row term="Status">
+          <Badge tone={section.status === 'entered' ? 'accent' : 'neutral'}>
+            {section.status === 'entered' ? 'Entered' : 'Not entered'}
+          </Badge>
+        </Row>
+        {current
+          ? fields.map(({ field, label }) => {
+              const value = figure(current, field);
+              return value ? <MaskedSalary key={field} label={label} value={value} /> : null;
+            })
+          : null}
+        {current?.reason ? (
+          <Row term={`Corrected ${formatDate(current.createdAt)}`}>{current.reason}</Row>
+        ) : null}
+      </RecordCard>
+      {history.length > 0 ? (
+        <details className="group overflow-hidden rounded-card bg-surface shadow-card">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-footnote font-semibold text-text-secondary [&::-webkit-details-marker]:hidden">
+            Earlier entries · {history.length}
+          </summary>
+          <ol className="flex flex-col divide-y divide-separator border-t border-separator">
+            {history.map((version) => (
+              <li key={version.id} className="flex flex-col gap-1 py-2">
+                <p className="numeric px-4 text-subheadline font-semibold">
+                  Entered {formatDate(version.createdAt)}
+                </p>
+                {fields.map(({ field, label }) => {
+                  const value = figure(version, field);
+                  return value ? <MaskedSalary key={field} label={label} value={value} /> : null;
+                })}
+                {version.reason ? (
+                  <p className="px-4 text-footnote break-words text-text-primary">
+                    {version.reason}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+    </div>
   );
 }
 

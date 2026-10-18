@@ -7,6 +7,13 @@ import {
   defineConfigSetting,
   findConfigVersion,
 } from '@pulse/core/server';
+import { businessToday } from '@pulse/core';
+import {
+  LEAVE_SETTINGS_KEY,
+  type LeaveSettings,
+  leaveSettingsSchema,
+  SEED_LEAVE_SETTINGS,
+} from '../../time-off/settings';
 import {
   PAYROLL_SETTING_KEYS,
   PAYROLL_SETTING_SCHEMAS,
@@ -116,4 +123,27 @@ export async function payrollSettingVersionOn<K extends PayrollSettingKey>(
   return (await findConfigVersion(setting, on, { session })) as ConfigVersion<
     PayrollSettingValues[K]
   > | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: `talent.leaveSettings` (decisions 300, 301 and 306 in docs/BUILD_PLAN.md). Kept apart
+// from the thirteen payroll settings above, with its own view and "Add version" in ./service.ts
+// (the Leave segment of Payroll settings), under the same step 2.3 rules plus the go-live lock.
+
+export const LEAVE_SETTINGS_SETTING = defineConfigSetting(LEAVE_SETTINGS_KEY, leaveSettingsSchema);
+
+/**
+ * `talent.leaveSettings` in effect on `on` (today by default). Before any version exists (only
+ * before `pnpm seed:admin` has run) the seeded value applies; its go-live date is null, so nothing
+ * is credited and no opening entry can be entered.
+ */
+export async function leaveSettingsOn(
+  on: ConfigDate = businessToday(),
+  { session }: { session?: ClientSession | null } = {},
+): Promise<LeaveSettings> {
+  await connectDb();
+  const version = await findConfigVersion(LEAVE_SETTINGS_SETTING, on, {
+    session: session ?? undefined,
+  });
+  return version?.value ?? structuredClone(SEED_LEAVE_SETTINGS);
 }

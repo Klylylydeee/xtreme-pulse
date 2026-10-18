@@ -1,9 +1,11 @@
 import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { connectDb, withTransaction } from '@pulse/db';
-import { type BusinessDate, businessToday } from '@pulse/core';
+import { ActionError, type BusinessDate, businessToday } from '@pulse/core';
 import { notify, recordAudit, snapshotForAudit } from '@pulse/core/server';
 import {
+  assertOffsetEntryMinutes,
+  availableOffsetMinutes,
   holidayChangedReason,
   OFFSET_ADJUSTED_EVENT,
   OFFSET_ENTRY_TYPE,
@@ -11,12 +13,14 @@ import {
   offsetAdjustedMessage,
   offsetBalanceMinutes,
   offsetEntryAuditLabel,
+  OFFSET_USAGE_SOURCE_TYPE,
   offsetReconcileDifference,
   shouldWriteOffsetCredit,
   TIMESHEET_OFFSET_ENTRY_KINDS,
 } from '../../offset/entries';
-import type { OffsetBalanceView, OffsetCreditView } from '../../offset/views';
+import type { OffsetAvailableBalanceView, OffsetCreditView } from '../../offset/views';
 import { timesheetDtr } from '../dtr/service';
+import { isTimeOffApproverOf, pendingOffsetMinutes } from '../leave/holdings';
 import type { TalentActor } from '../policy';
 import { dayOf, instantOf } from '../shared';
 import {
@@ -92,7 +96,7 @@ export async function timesheetOffsetCredit(
 }
 
 /** Who wrote an entry: the deciding user, or null for the system. */
-interface EntryAuthor {
+export interface EntryAuthor {
   userId: string;
   email: string;
 }
@@ -103,17 +107,21 @@ async function insertEntry(
     'employeeId' | 'kind' | 'minutes' | 'timesheetId' | 'reason'
   > & {
     effectiveOn: BusinessDate;
+    /** Step 2.8: the time off request of a usage entry. */
+    requestId?: Types.ObjectId | null;
   },
   label: string,
   author: EntryAuthor | null,
   session: ClientSession,
 ): Promise<OffsetEntryDocument> {
+  assertOffsetEntryMinutes(values.kind, values.minutes);
+  const { requestId = null, ...stored } = values;
   const by = author ? new Types.ObjectId(author.userId) : null;
   const entry = new OffsetEntryModel({
-    ...values,
+    ...stored,
     effectiveOn: instantOf(values.effectiveOn),
-    sourceType: null,
-    sourceId: null,
+    sourceType: requestId ? OFFSET_USAGE_SOURCE_TYPE : null,
+    sourceId: requestId,
     createdBy: by,
     updatedBy: by,
   });
@@ -276,14 +284,16 @@ export async function reconcileOffsetCredits(
 
 /**
  * The offset balance of `employeeId` (Talent's service for steps 2.8, 2.9 and 2.13), for whoever
- * may see the employee's timesheet: the employee, Talent Read, a `reportingTo` supervisor, or an
- * approver of one of their timesheets. Anyone else gets AccessDeniedError. Null when there is no
- * such employee. It may be below zero after an adjustment.
+ * may see the employee's timesheet: the employee, Talent Read, a `reportingTo` supervisor, an
+ * approver of one of their timesheets, or (step 2.8) of one of their time off requests. Anyone
+ * else gets AccessDeniedError. Null when there is no such employee. It may be below zero after an
+ * adjustment. From step 2.8 it also carries what pending offset time off holds and the available
+ * balance (decision 312).
  */
 export async function getOffsetBalance(
   actor: TalentActor,
   employeeId: string,
-): Promise<OffsetBalanceView | null> {
+): Promise<OffsetAvailableBalanceView | null> {
   await connectDb();
   const viewer = await timesheetViewerIdentity(actor, employeeId, async (identity) => {
     const submitted = await TimesheetModel.find(
@@ -293,11 +303,117 @@ export async function getOffsetBalance(
     for (const timesheet of submitted) {
       if (await isTimesheetApprover(actor.id, timesheet._id.toHexString())) return true;
     }
-    return false;
+    return isTimeOffApproverOf(actor.id, identity.employeeId);
   });
   if (!viewer) return null;
+  const id = viewer.identity.employeeId;
+  const [balanceMinutes, pending] = await Promise.all([
+    offsetBalanceOf(id),
+    pendingOffsetMinutes(id),
+  ]);
   return {
-    employeeId: viewer.identity.employeeId,
-    balanceMinutes: await offsetBalanceOf(viewer.identity.employeeId),
+    employeeId: id,
+    balanceMinutes,
+    pendingMinutes: pending.reduce((sum, minutes) => sum + minutes, 0),
+    availableMinutes: availableOffsetMinutes(balanceMinutes, pending),
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: the available balance, usage, opening and HR's correction (decisions 303, 307, 312,
+// 314 and 316). Each writer runs in the caller's transaction with its `create` audit entry on
+// `talent.offsetEntry` (labelled `<employee number> · <YYYY-MM-DD>`).
+
+/**
+ * The available offset balance (decision 312): the balance less the minutes of the employee's
+ * other pending offset time off. `exceptRequestId` leaves out the request being filed again or
+ * approved. At or below zero, no offset time off may be filed.
+ */
+export async function availableOffsetMinutesOf(
+  employeeId: string | Types.ObjectId,
+  {
+    exceptRequestId = null,
+    session = null,
+  }: { exceptRequestId?: string | Types.ObjectId | null; session?: ClientSession | null } = {},
+): Promise<number> {
+  const [balance, pending] = await Promise.all([
+    offsetBalanceOf(employeeId, session),
+    pendingOffsetMinutes(employeeId, { exceptRequestId, session }),
+  ]);
+  return availableOffsetMinutes(balance, pending);
+}
+
+async function employeeNumberOf(employeeId: string, session: ClientSession): Promise<string> {
+  const identity = await serviceIdentity(employeeId, { session });
+  if (!identity) throw new ActionError('This employee no longer exists. Reload the page.');
+  return identity.employeeNumber;
+}
+
+/**
+ * The time off service's offset `usage` entry, in the decision's, cancel's or listener's
+ * transaction: minus the request's minutes at approval, plus them back on a cancel or when a
+ * holiday change lowers them, minus more when it raises them (even below zero, decision 316).
+ * `sourceType` `talent.timeOffRequest` and `sourceId` the request. 0 writes nothing (null).
+ */
+export async function writeOffsetUsage(
+  input: {
+    employeeId: string;
+    /** Signed whole minutes. */
+    minutes: number;
+    effectiveOn: BusinessDate;
+    requestId: string | Types.ObjectId;
+    /** The listener's "Holiday changed: <dates>", or null. */
+    reason?: string | null;
+  },
+  author: EntryAuthor | null,
+  session: ClientSession,
+): Promise<OffsetEntryDocument | null> {
+  if (input.minutes === 0) return null;
+  return insertEntry(
+    {
+      employeeId: new Types.ObjectId(input.employeeId),
+      kind: 'usage',
+      minutes: input.minutes,
+      timesheetId: null,
+      reason: input.reason ?? null,
+      effectiveOn: input.effectiveOn,
+      requestId:
+        typeof input.requestId === 'string' ? new Types.ObjectId(input.requestId) : input.requestId,
+    },
+    offsetEntryAuditLabel(await employeeNumberOf(input.employeeId, session), input.effectiveOn),
+    author,
+    session,
+  );
+}
+
+/**
+ * HR's `opening` (0 or more, dated the go-live date) or `adjustment` (signed, with a reason),
+ * written by the opening balance service after its checks. A second opening fails with the
+ * duplicate key error of the unique index.
+ */
+export async function writeOffsetHrEntry(
+  input: {
+    employeeId: string;
+    employeeNumber: string;
+    kind: 'opening' | 'adjustment';
+    minutes: number;
+    effectiveOn: BusinessDate;
+    reason: string | null;
+  },
+  author: EntryAuthor,
+  session: ClientSession,
+): Promise<OffsetEntryDocument> {
+  return insertEntry(
+    {
+      employeeId: new Types.ObjectId(input.employeeId),
+      kind: input.kind,
+      minutes: input.minutes,
+      timesheetId: null,
+      reason: input.reason,
+      effectiveOn: input.effectiveOn,
+    },
+    offsetEntryAuditLabel(input.employeeNumber, input.effectiveOn),
+    author,
+    session,
+  );
 }

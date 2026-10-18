@@ -61,6 +61,38 @@ export function offsetBalanceMinutes(
   return total;
 }
 
+/**
+ * The available offset balance (step 2.8, decision 312): the balance less the minutes of the
+ * employee's other pending offset time off. At or below zero, no offset time off may be filed.
+ */
+export function availableOffsetMinutes(
+  balanceMinutes: number,
+  pendingRequestMinutes: Iterable<number>,
+): number {
+  assertWholeMinutes(balanceMinutes);
+  let available = balanceMinutes;
+  for (const minutes of pendingRequestMinutes) {
+    assertWholeMinutes(minutes);
+    if (minutes < 0) throw new RangeError('A request’s minutes are never below zero.');
+    available -= minutes;
+  }
+  return available;
+}
+
+/** The `sourceType` of an offset entry written for a time off request (its usage). */
+export const OFFSET_USAGE_SOURCE_TYPE = 'talent.timeOffRequest';
+
+/**
+ * Throws when an offset entry's minutes don't fit its kind (step 2.8): an opening is 0 or more, a
+ * credit 0 or more; usage and adjustments are signed.
+ */
+export function assertOffsetEntryMinutes(kind: OffsetEntryKind, minutes: number): void {
+  assertWholeMinutes(minutes);
+  if ((kind === 'opening' || kind === 'credit') && minutes < 0) {
+    throw new RangeError(`An offset ${kind} is 0 or more.`);
+  }
+}
+
 /** What a timesheet has been credited so far: its `credit` and `adjustment` entries' sum. */
 export function creditedOffsetMinutes(timesheetEntries: Iterable<OffsetEntryMinutes>): number {
   let total = 0;

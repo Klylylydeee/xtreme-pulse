@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   CalendarDays,
+  CalendarHeart,
   CalendarX2,
   CircleCheck,
   Clock,
@@ -16,6 +17,8 @@ import {
   DTR_DAY_STATUS_LABELS,
   DTR_PREVIEW_LABEL,
   type DtrDayStatus,
+  type DtrTimeOffBadgeInput,
+  dtrTimeOffLabel,
   SUBMITTED_LATE_LABEL,
   type TimesheetStatus,
 } from '@pulse/talent';
@@ -25,7 +28,9 @@ import { cn } from '@pulse/ui/lib/utils';
 // badges. Each one names its state in words, with an icon beside it, so colour is never the only
 // signal: "Manual" in `warning-text`, "No time out", "Not claimed", the day's kind, and (build
 // step 2.5) a reimbursement's "Over limit"; from build step 2.7, "Submitted late", a timesheet's status
-// on My team, and the DTR's day statuses and "Not approved yet".
+// on My team, and the DTR's day statuses and "Not approved yet"; from build step 2.8, the DTR's
+// time off ("On leave (paid) · VL", "Half day VL (paid)", "Offset (paid) 4.0 h", and "Leave
+// without pay" in `warning-text` with an icon).
 
 const TONES = {
   /** A manual time, and an entry with no time out. */
@@ -164,9 +169,9 @@ export function TimesheetStatusBadge({
 const DTR_STATUS_STYLE: Record<DtrDayStatus, { tone: keyof typeof TONES; Icon: LucideIcon }> = {
   holiday: { tone: 'accent', Icon: CalendarDays },
   restDay: { tone: 'accent', Icon: CalendarDays },
-  onLeavePaid: { tone: 'neutral', Icon: CalendarDays },
-  offsetPaid: { tone: 'neutral', Icon: CalendarDays },
-  leaveWithoutPay: { tone: 'neutral', Icon: CalendarDays },
+  onLeavePaid: { tone: 'neutral', Icon: CalendarHeart },
+  offsetPaid: { tone: 'neutral', Icon: CalendarHeart },
+  leaveWithoutPay: { tone: 'warning', Icon: TriangleAlert },
   present: { tone: 'success', Icon: UserCheck },
   absentUnpaid: { tone: 'destructive', Icon: CalendarX2 },
 };
@@ -186,6 +191,21 @@ export function PreviewBadge() {
   return (
     <TimesheetBadge tone="neutral" Icon={Info}>
       {DTR_PREVIEW_LABEL}
+    </TimesheetBadge>
+  );
+}
+
+/**
+ * One part of a DTR day's approved time off (step 2.8): "On leave (paid) · VL", "Half day VL
+ * (paid)", "Offset (paid) 4.0 h", "Leave without pay" (in `warning-text`). A confidential type
+ * reads "Leave" to anyone but the employee, HR and the System Administrator (the server's
+ * `shortName`).
+ */
+export function DtrTimeOffBadge({ part }: { part: DtrTimeOffBadgeInput }) {
+  const { tone, Icon } = DTR_STATUS_STYLE[part.status];
+  return (
+    <TimesheetBadge tone={tone} Icon={Icon}>
+      {dtrTimeOffLabel(part)}
     </TimesheetBadge>
   );
 }

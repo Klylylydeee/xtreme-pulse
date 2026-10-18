@@ -40,7 +40,8 @@ export type PayrollView =
   | 'minimumWage'
   | 'allowances'
   | 'workSchedule'
-  | 'reimbursements';
+  | 'reimbursements'
+  | 'leave';
 
 /** The segmented control's views, in order, with the settings each shows. */
 export const PAYROLL_VIEWS: readonly {
@@ -73,6 +74,9 @@ export const PAYROLL_VIEWS: readonly {
   },
   // Build step 2.5: the reimbursement types and the filing window.
   { value: 'reimbursements', label: 'Reimbursements', keys: ['talent.reimbursementSettings'] },
+  // Build step 2.8: `talent.leaveSettings`, a setting of its own (no payroll setting key), shown by
+  // the Leave segment (`leave-settings.tsx`).
+  { value: 'leave', label: 'Leave', keys: [] },
 ];
 
 /** The settings that are company policy, not a government issuance. */

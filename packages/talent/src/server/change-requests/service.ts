@@ -90,6 +90,7 @@ import {
   type TalentActor,
 } from '../policy';
 import { isDuplicateKey, objectIdOf } from '../shared';
+import { registerTimeOffApprovalTypes } from '../time-off/approval';
 import { registerTimesheetApprovalType } from '../timesheets/approval';
 import {
   CHANGE_REQUEST_SENSITIVE_SELECT,
@@ -183,13 +184,14 @@ export async function changeRequestStepFor(
 let registered = false;
 
 /**
- * Registers `talent.changeRequest` and, from step 2.7, `talent.timesheet` with Core's approvals
- * engine. The approvals Server Action calls it beside `registerCoreApprovalTypes()` and
+ * Registers `talent.changeRequest`, from step 2.7 `talent.timesheet`, and from step 2.8
+ * `talent.leave` and `talent.offsetTimeOff` with Core's approvals engine. The approvals Server Action calls it beside `registerCoreApprovalTypes()` and
  * `registerTalentApprovalSigner()`; the change request and timesheet services call it themselves
  * before submitting. Safe to call on every request.
  */
 export function registerTalentApprovalTypes(): void {
   registerTimesheetApprovalType();
+  registerTimeOffApprovalTypes();
   if (registered) return;
   registerApprovalType(CHANGE_REQUEST_TYPE, {
     module: 'talent',

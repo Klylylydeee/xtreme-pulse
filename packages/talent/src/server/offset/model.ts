@@ -14,8 +14,10 @@ import {
 // - Insert-only: no update and no delete, ever. A correction is a new entry. The balance is the sum
 //   of an employee's `minutes` and is never stored.
 // - Step 2.7 writes `credit` (HR's approval, in the decision's transaction) and `adjustment` (the
-//   holidays-changed listener); step 2.8 writes `opening` and `usage`.
-// - One `credit` per timesheet, by a partial unique index.
+//   holidays-changed listener); step 2.8 writes `opening` (HR, once per employee), `usage` (time
+//   off approved, cancelled or reconciled; `sourceType` `talent.timeOffRequest`) and HR's
+//   `adjustment` with a reason.
+// - One `credit` per timesheet and one `opening` per employee, by partial unique indexes.
 
 export interface OffsetEntryDocument {
   _id: Types.ObjectId;
@@ -72,6 +74,16 @@ offsetEntrySchema.index(
     partialFilterExpression: { kind: 'credit' },
   },
 );
+
+// Step 2.8 (decisions 303 and 307): one opening per employee, and the usage entries found by their
+// request.
+/** The unique index's name: one offset opening per employee. */
+export const ONE_OFFSET_OPENING_INDEX = 'oneOffsetOpening';
+offsetEntrySchema.index(
+  { employeeId: 1 },
+  { unique: true, name: ONE_OFFSET_OPENING_INDEX, partialFilterExpression: { kind: 'opening' } },
+);
+offsetEntrySchema.index({ sourceType: 1, sourceId: 1 });
 
 guardWrites(offsetEntrySchema, {
   message: 'Offset entries are never changed or deleted. Add a new entry instead.',

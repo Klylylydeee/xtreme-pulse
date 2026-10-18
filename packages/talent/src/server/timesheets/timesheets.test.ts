@@ -618,6 +618,8 @@ describe('who sees and changes a timesheet', () => {
           overdue: true,
           submittedLate: false,
         },
+        // Step 2.8: their time off, read-only.
+        timeOffHref: `/talent/time-off/${worker.employeeId}`,
       },
     ]);
     expect((await getOwnTimesheetView(boss.actor))?.myTeam).toEqual(team);

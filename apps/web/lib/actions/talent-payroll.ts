@@ -5,12 +5,18 @@ import { z } from 'zod';
 import { defineAction, MoneyError, OBJECT_ID_PATTERN, parsePesos } from '@pulse/core';
 import {
   isPayrollSettingKey,
+  leaveSettingsSchema,
   PAYROLL_SETTING_SCHEMAS,
   payrollSettingsVersionSchema,
   WORK_REGIONS,
 } from '@pulse/talent';
-import { addPayrollSettingsVersion, listEmployeesBelowMinimumWage } from '@pulse/talent/server';
+import {
+  addLeaveSettingsVersion,
+  addPayrollSettingsVersion,
+  listEmployeesBelowMinimumWage,
+} from '@pulse/talent/server';
 import { requireModuleAccess, signedInUser } from '@/lib/auth';
+import { OPENING_BALANCES_HREF } from '@/lib/navigation';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 and
 // SECURITY.md ("Payroll settings and allowances"; decisions 197, 198 and 207 in
@@ -160,4 +166,48 @@ export const listEmployeesBelowMinimumWageAction = defineAction({
     region: z.enum(WORK_REGIONS, { error: 'Reload the page and try again.' }),
   }),
   handler: async (input) => listEmployeesBelowMinimumWage(await signedInUser(), input),
+});
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: the Leave segment (`talent.leaveSettings`; decisions 300 and 306 in
+// docs/BUILD_PLAN.md). "Add version" needs Talent Owner here; the service checks again HR or the
+// System Administrator in its transaction, refuses a dropped type key and a changed go-live date
+// once an opening entry exists, and writes the `create` entry on `core.configVersion`. The sheet
+// sends whole numbers as numbers (text that isn't digits stays text, so the schema names the
+// field) and days as text ("2.5"); the value is checked here against the setting's schema so
+// every field error comes back at once under `value.<path>`, and the service parses it again.
+
+const addLeaveVersionSchema = z.record(z.string(), z.unknown()).transform((raw, ctx) => {
+  const meta = payrollSettingsVersionSchema
+    .pick({ effectiveFrom: true, source: true })
+    .safeParse(raw);
+  if (!meta.success) {
+    for (const issue of meta.error.issues) {
+      ctx.addIssue({ code: 'custom', path: pathOf(issue.path), message: issue.message });
+    }
+  }
+  const value = leaveSettingsSchema.safeParse(raw.value);
+  if (!value.success) {
+    for (const issue of value.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value', ...pathOf(issue.path)],
+        message: issue.message,
+      });
+    }
+  }
+  if (!meta.success || !value.success) return z.NEVER;
+  return { ...meta.data, value: value.data };
+});
+
+/** "Add version" on Payroll settings › Leave. Returns the new version's id and date. */
+export const addLeaveSettingsVersionAction = defineAction({
+  access: talentOwners,
+  schema: addLeaveVersionSchema,
+  handler: async (input) => {
+    const result = await addLeaveSettingsVersion(await signedInUser(), input);
+    revalidatePath('/talent/payroll-settings');
+    revalidatePath(OPENING_BALANCES_HREF);
+    return result;
+  },
 });

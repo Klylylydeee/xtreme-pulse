@@ -552,3 +552,36 @@ export function canSeeChangeRequestSection(
       return canSeeSensitiveSection(viewer, 'bankAccount', target);
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.8: leave and offset time off (SECURITY.md#exceptions-to-module-access, "The own time off
+// and the team's", and SECURITY.md#sensitive-data, "Leave attachments"; decisions 317 and 318 in
+// docs/BUILD_PLAN.md).
+//
+// - Filing, editing and sending again, and cancelling: the employee alone, on their own employee
+//   (self-service, no module access, no employee id from the request). Nobody files or changes
+//   another person's time off, HR and the System Administrator included.
+// - Seeing requests and balances: the employee, Talent Read, a `reportingTo` supervisor, and
+//   anyone who is or was an approver on one of the employee's requests, read-only
+//   (server/leave/service.ts `timeOffViewerIdentity`). A confidential type reads "Leave" to anyone
+//   but the employee, HR and the System Administrator.
+// - The attachment (treated as a medical certificate): the employee, HR or the System
+//   Administrator with Talent Read, and the request's approvers; never Accounting as such. Every
+//   open is audit-logged (server/files/registrations.ts).
+
+export const NO_EMPLOYEE_TIME_OFF =
+  'The system account has no employee record, so it has no time off.';
+
+/**
+ * True when `actor` may open the attachment of a time off request of `employeeId`. `approver` is
+ * the caller's answer to Core's `isApproverFor` on that request (`talent.timeOffRequest`).
+ */
+export function canOpenTimeOffAttachment(
+  actor: TalentActor,
+  employeeId: string,
+  { approver = false }: { approver?: boolean } = {},
+): boolean {
+  if (actor.employee !== null && actor.employee.id === employeeId) return true;
+  if (approver) return true;
+  return canReadEmployeeRecords(actor) && (isHR(actor) || isSystemAdministrator(actor));
+}
