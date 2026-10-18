@@ -126,6 +126,7 @@ To try the app on a phone or tablet, open `http://<this computer's IP>:3000` fro
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Environments, variables and the go-live checklist |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when something goes wrong |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Build order, future releases, what's pending |
+| [docs/REVIEW_LIST.md](docs/REVIEW_LIST.md) | What the owner still has to confirm: questions for counsel and the accountant, business decisions, hands-on checks, go-live steps |
 | [docs/adr/](docs/adr/README.md) | Why the main technical decisions were made |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to work on the repo, and which doc to edit for which change |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, and when |

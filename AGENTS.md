@@ -24,6 +24,7 @@ This file is short on purpose. It says where the rules are. The rules themselves
 - **Read before planning.** Read the docs linked in the step's **Spec** line. For anything else, use the map below. Don't load every doc.
 - **Plan first.** Show the plan and wait for approval before writing code.
 - **Don't guess.** If the docs are unclear or contradict each other, say so. List what was unclear and what you assumed at the end of the step. Spec changes are made in the docs first (see [CONTRIBUTING.md](CONTRIBUTING.md#change-the-spec-first)).
+- **Keep the review list current.** Each step adds its legal, rate and business assumptions and its hands-on checks to [docs/REVIEW_LIST.md](docs/REVIEW_LIST.md), with the next free ID, as well as to [HANDOFF](docs/HANDOFF.md#assumptions-to-check).
 
 ## Where the rules are
 
