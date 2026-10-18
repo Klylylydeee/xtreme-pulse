@@ -445,7 +445,7 @@ A separate table on the same timesheet.
 - A scheduled work day with no time entry and no approved paid leave or offset time off is **absent (unpaid)**.
 - Leave without pay and unpaid absences are deducted from pay at the daily rate (half the daily rate for a half day).
 - The DTR is derived; never edit it directly. Confirmed holidays are never counted as absences.
-- Built in step 2.7 (leave and offset time off from step 2.8): [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27).
+- Built in step 2.7 (leave and offset time off from step 2.8): [Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27). Time off on the DTR, partly covered days and `absentMinutes`: [Leave, offset time off and opening balances (build step 2.8)](#leave-offset-time-off-and-opening-balances-build-step-28).
 
 ### Work schedules and daily time entries (build step 2.4)
 
@@ -829,6 +829,7 @@ Leave is fully integrated with timesheets and payroll: approved paid leave shows
 - Rest days and confirmed holidays inside a leave period are not deducted from the balance.
 - Leave requests are approved by any one supervisor in `reportingTo`. When the requester has an empty `reportingTo` (for example top-level Board of Directors members), HR approves instead; an HR requester's own request goes to the System Administrator (see [Reporting lines](core.md#reporting-lines)).
 - Leave approved after a payroll run is finalized is applied as an adjustment in the next cut-off.
+- Built in step 2.8: [Leave, offset time off and opening balances (build step 2.8)](#leave-offset-time-off-and-opening-balances-build-step-28).
 
 ## Offset balance & offset time off
 
@@ -843,7 +844,7 @@ Applies to employees on the Standard timesheet.
 - Offset hours are never converted to cash, including at separation (company policy; keep as a setting).
 - If an employee moves to a position on the Overtime timesheet, their remaining offset balance stays usable.
 - Offset time off approved after a payroll run is finalized is applied as an adjustment in the next cut-off.
-- From build step 2.7 the balance is the sum of `offsetEntries`: a `credit` when HR approves a Standard timesheet, and an `adjustment` when a holiday change alters an approved timesheet's offset ([Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)). Opening and usage entries come in step 2.8.
+- From build step 2.7 the balance is the sum of `offsetEntries`: a `credit` when HR approves a Standard timesheet, and an `adjustment` when a holiday change alters an approved timesheet's offset ([Timesheet approval, the DTR and the offset balance (build step 2.7)](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)). Opening and usage entries come in step 2.8 ([Leave, offset time off and opening balances (build step 2.8)](#leave-offset-time-off-and-opening-balances-build-step-28)), which also lets HR add a correcting `adjustment` with a reason.
 
 ## Opening balances at go-live
 
@@ -851,6 +852,185 @@ Applies to employees on the Standard timesheet.
   - opening VL, SL and offset balances
   - year-to-date pay: gross pay, basic salary earned (for 13th month pay), taxable income, tax withheld and contributions
 - They are dated, audit-logged opening entries, never edits to a balance. Leave and offset balances, payslip year-to-date figures, 13th month pay and BIR Form 2316 build on them.
+- Built in step 2.8: [Leave, offset time off and opening balances (build step 2.8)](#leave-offset-time-off-and-opening-balances-build-step-28).
+
+### Leave, offset time off and opening balances (build step 2.8)
+
+Spec written first; not built yet. Decisions 299–324 in [BUILD_PLAN.md](../BUILD_PLAN.md#decisions-added-to-the-spec). The new setting and collections are in [DATA_MODEL.md](../DATA_MODEL.md#collection-ownership), the leave law in [Leave and time off](../COMPLIANCE.md#leave-and-time-off-build-step-28), and who may see what in [Exceptions to module access](../../SECURITY.md#exceptions-to-module-access) and [Sensitive data](../../SECURITY.md#sensitive-data). Step 2.8 adds leave types as data, leave balances from entries, crediting at regularization and every January 1 with carry-over, leave and offset time off requests on one request sheet with their approval, time off on the DTR, and the opening entries at go-live. Pay (the daily-rate deductions, leave without pay, maternity pay) is step 2.9; the regularization evaluation that sets the regularization date is step 2.13; the HR leave and offset reports are step 2.16.
+
+Each item marked *Assumption* is listed in [HANDOFF › Assumptions to check](../HANDOFF.md#assumptions-to-check) (items 150–180), to be confirmed by HR, the accountant, counsel or the user.
+
+**Leave settings** (the new versioned setting `talent.leaveSettings`, seeded by `pnpm seed:admin` from 2000-01-01 with the source "Company policy (spec) and the laws named per type"). HR adds a version in a new **Leave** segment of Payroll settings, under the step 2.3 rules (Talent Owner **and** HR or the System Administrator). A type's key, once added, stays in every later version; a type is retired by `active: false`.
+
+- **`goLiveDate`**: the Manila day Pulse Talent goes live, or null (seeded null). While it is null, no credit is written automatically and no opening entry can be entered; the Leave segment and the opening balances page say "Set the go-live date first." Once any opening entry exists, a new version can't change it (*Assumption*).
+- **`offsetTimeOff`**: `minimumMinutes` (60, the spec's 1 hour) and `stepMinutes` (30), both whole minutes from 15 to 480 (*Assumption*: 30-minute steps).
+- **`types`**, each:
+
+  | Field | Meaning |
+  |---|---|
+  | `key`, `name`, `shortName` | For example `vacation`, "Vacation leave", "VL" |
+  | `active` | A retired type can't be filed; past requests keep it |
+  | `paid` | Paid days show on the DTR as `onLeavePaid`; an unpaid type's days as `leaveWithoutPay` |
+  | `balance` | `credited` (a running balance of entries: VL, SL), `perEvent` (up to `days` per request: maternity, paternity, special leave for women) or `perYear` (up to `days` per calendar year, counting approved and pending requests: solo parent, VAWC) |
+  | `days` | The annual credit (`credited`), the most per request (`perEvent`) or per year (`perYear`), in whole or half days |
+  | `countDays` | `workDays` (only the employee's scheduled work days count; rest days and confirmed holidays don't) or `calendarDays` (every day counts, as the law sets maternity leave) |
+  | `halfDays` | Whether a single-day request may be a half day |
+  | `crediting` | `credited` only: `annualCreditOn` (`MM-DD`, seeded `01-01`), `prorateFromRegularization` (true), `carryOverCapDays` (null for no cap, the spec's default) |
+  | `eligibility` | `employmentStatuses` (who may file), `sex` (null, `female` or `male`, read from the employee record), `minServiceMonths` (null or whole months since the date hired), `maxRequests` (null or the most approved requests ever, for paternity) |
+  | `filing` | `minNoticeDays` (null or the days between filing and the first day, VL 14), `allowFuture` and `allowPast` (a past day may be filed up to the timesheet deadline of the cut-off holding the request's first day) |
+  | `attachment` | null, or `{ label, required }`, for example "Medical certificate", required |
+  | `confidential` | Routes to HR only and hides the type's name from everyone but the employee, HR and the System Administrator (VAWC) |
+  | `legalBasis` | Text such as "RA 11210", or null |
+
+- **Seeded types** (every figure is an *Assumption*, to be confirmed by HR and counsel; see [Leave and time off](../COMPLIANCE.md#leave-and-time-off-build-step-28)):
+
+  | Key | Name (short) | Paid | Balance, days, counting | Half days | Eligibility | Filing | Attachment |
+  |---|---|---|---|---|---|---|---|
+  | `vacation` | Vacation leave (VL) | Yes | `credited` 5 a year, work days, no carry-over cap | Yes | Regular | At least 14 days ahead; never a past day | None |
+  | `sick` | Sick leave (SL) | Yes | `credited` 5 a year, work days, no cap | Yes | Regular | On or after the sick day, by the first day's timesheet deadline; never a future day | Medical certificate, required |
+  | `maternity` | Maternity leave (ML) | Yes | `perEvent` 105, calendar days | No | Female; every status | Ahead, or after up to the deadline | Medical certificate or proof of pregnancy, required |
+  | `maternitySoloParent` | Maternity leave, solo parent (ML-SP) | Yes | `perEvent` 120, calendar days | No | Female; every status | As maternity | As maternity, plus the Solo Parent ID in the same file |
+  | `maternityMiscarriage` | Maternity leave, miscarriage or emergency termination (ML-M) | Yes | `perEvent` 60, calendar days | No | Female; every status | As maternity | Medical certificate, required |
+  | `maternityExtension` | Maternity leave extension, without pay (ML-X) | **No** | `perEvent` 30, calendar days | No | Female; every status | As maternity | None |
+  | `paternity` | Paternity leave (PL) | Yes | `perEvent` 7, work days; at most 4 approved requests | No | Male; every status | As maternity | Proof of the delivery, optional |
+  | `soloParent` | Solo parent leave (SPL) | Yes | `perYear` 7, work days | Yes | Every status; 6 months since the date hired | As maternity | Solo Parent ID, required |
+  | `vawc` | VAWC leave (VAWC) | Yes | `perYear` 10, work days; **confidential** | Yes | Female; every status | As maternity | Barangay, police, prosecutor or court certification, required |
+  | `specialLeaveWomen` | Special leave for women (SLW) | Yes | `perEvent` 60, calendar days | No | Female; every status; 6 months since the date hired | As maternity | Medical certificate, required |
+
+  "Every status" is Probationary, Regular and Contractual, since statutory leaves don't follow the company probation rule. The 5 days of VL still stand in for the 5-day Service Incentive Leave (see [Leave](#leave)).
+
+**Units and counting.**
+
+- Leave is counted in **half days**, stored as whole numbers of half days, so 2.5 days is 5. Offset is counted in whole **minutes**, as in step 2.7. Balances show one decimal ("4.5 days", "12.5 h").
+- **Chargeable days** of a request are its days that count under the type's `countDays`: for `workDays`, the days the employee's schedule in effect lists as work days, less confirmed nationwide holidays (a special working day counts); for `calendarDays`, every day. Days before the date hired or after the separation date never count.
+- **Halves of a day** (half-day leave): the first half runs from the scheduled start to the break, the second from the end of the break to the scheduled end. With no break, the span splits at its midpoint, rounded down to the minute (*Assumption*). A half day is one half day of the balance whatever its minutes.
+
+**Leave entries** (the new insert-only collection `leaveEntries`, for `credited` types only). The balance of a type is the sum of the employee's entries for it, never stored or edited ([Leave](#leave)):
+
+| Kind (`LEAVE_ENTRY_KINDS`) | Written by | Half days |
+|---|---|---|
+| `opening` | HR, once per employee per type, dated the go-live date | 0 or more |
+| `credit` | The credit job: the prorated credit at regularization, then the annual credit; one per employee, type and year | Above 0 |
+| `carryOver` | The credit job on the credit date, before that year's credit: minus whatever the balance exceeds the cap by (0 with no cap); one per employee, type and year | 0 or less |
+| `usage` | Approving a request (minus its paid half days); cancelling an approved one (plus them back) | Signed |
+| `adjustment` | The holidays-changed listener, or HR with a reason | Signed |
+
+`perEvent` and `perYear` types have no entries: their limits are checked against the employee's approved and pending requests.
+
+**Crediting** (the new job `talent.leaveCredits`, daily at 00:30 Asia/Manila, cron `30 0 * * *`; [Background jobs](../ARCHITECTURE.md#background-jobs)). For every active employee who is **Regular** with a regularization date on or before today, and every active `credited` type:
+
+- **At regularization**, a `credit` for the regularization year, dated the regularization date. With `prorateFromRegularization` it is `days × months ÷ 12`, where the months run from the regularization month to December, counting the regularization month only when the date is on or before the 15th, rounded to the nearest half day, halves up (*Assumption*). Regularized on April 10: 9 months, 3.75 → **4.0** days; on April 20: 8 months, 3.33 → **3.5** days. Regularized on January 1, it is the full credit.
+- **Every year on `annualCreditOn`**, first the `carryOver` for the balance at the end of the day before, then a `credit` of `days`, both dated that day.
+- **Only the current year.** The job writes the current year's entries, so a missed day catches up, but it never back-fills earlier years. It writes nothing dated before `goLiveDate`, and nothing while `goLiveDate` is null: the opening entry carries everything before go-live. A unique index on `{ employeeId, typeKey, kind, year }` for `credit` and `carryOver` makes every run idempotent (*Assumption*).
+- **Probationary and Contractual employees** get no VL or SL credits: credits start at regularization ([Leave](#leave); *Assumption* for Contractual, see [Leave and time off](../COMPLIANCE.md#leave-and-time-off-build-step-28)). A Regular employee whose regularization date is missing gets none either, and the inspector's Time off section flags "Regularization date missing: no VL or SL credits".
+- **Audit:** `create` on `talent.leaveEntry`, labelled `<employee number> · <short name> · <YYYY-MM-DD>`, with no actor (a system action). No notification (*Assumption*).
+- `pnpm dev:leave-credits [--date YYYY-MM-DD]` runs the job once in development, like `pnpm dev:timesheet-reminders`; it refuses in production.
+
+Step 2.13's regularization evaluation sets the regularization date and the Regular status; this job then credits on its next run.
+
+**Time off requests** (the new collection `timeOffRequests`; base fields, never deleted). One request is either **leave** or **offset time off** (`TIME_OFF_KINDS`), filed on one request sheet:
+
+- **Number:** `LV-YYYY-NNNN` for leave and `OFS-YYYY-NNNN` for offset time off, from Core's document number counters at filing (*Assumption*: the prefixes; the Approvals audit label already reads "Leave · LV-…").
+- **Days:** `startDate` and `endDate` (Manila days, at most 366 days apart), and a `portion` (`TIME_OFF_PORTIONS`): `whole` for every request over more than one day; on a single day also `firstHalf` or `secondHalf` (leave types with half days) or `part` (offset time off: `fromTime` and `toTime`, `HH:MM`, inside the scheduled span).
+- **Leave:** `leaveTypeKey`; `chargeableHalfDays`; for `credited` types `paidHalfDays` and `unpaidHalfDays` (a preview while pending, fixed at approval, changed only by the listener and cancelling).
+- **Offset time off:** `minutes`, the scheduled minutes covered (for whole days, each chargeable day's scheduled minutes less the break).
+- `reason` (up to 500 characters, optional), `attachmentFileId` (or null).
+- **Status** (`TIME_OFF_STATUSES`): `pending`, `returned`, `approved`, `rejected`, `cancelled`; `approved` can still become `cancelled` (below), and `rejected` and `cancelled` are final. Also `approvalRequestId` (the current request), `submittedAt`, `decidedAt`, `decidedBy`, `remarks`, `cancelledAt`, `cancelledBy`, `cancelReason`, and `version`.
+
+**Filing a leave request** (self-service: the employee's own, no employee id taken from the request). The service checks, in one transaction serialized per employee so two overlapping requests can't both be saved:
+
+- the onboarding gate `fileTimeRequest` passes (`assertOnboardingGate`), the account is active, and the type is active
+- **eligibility**: the employment status today is in the type's list ("Probationary employees can't use VL or SL. Any absence during probation is unpaid."), the record's sex matches when the type names one (an empty sex is refused with a link to My record), the service months are met, and `maxRequests` isn't reached
+- **filing window**, in Manila days from today: with `minNoticeDays`, `startDate − today ≥ minNoticeDays` ("Vacation leave must be filed at least 14 days before the first day, so by Oct 15 for Oct 29."); without `allowFuture`, no day after today ("Sick leave is filed on or after the sick day."); without `allowPast`, no day before today; a past day only while the timesheet deadline of the cut-off holding `startDate` hasn't passed ("The timesheet deadline for that cut-off has passed. Ask HR."). The window is checked again on each resend (*Assumption*)
+- **at least one chargeable day** ("These days are all rest days or holidays."), and within the type's limit for `perEvent` and `perYear` types (refused, never unpaid: "Maternity leave covers up to 105 days per request.")
+- **no overlap** with the employee's pending or approved time off on the same day and half (a half-day request may sit beside another on the other half), and no `whole` or half day of leave on a day the employee has worked time entries in that portion ("You worked on Oct 5. Leave can't cover a day with time entries."; *Assumption*)
+- **the attachment** when the type requires one: an image (re-encoded, as step 2.2 does) or a PDF, under the upload settings
+
+**Insufficient balance** (`credited` types). The **available** balance is the balance less the paid half days of the employee's other pending requests of that type, and never counts a credit dated after today (*Assumption*). The request's chargeable half days are paid up to the available balance, from its first day; the rest are **leave without pay**, from its last day backwards (*Assumption*). Before submitting, the sheet shows "3 days: 2 covered by your VL balance, **1 day without pay** (deducted from pay)". At approval the split is worked out again against the balance then, and the approval notification states it.
+
+**Filing offset time off** (self-service, the same gate, active account, overlap and transaction rules):
+
+- `whole` days over a range, or a `part` of one day from `fromTime` to `toTime`, the minutes covered at least `minimumMinutes` and a multiple of `stepMinutes`. Only scheduled minutes count, so the break and time outside the schedule cover nothing.
+- It must **start after the moment of filing**: whole days from tomorrow, a part of today only when `fromTime` is later than now. Offset never covers an absence, a late or undertime already incurred ([Offset balance & offset time off](#offset-balance--offset-time-off); *Assumption*).
+- The minutes may not exceed the **available** offset balance: the balance less the employee's other pending offset time off. A balance at or below zero (after a step 2.7 adjustment) allows none.
+- Anyone with an available balance may file, including an employee who moved to an Overtime timesheet ([Offset balance & offset time off](#offset-balance--offset-time-off)).
+
+**Approval** (two approval types, `talent.leave`, labelled "Leave", and `talent.offsetTimeOff`, labelled "Offset time off", registered by `registerTalentApprovalTypes()`; the steps are passed at submit):
+
+- **One step**, `reportingTo`, labelled "Supervisor": any one active supervisor decides. When it is empty it goes to HR (`whenEmpty: 'hr'`, any one other active HR user). For an **HR requester** (in the HR department at submit) it goes to the System Administrator instead (`whenEmpty: 'systemAdministrator'`), as decision 2 says ([Reporting lines](core.md#reporting-lines); *Assumption*: this differs from timesheets, where step 2.7 sends HR's own timesheet to the other HR users).
+- **Confidential types** (VAWC) skip the supervisors: one `anyOf` step `{ set: 'hr' }` labelled "HR", or for an HR requester a step with no approvers and `whenEmpty: 'systemAdministrator'` (*Assumption*).
+- **Decisions:** approve, return and reject ([Notifications](#notifications) lists "approved or rejected"). A return or rejection needs remarks.
+- **Title** "Leave: <first last> · VL · Nov 2 – 4, 2026 (3 days)" or "Offset time off: <first last> · Nov 2, 1:00 – 5:00 PM (4.0 h)"; a confidential type reads "Leave (confidential)". **Summary:** the chargeable days or hours, the paid and unpaid split, and "Medical certificate attached" (never the file). **Link** `/talent/time-off-requests/<id>`; **record** `talent.timeOffRequest`, its number.
+- **`onSettled`**, in the decision's transaction:
+  - **approve:** re-check the request (an overlapping approval, and for offset the available balance: if the balance no longer covers it, the hook refuses with "The offset balance no longer covers this request. Return or reject it." and the decision rolls back), fix the split, write the `usage` entry (`leaveEntries` for a `credited` type, minus the paid half days; `offsetEntries`, minus the minutes, with `sourceType` `talent.timeOffRequest` and `sourceId`), set `approved`, and audit
+  - **return** or **reject:** set the status with the remarks, and audit
+- **Edit and send again.** A returned request is edited and sent again as a new approval request with `previousRequestId`, or cancelled, as step 2.6's change requests are. A pending request can't be withdrawn: the engine has none, so the employee asks the approver to return or reject it (*Assumption*).
+- **Cancelling an approved request** (the employee's own, before its first day): `cancelled`, with a `usage` entry giving the paid half days or minutes back, an `update` audit entry, and `talent.timeOffCancelled` to the request's approvers. From the first day on it can't be cancelled (*Assumption*).
+- **Notifications** are the engine's (waiting for the supervisor or HR, approved, returned, rejected) plus `talent.timeOffCancelled`. HR filing on someone's behalf is not built (*Assumption*).
+- **Audit:** `create` on `talent.timeOffRequest` at filing (labelled with its number), `update` at each decision, resend and cancel; each entry it writes is audited as its own `create`.
+
+**On the DTR** ([Daily Time Record (DTR)](#daily-time-record-dtr)). `getDtr` passes every **approved** request covering the range to `computeDtr` as `timeOff`, extending step 2.7's input (`DtrTimeOffInput`): the date, the status (`onLeavePaid`, `offsetPaid` or `leaveWithoutPay`), the portion, the covered scheduled intervals, the kind, the type's short name (or "Leave" for a confidential type to anyone but the employee, HR and the System Administrator) and the request id.
+
+- **Holidays and rest days still come first** (decision 289): a holiday or rest day inside a request keeps its status and is never charged. For `calendarDays` types they are counted in the request but still shown as Holiday or Rest day.
+- **A day the time off covers in full** takes the time off's status (on a day partly paid and partly unpaid, `onLeavePaid` when any of it is paid). Its late and undertime are 0.
+- **A day covered in part** (a half day, or offset for part of the day) takes `present` when anything was worked and the time off's status when nothing was. Late and undertime count only against the scheduled intervals the time off doesn't cover: late from the start of the first uncovered interval, past the grace period; undertime for uncovered scheduled minutes after the first time in. Uncovered scheduled minutes on a day with nothing worked are the day's new **`absentMinutes`** (*Assumption*). This refines item 138's "time off takes a day's status even when it was worked" for partial days.
+- **New day fields:** `timeOff` (the parts above, with their paid or unpaid status and covered minutes), `absentMinutes`, and `leaveWithoutPayDays` (0, 0.5 or 1). **New totals:** `paidLeaveDays`, `leaveWithoutPayDays`, `offsetMinutesUsed`, `absentMinutes`. Step 2.9 deducts `absentUnpaid` days and `leaveWithoutPayDays` at the daily rate, and late, undertime and `absentMinutes` at the hourly rate.
+- A pending request doesn't change the DTR; the own time off page shows it.
+
+**The holidays-changed listener** (`talent.recomputeDtr`, extended). After step 2.7's offset credits, it reconciles every **approved** request covering a changed date, each in its own transaction, idempotently:
+
+- recompute the chargeable half days or minutes; when they **fall** (a holiday was confirmed inside the request), give back the difference as an `adjustment` (leave, taken from the unpaid days first) or a `usage` entry (offset), lower the stored split, and notify the employee (`talent.leaveAdjusted`, or step 2.7's `talent.offsetAdjusted`)
+- when they **rise** (a holiday was deleted), leave: charge the new days from the available balance and make the rest unpaid; offset: charge them, even below zero, as step 2.7 allows (*Assumption*)
+- audited as `create` and `update` with no actor; a finalized payroll period's pay difference is step 2.9's adjustment
+
+**Opening balances** (the new page `/talent/opening-balances`, Talent Write **and** HR or the System Administrator; [Opening balances at go-live](#opening-balances-at-go-live)). It lists every employee hired before `goLiveDate` with a row each: VL, SL, offset, and "Year-to-date pay: Entered" or "Not entered" (never an amount), with "Enter" opening a sheet. Nobody enters their own.
+
+- **VL and SL:** one `opening` entry per employee per `credited` type, in half days from 0 to 365 days, dated `goLiveDate`. **Offset:** one `opening` entry in `offsetEntries`, typed in hours with up to two decimals and stored in whole minutes (rounded half up), 0 or more. A second opening for the same type is refused.
+- **Corrections** are `adjustment` entries with a required reason (up to 300 characters), entered by the same people on the same page or the inspector's Time off section, for leave and for offset. They are never written on one's own record (*Assumption*: this adds the manual correction step 2.7 left out).
+- **Year-to-date pay** (the new insert-only collection `payrollOpeningEntries`): for the year of `goLiveDate`, as of that date, `grossCentavos`, `basicSalaryEarnedCentavos`, `taxableCompensationCentavos`, `taxWithheldCentavos`, `sssEmployeeCentavos`, `philhealthEmployeeCentavos` and `pagibigEmployeeCentavos`, each a whole number of centavos, 0 or more, each a `sensitiveField()` (category `salary`). A correction is a new entry with `supersedesId` and a required reason; the latest wins. Who enters it follows the salary rule (Talent Write and HR or the System Administrator; for an employee in the HR department, Talent Write and the System Administrator or a Board member, never HR), and it shows masked to whoever may reveal `salary` ([Sensitive data](../../SECURITY.md#sensitive-data)). Steps 2.10 and 2.12 read it for payslip year-to-date figures, 13th month pay and BIR Form 2316 (*Assumption*: these seven figures are enough; see [Leave and time off](../COMPLIANCE.md#leave-and-time-off-build-step-28)).
+- **Audit:** `create` on `talent.leaveEntry`, `talent.offsetEntry` and `talent.payrollOpeningEntry` (labelled `<employee number> · <year>`), never with an amount in the label.
+
+**Who may see what.**
+
+- **Requests and balances** aren't sensitive. The employee sees their own; the `reportingTo` supervisors, Talent Read, and anyone who is or was an approver on the request (`isApproverFor`) see them read-only, whatever their module access, as for timesheets ([Exceptions to module access](../../SECURITY.md#exceptions-to-module-access)). A confidential type shows as "Leave" with no type, attachment or reason to anyone but the employee, HR and the System Administrator.
+- **Attachments** (medical certificates and the other supporting files) are treated as **medical** (*Assumption*): they open through the file route (owner type `talent.timeOffRequest`) only for the employee, HR and the System Administrator with Talent Read, and the request's approvers, never Accounting, and every open is audit-logged as a `reveal` (`auditView`), as 201 documents are. They aren't copied into the 201 file (*Assumption*).
+
+**Screens** (phone first; see [Time off on a phone](../DESIGN_SYSTEM.md#layout--components)).
+
+- **`/talent/time-off`**, the employee's own, "Time off" in the Pulse Core group after Timesheet (for users with an employee only), breadcrumb "Pulse Core › Time off": balance cards (VL, SL and offset, each with "Available" when a pending request holds some), the `perYear` types used this year, then the requests, newest first, each with its number, days, a status badge and, for leave without pay, "1 day without pay". "File time off" opens the request sheet. A cancellable approved request has "Cancel request"; a returned one "Edit and send again" and "Cancel".
+- **The request sheet** (full height on a phone): a segmented control "Leave | Offset", then the type (leave), the first and last day (native date inputs, with the filing window under them, such as "File VL by Oct 15 for Oct 29"), the half or part of the day when allowed, the attachment ("Take a photo or choose a file"), the reason, and the summary before Submit: chargeable days or hours, rest days and holidays left out, and the paid and unpaid split. Refusals show next to the field with the server's words. The gate's notice shows when `reportingTo` isn't set.
+- **`/talent/time-off/<employeeId>`**, read-only, for the supervisors, approvers and Talent Read (breadcrumb "Pulse Talent › Time off"), reached from My team and the inspector's Time off section.
+- **`/talent/time-off-requests/<id>`**, a request: its days, split, attachment ("Open attachment"), reason, status and approval history, and "Waiting for your approval · Open in Approvals" for an approver. Approvals links here.
+- **The DTR segment** shows time off as text badges: "On leave (paid) · VL", "Half day VL (paid)", "Offset (paid) 4.0 h", "Leave without pay", with the absent minutes of a partly covered day.
+- **The employee inspector's Time off section** (Talent Read): balances, the latest requests, the regularization flag, and for HR and the System Administrator with Talent Write "Enter opening balances" and "Add correction". **Year-to-date pay at go-live** sits in the Compensation section, shown only to viewers who may see it.
+- **Payroll settings › Leave**: the go-live date, the offset minimum and step, and the leave types as a grouped list (a list on a phone), with "Add version".
+- **My team** links to each person's time off.
+
+**Cross-module and services.** `getLeaveBalances(actor, employeeId)` and `getOffsetBalance` (now also returning the available balance) serve steps 2.9, 2.13 and 2.16. `getDtr` includes approved time off. Pulse Ops' read of approved time off for scheduling (Phase 4) is added in its own step. No Core change: the approvals engine, `isApproverFor`, `nextDocumentNumber`, the file route registrations, `registerSensitiveReveal`, `notify` and the holidays-changed listeners already exist.
+
+**Hand-checked cases.** With the seeded schedule (Monday to Friday, 08:00–17:00, break 12:00–13:00, grace 15 minutes), the seeded leave types, "today" Monday 2026-10-19, and 2026-11-30 a confirmed regular holiday:
+
+| # | Case | Expected |
+|---|---|---|
+| L1 | VL filed for Thu 2026-10-29 (10 days ahead) | Refused: at least 14 days before, so by Oct 15 (the **Done when**) |
+| L2 | VL filed for Mon 2026-11-02 (14 days ahead), one whole day, balance 5.0 | Accepted: 1 day, paid; after approval the balance is 4.0 |
+| L3 | VL Fri 2026-11-06 – Tue 2026-11-10 | 3 chargeable days (Saturday and Sunday left out) |
+| L4 | VL Mon 2026-11-30 – Tue 2026-12-01 | 1 chargeable day; the DTR shows Nov 30 as Holiday |
+| L5 | VL for 3 days with a balance of 2.0 | Preview: 2 paid, 1 without pay (the last day); the DTR shows the last day as Leave without pay, `leaveWithoutPayDays` 1 |
+| L6 | Half-day VL, first half, worked 13:00–17:00 | Present; half day VL (paid); late 0; undertime 0; balance −0.5 |
+| L7 | Half-day VL, first half, first time in 13:20 | Present; late 20 min (counted from 13:00, past the grace period) |
+| L8 | Half-day VL, second half, nothing worked | On leave (paid); `absentMinutes` 240 |
+| L9 | VL or SL filed by a Probationary employee | Refused, with "Probationary employees can't use VL or SL…" |
+| L10 | SL for tomorrow; SL for last Friday without a certificate; with one | Refused; refused; accepted (until the deadline of that cut-off) |
+| L11 | Regularized 2026-04-10; another 2026-04-20 (job run that day) | Credits of 4.0 and 3.5 days |
+| L12 | VL balance 3.5 at the end of 2026, credit on 2027-01-01, cap none; cap 2 | 8.5 days (carry-over 0); 7.0 days (carry-over −1.5) |
+| L13 | Maternity from 2026-11-02 for 105 calendar days | Ends 2027-02-14; every day on leave (paid) except rest days and holidays shown as such; a 106-day request is refused |
+| O1 | Offset balance 275 min (D13); offset time off Mon 2026-11-02 13:00–17:00, worked 08:00–12:00 | 240 min; Present with "Offset (paid) 4.0 h"; undertime 0; balance 35 min |
+| O2 | Offset time off for a whole day with an available balance of 35 min | Refused: more than the balance |
+| O3 | Offset time off 13:00–13:45; 13:00–13:30 | Refused (not a 30-minute step); refused (below 60 min) |
+| O4 | Offset time off for today from 08:00, filed at 10:00 | Refused: it must start after filing |
+| O5 | Offset time off for a whole day with a balance of 600 min, approved by the supervisor on a phone | The DTR shows Offset (paid) and the balance falls by 480 min to 120 (the **Done when**) |
+| H1 | An approved VL Mon 2026-11-30 – Tue 2026-12-01 filed while Nov 30 was a draft (2 days charged); the holiday is confirmed | An `adjustment` of +2 half days (the balance rises 1.0) and `talent.leaveAdjusted`; deleting the holiday again charges 1 day from the available balance |
 
 ## Probation & contract tracking
 
@@ -1096,6 +1276,7 @@ An employee can only be set to **Terminated** once the required process is compl
 - **Employees:** timesheet due soon, timesheet returned with remarks or approved, leave or offset time off approved or rejected, payslip ready, document or certification expiring, notice received (NTE, NOD, TN).
 - **Supervisors:** timesheets, leave and offset time off requests waiting for their approval; their team's certifications expiring (from step 2.2, see [Skills & certifications](#skills--certifications)); their team's change requests to contact details and skills waiting for their approval (from step 2.6, through the approvals engine).
 - **From step 2.6** ([Onboarding checklist and change requests](#onboarding-checklist-and-change-requests-build-step-26)): the employee hears the outcome of each change request (approved, returned or rejected); HR hears of change requests waiting for HR, government IDs or a bank account to verify (`talent.verificationNeeded`; for an HR employee, the Board members and the System Administrators instead) and 201 documents an employee uploaded (`talent.documentUploaded`); Board members hear of an HR employee's ID and bank change requests.
+- **From step 2.8** ([Leave, offset time off and opening balances](#leave-offset-time-off-and-opening-balances-build-step-28)): leave and offset time off go through the approvals engine (`talent.leave`, `talent.offsetTimeOff`: waiting for the supervisor, or HR for an empty `reportingTo`; approved, returned or rejected to the employee). New: `talent.timeOffCancelled` to the approvers when an approved request is cancelled, and `talent.leaveAdjusted` to the employee when a holiday change alters an approved leave's charge (offset time off reuses `talent.offsetAdjusted`).
 - **From step 2.7** ([Timesheet approval, the DTR and the offset balance](#timesheet-approval-the-dtr-and-the-offset-balance-build-step-27)): the employee gets `talent.timesheetDue` (ready to submit, due today, overdue) and `talent.offsetAdjusted` (a holiday change altered an approved timesheet's offset); HR gets `talent.timesheetsMissing` the day after the deadline; the approval events (waiting for the supervisor or HR, returned, approved) are the approvals engine's.
 - **HR:** new users needing module access, company details still missing, timesheets waiting for HR approval, leave and offset time off requests waiting for HR approval (requesters with an empty `reportingTo`), missing timesheets at the deadline, payroll run or final pay approved or returned, remittance due dates, probation, contract and document alerts, minimum wage flags, due-process deadlines.
 - **Board of Directors:** payroll runs and final pay waiting for approval.

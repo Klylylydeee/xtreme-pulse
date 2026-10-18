@@ -72,7 +72,16 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | VL, SL | Vacation Leave, Sick Leave |
 | SIL | Service Incentive Leave, the Labor Code's 5 days, met by paid VL |
 | Leave without pay | Days not covered by a leave balance, deducted from pay |
-| VAWC leave | Leave for victims of violence against women and their children (RA 9262) |
+| VAWC leave | Leave for victims of violence against women and their children (RA 9262). A confidential leave type: HR approves it, and others see only "Leave" (build step 2.8) |
+| Time off request | One leave or offset time off request (`LV-` or `OFS-` number), filed on one request sheet and approved by any one supervisor, or HR for an empty `reportingTo` (build step 2.8) |
+| Leave entry | One dated line of a VL or SL balance: an opening, a credit, a carry-over, a usage or an adjustment, in half days. The balance is their sum (build step 2.8) |
+| Credited, per-event, per-year leave | How a leave type limits use: a running balance credited each year (VL, SL); a maximum per request (maternity, paternity, special leave for women); or a maximum per calendar year (solo parent, VAWC) |
+| Chargeable day | A day a leave request actually uses: a scheduled work day that isn't a confirmed holiday, or every day for a calendar-day type such as maternity leave |
+| Half day | The first half (scheduled start to the break) or the second half (end of the break to the scheduled end) of a work day, charged as half a day of leave |
+| Available balance | A leave or offset balance less what pending requests already hold |
+| Go-live date | The day Pulse Talent goes live (`talent.leaveSettings.goLiveDate`), as of which HR enters opening balances and year-to-date pay once |
+| Opening entry | A balance or year-to-date pay figure HR enters once per existing employee as of the go-live date, never an edit to a balance |
+| Absent minutes | On a day partly covered by time off with nothing worked, the scheduled minutes the time off doesn't cover (build step 2.8) |
 | Daily rate factor | The divisor that turns a monthly salary into a daily rate: monthly salary × 12 ÷ 261 ([Rates](modules/talent.md#rates)) |
 | De minimis | Small non-taxable benefits up to BIR limits |
 | 13th month pay | 1/12 of basic salary earned in the year, due by December 24 (PD 851) |
