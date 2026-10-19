@@ -183,6 +183,15 @@ export const TIME_OFF_REQUESTS_HREF = '/talent/time-off-requests';
  */
 export const OPENING_BALANCES_HREF = '/talent/opening-balances';
 
+/**
+ * The payroll runs list (step 2.9,
+ * docs/modules/talent.md#payroll-run-computation-build-step-29), for Talent Read and HR, Accounting
+ * or the System Administrator: reached from the "Payroll" button on `/talent` and from
+ * `talent.payrollDraftReady`, never from the sidebar. A run sits under it, at
+ * `/talent/payroll/<runId>` (`payrollRunHref` in `@pulse/talent/server`).
+ */
+export const PAYROLL_HREF = '/talent/payroll';
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -524,6 +533,11 @@ export const SECTION_PAGES: {
     openToOthers: true,
   },
   { href: OPENING_BALANCES_HREF, section: '/talent', title: 'Opening balances' },
+  // Step 2.9 (decision 343): the payroll runs list ("Pulse Talent › Payroll") and a run ("Pulse
+  // Talent › Payroll run"), for Talent readers; the pages also check HR, Accounting or the System
+  // Administrator. `/talent/payroll-settings` isn't under `/talent/payroll/`, so it keeps its own.
+  { href: PAYROLL_HREF, section: '/talent', title: 'Payroll', exact: true },
+  { href: PAYROLL_HREF, section: '/talent', title: 'Payroll run', under: true },
 ];
 
 /**

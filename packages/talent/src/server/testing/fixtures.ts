@@ -622,3 +622,89 @@ export async function offsetBalanceEntry(employee: Person, minutes: number): Pro
       updatedBy: null,
     });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9 helpers (docs/TESTING.md#payroll-run-tests).
+
+/**
+ * Moves a run to `finalized` directly in `payrollRuns` (a test shortcut: step 2.10 builds
+ * finalizing; the model's guard lets no service do it in step 2.9).
+ */
+export async function finalizePayrollRun(runId: string): Promise<void> {
+  await database()
+    .collection('payrollRuns')
+    .updateOne({ _id: new Types.ObjectId(runId) }, { $set: { status: 'finalized' } });
+}
+
+/**
+ * A live reimbursement line of `amountCentavos` on a timesheet, stored straight in
+ * `reimbursements` (a test shortcut past the receipt upload and claim). Made-up receipt details.
+ */
+export async function storedReimbursement(
+  employee: Person,
+  timesheetId: string,
+  amountCentavos: number,
+  receiptDate: string,
+): Promise<void> {
+  counter += 1;
+  await database()
+    .collection('reimbursements')
+    .insertOne({
+      employeeId: new Types.ObjectId(employee.employeeId),
+      timesheetId: new Types.ObjectId(timesheetId),
+      receiptDate: new Date(`${receiptDate}T00:00:00+08:00`),
+      typeKey: 'meals',
+      merchant: 'Made-up Eatery',
+      merchantTin: '00000000000000',
+      receiptNumber: `MADE-UP-${counter}`,
+      amountCentavos,
+      receiptFileId: new Types.ObjectId(),
+      clientId: null,
+      pickUp: null,
+      dropOff: null,
+      description: null,
+      receiptClaimId: new Types.ObjectId(),
+      version: 1,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: null,
+      updatedBy: null,
+    });
+}
+
+/**
+ * An approved whole-day leave request stored straight in `timeOffRequests` (a test shortcut past
+ * filing and approval), paid for its first `paidHalfDays` half days. Returns its id.
+ */
+export async function approvedLeave(
+  employee: Person,
+  leaveTypeKey: string,
+  startDate: string,
+  endDate: string,
+  paidHalfDays: number,
+): Promise<string> {
+  const id = new Types.ObjectId();
+  await database()
+    .collection('timeOffRequests')
+    .insertOne({
+      _id: id,
+      number: `LV-2026-T${id.toHexString()}`,
+      employeeId: new Types.ObjectId(employee.employeeId),
+      kind: 'leave',
+      status: 'approved',
+      leaveTypeKey,
+      startDate: new Date(`${startDate}T00:00:00+08:00`),
+      endDate: new Date(`${endDate}T00:00:00+08:00`),
+      portion: 'whole',
+      fromTime: null,
+      toTime: null,
+      chargeableHalfDays: paidHalfDays,
+      paidHalfDays,
+      unpaidHalfDays: 0,
+      minutes: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  return id.toHexString();
+}

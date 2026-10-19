@@ -29,6 +29,7 @@ import {
   ONBOARDING_HREF,
   OPENING_BALANCES_HREF,
   OWN_TIME_OFF_HREF,
+  PAYROLL_HREF,
   TIME_OFF_REQUESTS_HREF,
   TIMESHEETS_LIST_HREF,
   type NavigationViewer,
@@ -46,7 +47,8 @@ import {
 // (step 2.3), docs/TESTING.md#timesheet-and-work-schedule-tests (Timesheet, step 2.4),
 // docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6),
 // docs/TESTING.md#timesheet-approval-dtr-and-offset-tests (Timesheets, step 2.7), Time off and the
-// opening balances (step 2.8, docs/TESTING.md#leave-and-time-off-tests) and
+// opening balances (step 2.8, docs/TESTING.md#leave-and-time-off-tests), Payroll and Payroll run
+// (step 2.9, docs/TESTING.md#payroll-run-tests) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -654,6 +656,48 @@ describe('Time off and the opening balances (step 2.8)', () => {
       const hrefs = visibleHrefs(someone);
       expect(hrefs).not.toContain(OPENING_BALANCES_HREF);
       expect(hrefs).not.toContain(TIME_OFF_REQUESTS_HREF);
+    }
+  });
+});
+
+describe('Payroll runs (step 2.9)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const run = `${PAYROLL_HREF}/64b7f0c2a1b2c3d4e5f60718`;
+
+  it('reads "Pulse Talent › Payroll" and "Pulse Talent › Payroll run", with Talent current', () => {
+    expect(PAYROLL_HREF).toBe('/talent/payroll');
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, PAYROLL_HREF)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll',
+      });
+      expect(breadcrumbFor(groups, run)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll run',
+      });
+      for (const path of [PAYROLL_HREF, run]) {
+        expect(activeEntry(groups, path)?.entry.label).toBe('Talent');
+      }
+    }
+  });
+
+  it('leaves "Payroll settings" its own breadcrumb', () => {
+    expect(breadcrumbFor(talentReader, '/talent/payroll-settings')).toEqual({
+      parent: 'Pulse Talent',
+      current: 'Payroll settings',
+    });
+  });
+
+  it('isn’t a sidebar entry, and reads "No access" without Talent Read', () => {
+    expect(visibleHrefs(systemAdministrator)).not.toContain(PAYROLL_HREF);
+    for (const someone of [newUser, hr]) {
+      for (const path of [PAYROLL_HREF, run]) {
+        expect(breadcrumbFor(visibleNavigation(someone), path)).toEqual({
+          current: NO_ACCESS_PAGE_TITLE,
+        });
+      }
     }
   });
 });

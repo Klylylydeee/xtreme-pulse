@@ -7,10 +7,13 @@ import {
   LEAVE_CREDITS_SCHEDULE,
   OPEN_TIMESHEETS_JOB,
   OPEN_TIMESHEETS_SCHEDULE,
+  PAYROLL_DRAFTS_JOB,
+  PAYROLL_DRAFTS_SCHEDULE,
   registerTalentHolidaysChangedListener,
   runExpiryAlerts,
   runLeaveCredits,
   runOpenTimesheets,
+  runPayrollDrafts,
   runTimesheetReminders,
   TIMESHEET_REMINDERS_JOB,
   TIMESHEET_REMINDERS_SCHEDULE,
@@ -32,6 +35,10 @@ export const talentJobHandlers: JobHandler[] = [
   // The leave credits and carry-overs (build step 2.8, decisions 304 and 323). Idempotent through
   // the unique index per employee, type, kind and year; runs every day so a missed run catches up.
   handleJob(LEAVE_CREDITS_JOB, () => runLeaveCredits()),
+  // The draft payroll runs (build step 2.9). Creates the latest ended cut-off's draft once (one
+  // run per cut-off) and recomputes every draft; runs every day, so a missed run is made up the
+  // next morning.
+  handleJob(PAYROLL_DRAFTS_JOB, () => runPayrollDrafts()),
 ];
 
 export const talentJobSchedules: ScheduleDefinition[] = [
@@ -39,6 +46,7 @@ export const talentJobSchedules: ScheduleDefinition[] = [
   OPEN_TIMESHEETS_SCHEDULE,
   TIMESHEET_REMINDERS_SCHEDULE,
   LEAVE_CREDITS_SCHEDULE,
+  PAYROLL_DRAFTS_SCHEDULE,
 ];
 
 /**

@@ -585,3 +585,42 @@ export function canOpenTimeOffAttachment(
   if (approver) return true;
   return canReadEmployeeRecords(actor) && (isHR(actor) || isSystemAdministrator(actor));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9: payroll runs (SECURITY.md#sensitive-data, "Payroll runs";
+// docs/modules/talent.md#payroll-run-computation-build-step-29, "Who may see and do what";
+// decision 343 in docs/BUILD_PLAN.md).
+//
+// - Seeing runs (the list, a run, "Show amounts", a breakdown): Talent Read and HR, Accounting or
+//   the System Administrator, for every employee in a run, HR staff included (viewing isn't
+//   changing). Board members and employees see nothing in step 2.9.
+// - Creating and recomputing a draft: Talent Write and HR or the System Administrator. Accounting
+//   reads only. Computing changes no pay, so HR computes HR staff's lines like anyone's.
+
+export const PAYROLL_RUNS_DENIED =
+  'You don’t have access to payroll runs. HR, Accounting and the System Administrator, with Talent access, see them.';
+export const PAYROLL_COMPUTE_DENIED =
+  'Only HR and the System Administrator, with Talent Write, compute payroll runs.';
+
+/** True when `actor` sees payroll runs: Talent Read and HR, Accounting or the System Administrator. */
+export function canSeePayrollRuns(actor: TalentActor): boolean {
+  return (
+    canReadEmployeeRecords(actor) &&
+    (isHR(actor) || isAccounting(actor) || isSystemAdministrator(actor))
+  );
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may see payroll runs. */
+export function assertCanSeePayrollRuns(actor: TalentActor): void {
+  if (!canSeePayrollRuns(actor)) throw new AccessDeniedError(PAYROLL_RUNS_DENIED);
+}
+
+/** True when `actor` may create and recompute draft runs: Talent Write and HR or the System Administrator. */
+export function canComputePayrollRuns(actor: TalentActor): boolean {
+  return hasModuleAccess(actor, 'talent', 'write') && (isHR(actor) || isSystemAdministrator(actor));
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may create and recompute draft runs. */
+export function assertCanComputePayrollRuns(actor: TalentActor): void {
+  if (!canComputePayrollRuns(actor)) throw new AccessDeniedError(PAYROLL_COMPUTE_DENIED);
+}

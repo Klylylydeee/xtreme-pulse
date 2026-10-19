@@ -46,8 +46,14 @@ import {
 import { LeaveEntryModel } from '../leave/model';
 import { OffsetEntryModel } from '../offset/model';
 import { PayrollOpeningEntryModel } from '../opening-balances/model';
-import { isSeededLeaveVersion, isSeededVersion } from './seed-data';
-import { LEAVE_SETTINGS_SETTING, PAYROLL_SETTINGS, payrollSettingVersionOn } from './settings';
+import { type PayrollRunSettings, payrollRunSettingsSchema } from '../../payroll/run-settings';
+import { isSeededLeaveVersion, isSeededPayrollRunVersion, isSeededVersion } from './seed-data';
+import {
+  LEAVE_SETTINGS_SETTING,
+  PAYROLL_RUN_SETTINGS_SETTING,
+  PAYROLL_SETTINGS,
+  payrollSettingVersionOn,
+} from './settings';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Payroll settings
 // page"), SECURITY.md#module-access-rwo and docs/RUNBOOK.md#a-wrong-payroll-settings-version-was-added
@@ -366,7 +372,7 @@ export interface LeaveSettingsVersionInput {
   value: unknown;
 }
 
-const leaveVersionMetaSchema = payrollSettingsVersionSchema.pick({
+const versionMetaSchema = payrollSettingsVersionSchema.pick({
   effectiveFrom: true,
   source: true,
 });
@@ -383,7 +389,7 @@ export async function addLeaveSettingsVersion(
   input: LeaveSettingsVersionInput,
 ): Promise<{ id: string; effectiveFrom: BusinessDate }> {
   assertCanAddPayrollSettingsVersion(actor);
-  const meta = leaveVersionMetaSchema.safeParse(input);
+  const meta = versionMetaSchema.safeParse(input);
   if (!meta.success) throw inputError(meta.error.issues);
   const parsedValue = leaveSettingsSchema.safeParse(input.value);
   if (!parsedValue.success) {
@@ -448,6 +454,159 @@ export async function addLeaveSettingsVersion(
             type: 'core.configVersion',
             id: version.id,
             label: `${LEAVE_SETTINGS_SETTING.key} from ${version.effectiveFrom}`,
+          },
+          before: null,
+          after: {
+            key: version.key,
+            effectiveFrom: version.effectiveFrom,
+            value: version.value,
+            source: version.source,
+          },
+        },
+        { session },
+      );
+      return { id: version.id, effectiveFrom: version.effectiveFrom };
+    });
+  } catch (error) {
+    // Another version for that date committed first (the unique key and effective date).
+    if (error instanceof ConfigVersionExistsError) throw exists();
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9: the "Payroll run" card in the Pay schedule segment (`talent.payrollRunSettings`;
+// decision 326 in docs/BUILD_PLAN.md). Viewing is Talent Read; adding a version is Talent Owner
+// and HR or the System Administrator, under the same date rules as the payroll settings. A
+// version may start on any day: a run reads the version in effect on its cut-off's start, so one
+// starting inside a cut-off applies from the next cut-off (*Assumption*, HANDOFF).
+
+/** One `talent.payrollRunSettings` version on the "Payroll run" card. */
+export interface PayrollRunSettingsVersionView {
+  id: string;
+  effectiveFrom: BusinessDate;
+  value: PayrollRunSettings;
+  source: string | null;
+  /** True for the version `pnpm seed:admin` added. */
+  seeded: boolean;
+  status: 'inEffect' | 'scheduled' | 'past';
+}
+
+/** The "Payroll run" card of Payroll settings › Pay schedule. */
+export interface PayrollRunSettingsView {
+  today: BusinessDate;
+  /** Talent Owner and HR or the System Administrator: "Add version". */
+  canAddVersion: boolean;
+  inEffect: PayrollRunSettingsVersionView | null;
+  /** Versions taking effect after today, soonest first. */
+  scheduled: PayrollRunSettingsVersionView[];
+  /** Every version, newest first. */
+  history: PayrollRunSettingsVersionView[];
+  earliestEffectiveFrom: BusinessDate | null;
+  latestEffectiveFrom: BusinessDate;
+}
+
+/** The "Payroll run" card: Talent Read. */
+export async function getPayrollRunSettingsView(
+  actor: TalentActor,
+): Promise<PayrollRunSettingsView> {
+  assertCanReadEmployeeRecords(actor);
+  await connectDb();
+  const today = businessToday();
+  const versions = await listConfigVersions(PAYROLL_RUN_SETTINGS_SETTING);
+  const inEffectId = versions.find((version) => version.effectiveFrom <= today)?.id ?? null;
+  const history = versions.map((version): PayrollRunSettingsVersionView => ({
+    id: version.id,
+    effectiveFrom: version.effectiveFrom,
+    value: version.value,
+    source: version.source,
+    seeded: isSeededPayrollRunVersion(version.effectiveFrom, version.source),
+    status:
+      version.effectiveFrom > today ? 'scheduled' : version.id === inEffectId ? 'inEffect' : 'past',
+  }));
+  const latest = versions[0];
+  return {
+    today,
+    canAddVersion: canAddPayrollSettingsVersion(actor),
+    inEffect: history.find((version) => version.status === 'inEffect') ?? null,
+    scheduled: history.filter((version) => version.status === 'scheduled').reverse(),
+    history,
+    earliestEffectiveFrom: latest ? addDays(latest.effectiveFrom, 1) : null,
+    latestEffectiveFrom: latestEffectiveDate(today),
+  };
+}
+
+/** "Add version" on the "Payroll run" card: the effective date, the source and the whole value. */
+export interface PayrollRunSettingsVersionInput {
+  effectiveFrom: unknown;
+  source: unknown;
+  value: unknown;
+}
+
+/**
+ * Adds a `talent.payrollRunSettings` version from `effectiveFrom`, with its source. Talent Owner
+ * and HR or the System Administrator, checked again in the transaction. Refused: a date on or
+ * before the latest version's or more than a year ahead, and an invalid value. The `create` entry
+ * on `core.configVersion` is written in the same transaction.
+ */
+export async function addPayrollRunSettingsVersion(
+  actor: TalentActor,
+  input: PayrollRunSettingsVersionInput,
+): Promise<{ id: string; effectiveFrom: BusinessDate }> {
+  assertCanAddPayrollSettingsVersion(actor);
+  const meta = versionMetaSchema.safeParse(input);
+  if (!meta.success) throw inputError(meta.error.issues);
+  const parsedValue = payrollRunSettingsSchema.safeParse(input.value);
+  if (!parsedValue.success) {
+    throw inputError(
+      parsedValue.error.issues.map((issue) => ({ ...issue, path: ['value', ...issue.path] })),
+    );
+  }
+  const { effectiveFrom, source } = meta.data;
+  const value = parsedValue.data;
+  const today = businessToday();
+  await connectDb();
+  const exists = () =>
+    new ActionError(
+      `A version of the payroll run settings already takes effect on ${formatDate(effectiveFrom)}. Versions can’t be changed: add one with a later date.`,
+      { field: 'effectiveFrom' },
+    );
+
+  try {
+    return await withTransaction(async (session) => {
+      const current = await reloadActorAccess({ id: actor.id }, session);
+      assertCanAddPayrollSettingsVersion(current);
+      const versions = await listConfigVersions(PAYROLL_RUN_SETTINGS_SETTING, { session });
+      const latest = versions[0];
+      if (latest && effectiveFrom === latest.effectiveFrom) throw exists();
+      if (latest && effectiveFrom < latest.effectiveFrom) {
+        throw new ActionError(
+          `The effective date must be after ${formatDate(latest.effectiveFrom)}, the latest version’s date. A wrong version is replaced by a newer one.`,
+          { field: 'effectiveFrom' },
+        );
+      }
+      if (effectiveFrom > latestEffectiveDate(today)) {
+        throw new ActionError('The effective date can be at most a year from today.', {
+          field: 'effectiveFrom',
+        });
+      }
+      const version = await addConfigVersion(PAYROLL_RUN_SETTINGS_SETTING, {
+        effectiveFrom,
+        value,
+        source,
+        actorId: new Types.ObjectId(current.id),
+        session,
+      });
+      await recordAudit(
+        {
+          actorId: current.id,
+          actorEmail: current.email,
+          module: 'core',
+          action: 'create',
+          record: {
+            type: 'core.configVersion',
+            id: version.id,
+            label: `${PAYROLL_RUN_SETTINGS_SETTING.key} from ${version.effectiveFrom}`,
           },
           before: null,
           after: {

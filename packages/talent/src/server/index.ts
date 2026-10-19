@@ -238,6 +238,62 @@ export {
   type LeaveSettingsView,
   openingEntryExists,
 } from './payroll-settings/service';
+// The payroll run settings (build step 2.9, `talent.payrollRunSettings`; chunk B): the "Payroll
+// run" card's view and "Add version", and the version in effect on a cut-off's start.
+export { PAYROLL_RUN_SETTINGS_SETTING, payrollRunSettingsOn } from './payroll-settings/settings';
+export {
+  addPayrollRunSettingsVersion,
+  getPayrollRunSettingsView,
+  type PayrollRunSettingsVersionInput,
+  type PayrollRunSettingsVersionView,
+  type PayrollRunSettingsView,
+} from './payroll-settings/service';
+// Payroll runs (build step 2.9, docs/modules/talent.md#payroll-run-computation-build-step-29;
+// chunk C).
+// - `/talent/payroll`: `listPayrollRuns` (no amount) and "Compute draft run"
+//   (`createPayrollDraftRun`); `/talent/payroll/<runId>`: `getPayrollRunView` (with
+//   `showAmounts`, the `reveal` on the run is written first), "Recompute" (`recomputePayrollRun`)
+//   and the breakdown sheet (`getPayrollRunBreakdown`, a `reveal` on the line first). Seeing:
+//   Talent Read and HR, Accounting or the System Administrator; computing: Talent Write and HR or
+//   the System Administrator.
+// - The daily `talent.payrollDraftRuns` job for the worker (`runPayrollDrafts`); the
+//   holidays-changed listener recomputes drafts too.
+// - `getPayrollRunLine`: server-only, for steps 2.10–2.14's services (no access check).
+export {
+  createPayrollDraftRun,
+  getPayrollRunBreakdown,
+  getPayrollRunLine,
+  getPayrollRunView,
+  listPayrollRuns,
+  PAYROLL_CUT_OFF_INVALID,
+  PAYROLL_DRAFT_READY_EVENT,
+  PAYROLL_LINE_BREAKDOWN_FIELD,
+  PAYROLL_LINE_GONE,
+  PAYROLL_RUN_AMOUNTS_FIELD,
+  PAYROLL_RUN_BUSY,
+  PAYROLL_RUN_EXISTS,
+  PAYROLL_RUN_GONE,
+  PAYROLL_RUN_NOT_DRAFT,
+  payrollDraftReadyDedupeKey,
+  payrollRunHref,
+  type PayrollCreatableCutOff,
+  type PayrollRunBreakdownView,
+  type PayrollRunLeftOutRow,
+  type PayrollRunListRow,
+  type PayrollRunListView,
+  type PayrollRunPersonRow,
+  type PayrollRunView,
+  recomputePayrollRun,
+} from './payroll-runs/service';
+export { PAYROLL_SETTINGS_MISSING } from './payroll-runs/compute';
+export {
+  PAYROLL_DRAFTS_JOB,
+  PAYROLL_DRAFTS_SCHEDULE,
+  type PayrollDraftsResult,
+  recomputeDraftsForDates,
+  runPayrollDrafts,
+} from './payroll-runs/job';
+export { PAYROLL_RUN_EMPLOYEE_RECORD_TYPE, PAYROLL_RUN_RECORD_TYPE } from './payroll-runs/model';
 // Leave and offset time off requests (build step 2.8,
 // docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28; chunk D).
 // - Self-service (no employee id): `fileTimeOff`, `resendTimeOff`, `cancelTimeOff`,
@@ -434,6 +490,13 @@ export {
   // Step 2.8
   canOpenTimeOffAttachment,
   NO_EMPLOYEE_TIME_OFF,
+  // Step 2.9
+  assertCanComputePayrollRuns,
+  assertCanSeePayrollRuns,
+  canComputePayrollRuns,
+  canSeePayrollRuns,
+  PAYROLL_COMPUTE_DENIED,
+  PAYROLL_RUNS_DENIED,
   // Step 2.6
   assertCanConfirmNoSupervisor,
   assertCanVerifySensitiveDetails,

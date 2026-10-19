@@ -18,6 +18,7 @@ import {
 } from '../testing/fixtures';
 import {
   LEAVE_SEED_VERSION,
+  PAYROLL_RUN_SEED_VERSION,
   PAYROLL_SEED_VERSIONS,
   SEED_ALLOWANCE_TYPES,
   SEED_PAYROLL_SETTINGS,
@@ -28,15 +29,20 @@ import {
 } from './seed-data';
 import {
   addLeaveSettingsVersion,
+  addPayrollRunSettingsVersion,
   addPayrollSettingsVersion,
   getLeaveSettingsView,
+  getPayrollRunSettingsView,
   getPayrollSettingsView,
 } from './service';
 import { SEED_LEAVE_SETTINGS } from '../../time-off/settings';
+import { payrollRunSettingsSchema, SEED_PAYROLL_RUN_SETTINGS } from '../../payroll/run-settings';
 import {
   LEAVE_SETTINGS_SETTING,
   leaveSettingsOn,
+  PAYROLL_RUN_SETTINGS_SETTING,
   PAYROLL_SETTINGS,
+  payrollRunSettingsOn,
   PREMIUM_RATES_SETTING,
   REIMBURSEMENT_SETTINGS_SETTING,
   THIRTEENTH_MONTH_EXEMPTION_SETTING,
@@ -242,6 +248,7 @@ describe('seeding', () => {
       ...PAYROLL_SETTING_KEYS,
       'talent.onboardingSettings',
       'talent.leaveSettings',
+      'talent.payrollRunSettings',
     ]);
 
     const first = await runSeed();
@@ -608,5 +615,127 @@ describe('the leave settings', () => {
       (entry) => entry.record.id.toHexString() === added.id,
     );
     expect(entries[0]?.record.label).toBe('talent.leaveSettings from 2026-11-10');
+  });
+});
+
+describe('the payroll run settings', () => {
+  const runVersion = (value: unknown, effectiveFrom = '2026-11-11') => ({
+    effectiveFrom,
+    source: 'Made-up accountant memo',
+    value,
+  });
+  const value = (change: object = {}) => ({
+    ...structuredClone(SEED_PAYROLL_RUN_SETTINGS),
+    ...change,
+  });
+
+  it('has a schema that takes the seed and refuses a bad base, treatment or lookback', () => {
+    expect(payrollRunSettingsSchema.parse(SEED_PAYROLL_RUN_SETTINGS)).toEqual({
+      contributionBases: {
+        sss: 'monthCompensation',
+        philhealth: 'monthlyBasicSalary',
+        pagibig: 'monthCompensation',
+      },
+      monthlyRatedUnworkedSpecialDay: 'paid',
+      adjustmentLookbackCutOffs: 24,
+    });
+    expect(PAYROLL_RUN_SEED_VERSION).toMatchObject({
+      effectiveFrom: '2000-01-01',
+      source: 'Company policy (spec) and step 2.9 recommendations',
+    });
+    expect(hasFractionalNumber(SEED_PAYROLL_RUN_SETTINGS)).toBe(false);
+    const refused = [
+      value({
+        contributionBases: {
+          sss: 'monthCompensation',
+          philhealth: 'gross',
+          pagibig: 'monthCompensation',
+        },
+      }),
+      value({ contributionBases: { sss: 'monthCompensation', philhealth: 'monthlyBasicSalary' } }),
+      value({ monthlyRatedUnworkedSpecialDay: 'halfPaid' }),
+      value({ adjustmentLookbackCutOffs: 0 }),
+      value({ adjustmentLookbackCutOffs: 49 }),
+      value({ adjustmentLookbackCutOffs: 2.5 }),
+      value({ adjustmentLookbackCutOffs: '24' }),
+    ];
+    for (const entry of refused) {
+      expect(payrollRunSettingsSchema.safeParse(entry).success).toBe(false);
+    }
+    for (const lookback of [1, 48]) {
+      const parsed = payrollRunSettingsSchema.safeParse(
+        value({ adjustmentLookbackCutOffs: lookback }),
+      );
+      expect(parsed.success).toBe(true);
+    }
+  });
+
+  it('seeds one version from 2000-01-01, once, with no audit entry', async () => {
+    const versions = await listConfigVersions(PAYROLL_RUN_SETTINGS_SETTING);
+    expect(versions.map((v) => [v.effectiveFrom, v.source, v.value])).toEqual([
+      ['2000-01-01', PAYROLL_RUN_SEED_VERSION.source, SEED_PAYROLL_RUN_SETTINGS],
+    ]);
+    const auditBefore = await countAudit();
+    const loader = talentSeedLoaders.find((entry) => entry.name === 'talent.payrollRunSettings');
+    expect(await loader?.run()).toEqual({ added: 0, skipped: 1 });
+    expect(await listConfigVersions(PAYROLL_RUN_SETTINGS_SETTING)).toHaveLength(1);
+    expect(await countAudit()).toBe(auditBefore);
+    expect(await payrollRunSettingsOn('2026-09-26')).toEqual({
+      value: SEED_PAYROLL_RUN_SETTINGS,
+      effectiveFrom: '2000-01-01',
+    });
+  });
+
+  it('shows the card to Talent Read, with Add version for HR or the System Administrator with Talent Owner', async () => {
+    const view = await getPayrollRunSettingsView(reader.actor);
+    expect(view).toMatchObject({ canAddVersion: false, earliestEffectiveFrom: '2000-01-02' });
+    expect(view.inEffect).toMatchObject({ effectiveFrom: '2000-01-01', seeded: true });
+    expect((await getPayrollRunSettingsView(hrOwner.actor)).canAddVersion).toBe(true);
+    await expect(getPayrollRunSettingsView(netOwner.actor)).resolves.toBeTruthy();
+  });
+
+  it('refuses an invalid value, a missing source, a date over a year ahead and whoever may not add a version', async () => {
+    await expect(
+      addPayrollRunSettingsVersion(
+        hrOwner.actor,
+        runVersion(value({ adjustmentLookbackCutOffs: 60 })),
+      ),
+    ).rejects.toMatchObject({ field: 'value.adjustmentLookbackCutOffs' });
+    await expect(
+      addPayrollRunSettingsVersion(hrOwner.actor, { ...runVersion(value()), source: '' }),
+    ).rejects.toBeInstanceOf(ActionError);
+    await expect(
+      addPayrollRunSettingsVersion(hrOwner.actor, runVersion(value(), '2027-11-13')),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    await expect(
+      addPayrollRunSettingsVersion(hrWriter.actor, runVersion(value())),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(
+      addPayrollRunSettingsVersion(netOwner.actor, runVersion(value())),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    expect(await listConfigVersions(PAYROLL_RUN_SETTINGS_SETTING)).toHaveLength(1);
+  });
+
+  it('adds a version on any day, audited, and refuses one on or before the latest', async () => {
+    const next = value({
+      monthlyRatedUnworkedSpecialDay: 'deducted',
+      adjustmentLookbackCutOffs: 12,
+    });
+    const added = await addPayrollRunSettingsVersion(adminOwner.actor, runVersion(next));
+    expect(added.effectiveFrom).toBe('2026-11-11');
+    await expect(
+      addPayrollRunSettingsVersion(adminOwner.actor, runVersion(next)),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    await expect(
+      addPayrollRunSettingsVersion(adminOwner.actor, runVersion(next, '2026-11-01')),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    expect((await payrollRunSettingsOn('2026-11-11')).value).toEqual(next);
+    expect((await payrollRunSettingsOn('2026-11-10')).value).toEqual(SEED_PAYROLL_RUN_SETTINGS);
+    const view = await getPayrollRunSettingsView(reader.actor);
+    expect(view.scheduled.map((v) => [v.effectiveFrom, v.seeded])).toEqual([['2026-11-11', false]]);
+    const entries = (await auditEntries('core.configVersion')).filter(
+      (entry) => entry.record.id.toHexString() === added.id,
+    );
+    expect(entries[0]?.record.label).toBe('talent.payrollRunSettings from 2026-11-11');
   });
 });

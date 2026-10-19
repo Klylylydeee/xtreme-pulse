@@ -29,6 +29,11 @@ import {
   type PayrollOpeningField,
   payrollOpeningPath,
 } from '../opening-balances/model';
+import {
+  PAYROLL_RUN_EMPLOYEE_RECORD_TYPE,
+  PayrollRunEmployeeModel,
+  PayrollRunModel,
+} from '../payroll-runs/model';
 
 // Spec: SECURITY.md#sensitive-data ("Registered reveals", decision 166 in docs/BUILD_PLAN.md) —
 // Talent's revealable fields. The reveal Server Action calls `registerTalentSensitiveReveals()`
@@ -124,7 +129,10 @@ async function assignmentEmployee(
  * `sss`, `philhealth`, `pagibig` as `governmentId`, `bankAccountNumber` as `bankAccount`) and `talent.compensationEntry`
  * (`basicSalary` as `salary`), and from step 2.3 `talent.allowanceAssignment` (`amount` as
  * `allowances`), and from step 2.8 `talent.payrollOpeningEntry` (the seven year-to-date pay figures
- * as `salary`, labelled `<employee number> · <year>`). Safe to call on every request.
+ * as `salary`, labelled `<employee number> · <year>`), and from step 2.9 `talent.payrollRunEmployee`
+ * (`netPay` and `gross` as `payslip`, labelled `<run number> · <employee number>`, for step 2.10's
+ * Board view; the run page's "Show amounts" and breakdown write their own `reveal` entries).
+ * Safe to call on every request.
  */
 export function registerTalentSensitiveReveals(): void {
   registerSensitiveReveal(EMPLOYEE_RECORD_TYPE, {
@@ -244,6 +252,8 @@ export function registerTalentSensitiveReveals(): void {
       return employee ? `${employee.employeeNumber} · ${entry.year}` : null;
     },
   });
+
+  registerPayrollRunReveals();
 }
 
 async function payrollOpeningOf(
@@ -253,4 +263,56 @@ async function payrollOpeningOf(
   if (!id) return null;
   await connectDb();
   return PayrollOpeningEntryModel.findById(id, { employeeId: 1, year: 1 }).lean();
+}
+
+/** The revealable fields of `talent.payrollRunEmployee` (step 2.9), with their stored paths. */
+const PAYROLL_LINE_FIELDS: Record<string, string> = {
+  netPay: 'netPayCentavos',
+  gross: 'grossCentavos',
+};
+
+async function payrollLineOf(
+  ownerId: string,
+): Promise<{ employeeId: Types.ObjectId; runId: Types.ObjectId } | null> {
+  const id = objectIdOf(ownerId);
+  if (!id) return null;
+  await connectDb();
+  return PayrollRunEmployeeModel.findById(id, { employeeId: 1, runId: 1 }).lean();
+}
+
+/** Step 2.9: `talent.payrollRunEmployee` (`netPay`, `gross` as `payslip`). */
+function registerPayrollRunReveals(): void {
+  registerSensitiveReveal(PAYROLL_RUN_EMPLOYEE_RECORD_TYPE, {
+    module: 'talent',
+    fields: Object.fromEntries(
+      Object.keys(PAYROLL_LINE_FIELDS).map((field) => [field, 'payslip' as const]),
+    ),
+    async loadValue(ownerId, field) {
+      const path = PAYROLL_LINE_FIELDS[field];
+      const id = objectIdOf(ownerId);
+      if (!path || !id) return null;
+      await connectDb();
+      const line = await PayrollRunEmployeeModel.findById(id).select(`+${path}`).lean();
+      if (!line) return null;
+      // Nobody sees a draft's amounts through the generic reveal (an employee could reveal their
+      // own line by the reveal rules): in step 2.9 drafts are seen only on the run page, with its
+      // own access check and reveal entries (decision 343). Step 2.10 widens this for its views.
+      const run = await PayrollRunModel.findById(line.runId, { status: 1 }).lean();
+      if (run?.status !== 'finalized') return null;
+      return valueAt(line, path) ?? null;
+    },
+    async subject(ownerId) {
+      const line = await payrollLineOf(ownerId);
+      return line ? getSensitiveSubject(line.employeeId) : null;
+    },
+    async label(ownerId) {
+      const line = await payrollLineOf(ownerId);
+      if (!line) return null;
+      const [employee, run] = await Promise.all([
+        employeeAuditLabel(line.employeeId),
+        PayrollRunModel.findById(line.runId, { number: 1 }).lean(),
+      ]);
+      return employee && run ? `${run.number} · ${employee.employeeNumber}` : null;
+    },
+  });
 }

@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import type { CurrentUser } from '@pulse/core/server';
-import { getLeaveSettingsView, getPayrollSettingsView } from '@pulse/talent/server';
+import {
+  getLeaveSettingsView,
+  getPayrollRunSettingsView,
+  getPayrollSettingsView,
+} from '@pulse/talent/server';
 import { requireModulePage } from '@/lib/auth';
 import { PayrollSettingsLoading } from './payroll-settings-loading';
 import { PayrollSettingsManager } from './payroll-settings-manager';
@@ -16,7 +20,9 @@ export const metadata: Metadata = { title: 'Payroll settings' };
 // service decides who may add a version (`canAddVersion`: Talent Owner and HR or the System
 // Administrator) and who gets the minimum wage counts (HR, Accounting or the System
 // Administrator); the actions check again. From step 2.8 the Leave segment's settings load beside
-// them (`getLeaveSettingsView`, Talent Read). Nothing here is logged or cached.
+// them (`getLeaveSettingsView`, Talent Read), and from step 2.9 the "Payroll run" card's setting
+// in the Pay schedule segment (`getPayrollRunSettingsView`, Talent Read). Nothing here is logged
+// or cached.
 export default async function PayrollSettingsPage() {
   const user = await requireModulePage('talent', 'read');
   return (
@@ -27,9 +33,10 @@ export default async function PayrollSettingsPage() {
 }
 
 async function PayrollSettings({ user }: { user: CurrentUser }) {
-  const [view, leave] = await Promise.all([
+  const [view, leave, run] = await Promise.all([
     getPayrollSettingsView(user),
     getLeaveSettingsView(user),
+    getPayrollRunSettingsView(user),
   ]);
-  return <PayrollSettingsManager view={view} leave={leave} />;
+  return <PayrollSettingsManager view={view} leave={leave} run={run} />;
 }

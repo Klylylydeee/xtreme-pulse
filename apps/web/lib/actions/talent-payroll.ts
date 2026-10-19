@@ -7,11 +7,13 @@ import {
   isPayrollSettingKey,
   leaveSettingsSchema,
   PAYROLL_SETTING_SCHEMAS,
+  payrollRunSettingsSchema,
   payrollSettingsVersionSchema,
   WORK_REGIONS,
 } from '@pulse/talent';
 import {
   addLeaveSettingsVersion,
+  addPayrollRunSettingsVersion,
   addPayrollSettingsVersion,
   listEmployeesBelowMinimumWage,
 } from '@pulse/talent/server';
@@ -208,6 +210,48 @@ export const addLeaveSettingsVersionAction = defineAction({
     const result = await addLeaveSettingsVersion(await signedInUser(), input);
     revalidatePath('/talent/payroll-settings');
     revalidatePath(OPENING_BALANCES_HREF);
+    return result;
+  },
+});
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9: the "Payroll run" card in Payroll settings › Pay schedule (`talent.payrollRunSettings`;
+// decision 326 in docs/BUILD_PLAN.md). "Add version" needs Talent Owner here; the service checks
+// again HR or the System Administrator in its transaction and writes the `create` entry on
+// `core.configVersion`. The sheet sends the lookback as a number (text that isn't digits stays
+// text, so the schema names the field); the value is checked here against the setting's schema so
+// every field error comes back at once under `value.<path>`, and the service parses it again.
+
+const addPayrollRunVersionSchema = z.record(z.string(), z.unknown()).transform((raw, ctx) => {
+  const meta = payrollSettingsVersionSchema
+    .pick({ effectiveFrom: true, source: true })
+    .safeParse(raw);
+  if (!meta.success) {
+    for (const issue of meta.error.issues) {
+      ctx.addIssue({ code: 'custom', path: pathOf(issue.path), message: issue.message });
+    }
+  }
+  const value = payrollRunSettingsSchema.safeParse(raw.value);
+  if (!value.success) {
+    for (const issue of value.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value', ...pathOf(issue.path)],
+        message: issue.message,
+      });
+    }
+  }
+  if (!meta.success || !value.success) return z.NEVER;
+  return { ...meta.data, value: value.data };
+});
+
+/** "Add version" on the "Payroll run" card. Returns the new version's id and date. */
+export const addPayrollRunSettingsVersionAction = defineAction({
+  access: talentOwners,
+  schema: addPayrollRunVersionSchema,
+  handler: async (input) => {
+    const result = await addPayrollRunSettingsVersion(await signedInUser(), input);
+    revalidatePath('/talent/payroll-settings');
     return result;
   },
 });

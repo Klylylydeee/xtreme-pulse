@@ -9,6 +9,7 @@ import {
   CircleCheck,
   ClipboardList,
   FileCheck,
+  HandCoins,
   Receipt,
   Search,
   Settings,
@@ -42,7 +43,7 @@ import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge, plural } from '@/components/org-structure';
 import { PersonAvatar } from '@/components/person-avatar';
-import { OPENING_BALANCES_HREF } from '@/lib/navigation';
+import { OPENING_BALANCES_HREF, PAYROLL_HREF } from '@/lib/navigation';
 import { CheckReceiptSheet } from './check-receipt-sheet';
 import { ExpiryAlertsSheet } from './employee-documents-sheets';
 import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
@@ -74,6 +75,11 @@ import { OnboardingDocumentsSheet } from './onboarding-section';
 // From build step 2.8 (docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28)
 // "Opening balances" opens `/talent/opening-balances`, shown only when the server says the user
 // may open it (`canOpenOpeningBalances`: Talent Write and HR or the System Administrator); the
+// page checks again.
+//
+// From build step 2.9 (docs/modules/talent.md#payroll-run-computation-build-step-29) "Payroll"
+// opens the payroll runs list (`/talent/payroll`), shown only when the server says the user may
+// see runs (`canOpenPayroll`: Talent Read and HR, Accounting or the System Administrator); the
 // page checks again.
 
 const ONBOARDING_FILTER_LABELS: Record<OnboardingFilter, string> = {
@@ -186,6 +192,7 @@ export function EmployeesManager({
   onboarding,
   onboardingCounts,
   canOpenOpeningBalances = false,
+  canOpenPayroll = false,
 }: {
   rows: EmployeeListRow[];
   stats: { status: EmploymentStatus; count: number }[];
@@ -206,6 +213,8 @@ export function EmployeesManager({
   onboardingCounts: { incomplete: number; toVerify: number } | null;
   /** Step 2.8: Talent Write and HR or the System Administrator (the page checks again). */
   canOpenOpeningBalances?: boolean;
+  /** Step 2.9: Talent Read and HR, Accounting or the System Administrator (the page checks again). */
+  canOpenPayroll?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -308,6 +317,13 @@ export function EmployeesManager({
               >
                 <ClipboardList aria-hidden="true" className="size-4.5" />
                 Opening balances
+              </Link>
+            ) : null}
+            {/* Step 2.9: payroll runs, Talent Read and HR, Accounting or the System Administrator. */}
+            {canOpenPayroll ? (
+              <Link href={PAYROLL_HREF} className={buttonVariants({ variant: 'secondary' })}>
+                <HandCoins aria-hidden="true" className="size-4.5" />
+                Payroll
               </Link>
             ) : null}
             {/* Step 2.5: Talent Read, which this page already needs. */}

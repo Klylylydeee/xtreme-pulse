@@ -1,5 +1,6 @@
 import { type HolidaysChangedEvent, registerHolidaysChangedListener } from '@pulse/core/server';
 import { type OffsetReconcileResult, reconcileOffsetCredits } from '../offset/service';
+import { recomputeDraftsForDates } from '../payroll-runs/job';
 import { reconcileTimeOffRequests, type TimeOffReconcileResult } from '../time-off/reconcile';
 
 // Spec: docs/modules/core.md#holiday-calendar, docs/ARCHITECTURE.md#cross-module-integration and
@@ -13,7 +14,9 @@ import { reconcileTimeOffRequests, type TimeOffReconcileResult } from '../time-o
 // (server/time-off/reconcile.ts: `talent.leaveAdjusted`, `talent.offsetAdjusted`). The worker
 // registers it at start-up (`registerTalentHolidaysChangedListener()`), and Core's
 // `core.holidaysChanged` handler runs it outside any transaction, possibly more than once: it is
-// idempotent. Step 2.9 extends it to draft payroll runs.
+// idempotent. From step 2.9 (decision 341) it then recomputes every draft payroll run whose cut-off
+// or lookback holds a changed date, in cut-off order, each in its own transaction, with no actor
+// (server/payroll-runs/job.ts `recomputeDraftsForDates`).
 
 /** The listener's name. */
 export const RECOMPUTE_DTR_LISTENER = 'talent.recomputeDtr';
@@ -22,18 +25,21 @@ export const RECOMPUTE_DTR_LISTENER = 'talent.recomputeDtr';
 export interface RecomputeDtrResult extends OffsetReconcileResult {
   /** Step 2.8: the approved time off requests covering a changed date. */
   timeOff: TimeOffReconcileResult;
+  /** Step 2.9: the draft payroll runs recomputed. */
+  payrollDrafts: number;
 }
 
 /**
  * The listener: reconciles the offset credits of approved timesheets, then the approved time off
- * requests, for the changed dates.
+ * requests, and from step 2.9 the draft payroll runs, for the changed dates.
  */
 export async function recomputeDtrOnHolidaysChanged(
   event: HolidaysChangedEvent,
 ): Promise<RecomputeDtrResult> {
   const offset = await reconcileOffsetCredits(event.dates);
   const timeOff = await reconcileTimeOffRequests(event.dates);
-  return { ...offset, timeOff };
+  const payrollDrafts = await recomputeDraftsForDates(event.dates);
+  return { ...offset, timeOff, payrollDrafts };
 }
 
 let registered = false;

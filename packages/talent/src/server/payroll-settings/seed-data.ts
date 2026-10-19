@@ -14,6 +14,12 @@ import type {
   ThirteenthMonthExemption,
   WithholdingTaxSemiMonthly,
 } from '../../payroll/schemas';
+import {
+  PAYROLL_RUN_SETTINGS_SEED_EFFECTIVE_FROM,
+  PAYROLL_RUN_SETTINGS_SEED_SOURCE,
+  type PayrollRunSettings,
+  SEED_PAYROLL_RUN_SETTINGS,
+} from '../../payroll/run-settings';
 import type { ReimbursementSettings } from '../../reimbursements/schemas';
 import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
 import {
@@ -514,4 +520,31 @@ export const LEAVE_SEED_VERSION: Readonly<{
 /** True when a stored `talent.leaveSettings` version is the seeded one (same date and source). */
 export function isSeededLeaveVersion(effectiveFrom: BusinessDate, source: string | null): boolean {
   return effectiveFrom === LEAVE_SEED_VERSION.effectiveFrom && source === LEAVE_SEED_VERSION.source;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9: `talent.payrollRunSettings` (decision 326 in docs/BUILD_PLAN.md), one version from
+// 2000-01-01: PhilHealth on the monthly basic salary, SSS and Pag-IBIG on the month's
+// compensation, an unworked special day paid for the monthly-rated, a lookback of 24 cut-offs.
+// Every value an *Assumption, to be confirmed by the accountant*.
+
+export const PAYROLL_RUN_SEED_VERSION: Readonly<{
+  effectiveFrom: BusinessDate;
+  value: Readonly<PayrollRunSettings>;
+  source: string;
+}> = Object.freeze({
+  effectiveFrom: PAYROLL_RUN_SETTINGS_SEED_EFFECTIVE_FROM,
+  value: SEED_PAYROLL_RUN_SETTINGS,
+  source: PAYROLL_RUN_SETTINGS_SEED_SOURCE,
+});
+
+/** True when a stored `talent.payrollRunSettings` version is the seeded one (same date and source). */
+export function isSeededPayrollRunVersion(
+  effectiveFrom: BusinessDate,
+  source: string | null,
+): boolean {
+  return (
+    effectiveFrom === PAYROLL_RUN_SEED_VERSION.effectiveFrom &&
+    source === PAYROLL_RUN_SEED_VERSION.source
+  );
 }

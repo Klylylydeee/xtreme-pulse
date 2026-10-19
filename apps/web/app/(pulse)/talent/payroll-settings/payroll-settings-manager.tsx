@@ -15,7 +15,7 @@ import {
   SEEDED_VERSION_NOTE,
   type WorkRegion,
 } from '@pulse/talent';
-import type { LeaveSettingsView } from '@pulse/talent/server';
+import type { LeaveSettingsView, PayrollRunSettingsView } from '@pulse/talent/server';
 import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
 import { PageHeader } from '@pulse/ui/components/page-header';
@@ -29,6 +29,7 @@ import { PAYROLL_VIEWS, type PayrollView, TABLE_SETTINGS } from './payroll-forma
 import { type BelowWageRenderer, SettingValue } from './setting-values';
 import type { AllowanceEditorContext } from './value-editors';
 import { LeaveSettingsSegment } from './leave-settings';
+import { PayrollRunSettingsCard } from './payroll-run-settings';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Payroll settings
 // page", decisions 197, 198, 207 and 208 in docs/BUILD_PLAN.md) — `/talent/payroll-settings`.
@@ -45,6 +46,9 @@ import { LeaveSettingsSegment } from './leave-settings';
 // - Build step 2.8: a Leave segment (`leave-settings.tsx`) shows `talent.leaveSettings`, its own
 //   versioned setting (the go-live date, offset time off and the leave types), with its own
 //   "Add version" sheet.
+// - Build step 2.9: the Pay schedule segment also shows the "Payroll run" card
+//   (`payroll-run-settings.tsx`, `talent.payrollRunSettings`), its own versioned setting with its
+//   own "Add version" sheet.
 // - Minimum wage: for a viewer who may see them, each version and region shows the count of active
 //   employees paid below it and "View list", with no amounts.
 
@@ -260,10 +264,13 @@ function BelowWageCell({
 export function PayrollSettingsManager({
   view,
   leave,
+  run,
 }: {
   view: PayrollSettingsView;
   /** Build step 2.8: the Leave segment. */
   leave: LeaveSettingsView;
+  /** Build step 2.9: the "Payroll run" card in the Pay schedule segment. */
+  run: PayrollRunSettingsView;
 }) {
   const router = useRouter();
   const [current, setCurrent] = useState<PayrollView>('schedule');
@@ -332,7 +339,7 @@ export function PayrollSettingsManager({
         </Link>
         <PageHeader
           title="Payroll settings"
-          description="Pay schedule, contribution tables, tax brackets, premium rates, minimum wages, allowance types, the work schedule, reimbursements and leave. Each change is a new version from its own date."
+          description="Pay schedule and the payroll run, contribution tables, tax brackets, premium rates, minimum wages, allowance types, the work schedule, reimbursements and leave. Each change is a new version from its own date."
         />
       </div>
 
@@ -390,6 +397,14 @@ export function PayrollSettingsManager({
             belowWage={key === 'talent.minimumWages' ? belowWage : undefined}
           />
         ))}
+        {current === 'schedule' ? (
+          <PayrollRunSettingsCard
+            view={run}
+            onAdded={(message) => {
+              setNotice(message);
+            }}
+          />
+        ) : null}
       </div>
 
       {view.canAddVersion ? (

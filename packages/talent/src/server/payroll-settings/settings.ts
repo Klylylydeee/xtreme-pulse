@@ -7,7 +7,13 @@ import {
   defineConfigSetting,
   findConfigVersion,
 } from '@pulse/core/server';
-import { businessToday } from '@pulse/core';
+import { type BusinessDate, businessToday } from '@pulse/core';
+import {
+  PAYROLL_RUN_SETTINGS_KEY,
+  type PayrollRunSettings,
+  payrollRunSettingsSchema,
+  SEED_PAYROLL_RUN_SETTINGS,
+} from '../../payroll/run-settings';
 import {
   LEAVE_SETTINGS_KEY,
   type LeaveSettings,
@@ -146,4 +152,33 @@ export async function leaveSettingsOn(
     session: session ?? undefined,
   });
   return version?.value ?? structuredClone(SEED_LEAVE_SETTINGS);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.9: `talent.payrollRunSettings` (decision 326 in docs/BUILD_PLAN.md): the contribution
+// bases, the monthly-rated unworked special day and the adjustment lookback. Kept apart from the
+// thirteen payroll settings, like the leave settings, with its own view and "Add version" in
+// ./service.ts (the "Payroll run" card in the Pay schedule segment), under the step 2.3 rules.
+
+export const PAYROLL_RUN_SETTINGS_SETTING = defineConfigSetting(
+  PAYROLL_RUN_SETTINGS_KEY,
+  payrollRunSettingsSchema,
+);
+
+/**
+ * `talent.payrollRunSettings` in effect on `on` (a run passes its cut-off's start), with the
+ * version's effective date for the run's `settingVersions`. Before any version exists (only
+ * before `pnpm seed:admin` has run) the seeded value applies, with a null date.
+ */
+export async function payrollRunSettingsOn(
+  on: ConfigDate,
+  { session }: { session?: ClientSession | null } = {},
+): Promise<{ value: PayrollRunSettings; effectiveFrom: BusinessDate | null }> {
+  await connectDb();
+  const version = await findConfigVersion(PAYROLL_RUN_SETTINGS_SETTING, on, {
+    session: session ?? undefined,
+  });
+  return version
+    ? { value: version.value, effectiveFrom: version.effectiveFrom }
+    : { value: structuredClone(SEED_PAYROLL_RUN_SETTINGS), effectiveFrom: null };
 }

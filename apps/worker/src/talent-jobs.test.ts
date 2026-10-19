@@ -5,10 +5,12 @@ import {
   EXPIRY_ALERTS_JOB,
   LEAVE_CREDITS_JOB,
   OPEN_TIMESHEETS_JOB,
+  PAYROLL_DRAFTS_JOB,
   registerTalentHolidaysChangedListener,
   runExpiryAlerts,
   runLeaveCredits,
   runOpenTimesheets,
+  runPayrollDrafts,
   runTimesheetReminders,
   TIMESHEET_REMINDERS_JOB,
 } from '@pulse/talent/server';
@@ -17,9 +19,9 @@ import { registerTalentListeners, talentJobHandlers, talentJobSchedules } from '
 
 // The worker's Talent job wiring (docs/ARCHITECTURE.md#background-jobs): the expiry alert job
 // (build step 2.2), the timesheet opening job (build step 2.4), the timesheet reminders (build
-// step 2.7) and the leave credits (build step 2.8) each have one handler and one schedule on
-// Manila time (`0 8 * * *`, `5 0 * * *`, `0 8 * * *` and `30 0 * * *`), and each handler calls
-// Talent's service. The worker also registers the
+// step 2.7), the leave credits (build step 2.8) and the draft payroll runs (build step 2.9) each
+// have one handler and one schedule on Manila time (`0 8 * * *`, `5 0 * * *`, `0 8 * * *`,
+// `30 0 * * *` and `0 5 * * *`), and each handler calls Talent's service. The worker also registers the
 // `talent.recomputeDtr` holidays-changed listener at start-up (build step 2.7). The services and
 // the listener themselves are tested in packages/talent; here they are stubs.
 
@@ -31,6 +33,7 @@ vi.mock('@pulse/talent/server', async (importOriginal) => {
     runOpenTimesheets: vi.fn(async () => ({ stub: 'openTimesheets' })),
     runTimesheetReminders: vi.fn(async () => ({ stub: 'timesheetReminders' })),
     runLeaveCredits: vi.fn(async () => ({ stub: 'leaveCredits' })),
+    runPayrollDrafts: vi.fn(async () => ({ stub: 'payrollDrafts' })),
     registerTalentHolidaysChangedListener: vi.fn(),
   };
 });
@@ -42,6 +45,7 @@ beforeEach(() => {
   vi.mocked(runOpenTimesheets).mockClear();
   vi.mocked(runTimesheetReminders).mockClear();
   vi.mocked(runLeaveCredits).mockClear();
+  vi.mocked(runPayrollDrafts).mockClear();
   vi.mocked(registerTalentHolidaysChangedListener).mockClear();
 });
 
@@ -155,6 +159,37 @@ describe('Leave credits job registration (build step 2.8)', () => {
     expect(runExpiryAlerts).not.toHaveBeenCalled();
     expect(runOpenTimesheets).not.toHaveBeenCalled();
     expect(runTimesheetReminders).not.toHaveBeenCalled();
+  });
+});
+
+describe('Draft payroll runs job registration (build step 2.9)', () => {
+  it('registers the handler and schedule once, in production and development', () => {
+    for (const production of [true, false]) {
+      const names = jobHandlers({ production }).map((handler) => handler.job.name);
+      expect(names.filter((name) => name === 'talent.payrollDraftRuns')).toHaveLength(1);
+      const ids = jobSchedules({ production }).map((schedule) => schedule.id);
+      expect(ids.filter((id) => id === 'talent.payrollDraftRuns')).toHaveLength(1);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it('runs daily at 05:00 Manila', () => {
+    expect(SCHEDULE_TIME_ZONE).toBe('Asia/Manila');
+    const schedule = talentJobSchedules.find((s) => s.id === 'talent.payrollDraftRuns');
+    expect(schedule?.job).toBe(PAYROLL_DRAFTS_JOB);
+    expect(schedule?.pattern).toBe('0 5 * * *');
+    expect(schedule?.data).toEqual({});
+  });
+
+  it('creates and recomputes the drafts through Talent’s service', async () => {
+    const handler = talentJobHandlers.find((h) => h.job.name === 'talent.payrollDraftRuns');
+    await expect(handler?.run({}, context)).resolves.toEqual({ stub: 'payrollDrafts' });
+    expect(runPayrollDrafts).toHaveBeenCalledTimes(1);
+    expect(runPayrollDrafts).toHaveBeenCalledWith();
+    expect(runExpiryAlerts).not.toHaveBeenCalled();
+    expect(runOpenTimesheets).not.toHaveBeenCalled();
+    expect(runTimesheetReminders).not.toHaveBeenCalled();
+    expect(runLeaveCredits).not.toHaveBeenCalled();
   });
 });
 

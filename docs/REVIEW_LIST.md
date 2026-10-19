@@ -1,6 +1,6 @@
 # Owner review list
 
-Last updated: 2026-10-19, through step 2.9 spec.
+Last updated: 2026-10-19, through step 2.9 build.
 
 **Branch:** `phase-1` · **For:** the project owner
 
@@ -79,6 +79,7 @@ Marked Legal in the step 2.9 spec. The accountant checks the same rows (see sect
 - [ ] **R-219 · Maternity leave in payroll** ([#243](HANDOFF.md#assumptions-to-check), [COMPLIANCE › Open questions](COMPLIANCE.md#open-questions), item 6; RA 11210). Ask: how should the SSS maternity benefit and the salary differential be split on the payslip, taxed, and reimbursed by SSS? Assumed: approved maternity leave is ordinary paid leave inside basic pay (full pay), with no benefit line, no split, no separate tax treatment and no tracking of SSS's reimbursement; the 30-day extension is leave without pay.
 - [ ] **R-220 · Payroll run encryption and who sees amounts** ([#250](HANDOFF.md#assumptions-to-check), RA 10173). Ask: is this access proportionate? Assumed: every amount, totals included, is encrypted (category `payslip`); HR, Accounting and the System Administrator with Talent Read see runs; each "Show amounts" and breakdown is audited before any amount is sent; Board members and employees see nothing until step 2.10.
 - [ ] **R-221 · Basic salary earned for 13th month pay** ([#254](HANDOFF.md#assumptions-to-check), PD 851). Ask: right? Assumed: basic pay less absences, leave without pay, late, undertime, partial-day absences and holiday deductions (settlements included); daily-rated holiday pay, overtime, premiums, night differential, allowances and reimbursements are left out.
+- [ ] **R-251 · Holiday rules the spec leaves open** ([#261](HANDOFF.md#assumptions-to-check), Art. 94; from the build, for counsel and the accountant). Ask: right? Assumed: the base already paid for holiday work is what was actually paid that day; a special day worked on a rest day also gets a holiday pay line at `specialDayUnworked` (₱0 seeded); with `monthlyRatedUnworkedSpecialDay` `deducted`, the deduction waits for approval; provisional pay keeps every holiday pay line whose rule counts as met; the workday-before rule with no work day in the data is met unless the holiday is on or before the date hired.
 
 ### Not covered by the spec yet
 
@@ -116,7 +117,7 @@ Before the first real payroll, check every seeded rate against its latest issuan
 
 ### Payroll run computation (step 2.9)
 
-Also check the counsel items R-211 to R-221, which name the accountant too. Every pay figure rests on these; see R-237 before the first real payroll.
+Also check the counsel items R-211 to R-221 and R-251, which name the accountant too. Every pay figure rests on these; see R-237 before the first real payroll.
 
 - [ ] **R-222 · Contribution bases as a setting** ([#225](HANDOFF.md#assumptions-to-check)). The basis question is R-211. Check the seeded `talent.payrollRunSettings.contributionBases`, one per agency, as step 2.3 recommended (R-049).
 - [ ] **R-223 · Contributions across the two cut-offs** ([#226](HANDOFF.md#assumptions-to-check)): the mid-month cut-off deducts half the month's contribution on the monthly basic salary, as an estimate; the end-of-month cut-off deducts the real month less the mid-month deduction, and refunds a negative remainder. Employer shares and EC split the same way.
@@ -126,6 +127,12 @@ Also check the counsel items R-211 to R-221, which name the accountant too. Ever
 - [ ] **R-227 · Premium formulas** ([#237](HANDOFF.md#assumptions-to-check)): holiday work in the first 8 hours pays the day's rate less the base already paid that day; minutes beyond 8 hours on a rest day or holiday pay the day's rate × 130%; ordinary overtime × 125%. Two holidays on one date count as one (300% isn't seeded).
 - [ ] **R-228 · Attendance deductions** ([#239](HANDOFF.md#assumptions-to-check)): absences and leave without pay at the day's daily rate; late, undertime and partial-day absences at the minute rate (daily ÷ hours per day ÷ 60).
 - [ ] **R-229 · Which settings version applies** ([#255](HANDOFF.md#assumptions-to-check)): contributions on the first day of the contribution month; withholding, de minimis and the 13th month ceiling on the pay date; premium rates, allowance types and minimum wages on each day; payroll and run settings on the cut-off's start. The run stores each version it used.
+- [ ] **R-252 · De minimis in the engine** ([#263](HANDOFF.md#assumptions-to-check)): limits counted per de minimis key (two allowance types on one key share it), against finalized lines in the limit's period; the excess taxed on the latest lines first; a daily limit on an unapproved timesheet counts employed non-holiday base days as present; a key missing from the pay date's limits makes the whole amount taxable; an allowance type missing from the day's version counts as a taxable per cut-off allowance.
+- [ ] **R-253 · Basic pay and bases at the edges** ([#264](HANDOFF.md#assumptions-to-check)): monthly ÷ 2 only when employed every calendar day of the cut-off; a base day with no salary earns nothing; the monthly basic salary basis falls back to the first salaried employed day; contribution bases below 0 count as 0; the minimum wage earner flag is the salary's on the pay date.
+- [ ] **R-254 · How lines are keyed and shown** ([#265](HANDOFF.md#assumptions-to-check)): ₱0.00 lines left out; one holiday line per holiday and one allowance line per type and basis; deductions stored positive and settlements signed on their own side; the SSS line includes the MPF share (the breakdown keeps the split).
+- [ ] **R-255 · What a run reads, and its window** ([#269](HANDOFF.md#assumptions-to-check)): the lookback of the run's own settings version plus one more cut-off for the workday-before rule; each earlier period computed with the settings in effect on its own start; a period in the lookback with no run at all is settled in full (its attendance items, not its basic pay) by the next run.
+- [ ] **R-256 · The mid-month pairing and de minimis periods** ([#272](HANDOFF.md#assumptions-to-check)): an end-of-month run reads the same month's mid-month run whatever its status; an employee with no line in it is treated as having no mid-month run (estimate only); de minimis already paid counts finalized lines whose pay date falls in the same month, semester or year.
+- [ ] **R-258 · The minimum wage region is the current one** ([#285](HANDOFF.md#assumptions-to-check)): the minimum wage earner and de minimis checks use the employee's work region on the record now for the whole window (`DEFAULT_WORK_REGION` when none is set); there is no region history, so a move between regions inside a run's window uses the new region throughout. Also for counsel.
 
 ### Receipts and reimbursements
 
@@ -208,6 +215,10 @@ The choices a business owner would most want to decide. Each was built as descri
 - [ ] **R-234 · Net pay below zero is kept as computed** ([#245](HANDOFF.md#assumptions-to-check)) and marked "Net pay below zero"; nothing is capped or carried forward, and HR resolves it in step 2.10's review.
 - [ ] **R-235 · The go-live date sets the first payroll cut-off** ([#247](HANDOFF.md#assumptions-to-check)): the first cut-off starting on or after it. No run can be created until it's set, and a cut-off cut by go-live stays with the old system. See R-239.
 - [ ] **R-236 · Drafts are created and refreshed by a nightly job** ([#248](HANDOFF.md#assumptions-to-check)) at 05:00, once every timesheet is approved or the deadline has passed. Approvals don't recompute drafts by themselves, so HR recomputes before reviewing.
+- [ ] **R-240 · Everyone employed with no salary is listed as left out** ([#267](HANDOFF.md#assumptions-to-check)) on every run ("No salary on file"), Board members and staff paid outside payroll included. Or should some people be kept off the run altogether?
+- [ ] **R-241 · Only the nightly job's draft notifies HR** ([#268](HANDOFF.md#assumptions-to-check)); a draft HR computes by hand notifies no one.
+- [ ] **R-242 · Payroll amounts are hidden again after every reload or recompute** ([#278](HANDOFF.md#assumptions-to-check)): "Show amounts" lasts one page view, and each time amounts are shown, and each breakdown opened, is a separate entry in the audit log.
+- [ ] **R-257 · Premiums follow the extra-hours treatment, not the timesheet type's name** ([#262](HANDOFF.md#assumptions-to-check)). Seeded: Overtime timesheet → overtime, Standard → offset. If HR ever maps the Standard type to overtime, its claimed hours are paid.
 
 ### Step 1.8 judgement calls
 
@@ -355,6 +366,23 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and set a go-live date in P
 - [ ] **R-192** The go-live date locks after the first opening entry.
 - [ ] **R-193** `pnpm dev:leave-credits` with and without `--date` (a January 1, a regularization day): counts print, a second run writes nothing, balances show the credits.
 
+### 2.9 Payroll run computation ([2.9 hands-on checks](HANDOFF.md#29-hands-on-checks-by-the-user-signed-in))
+
+Setup first: rerun `pnpm seed:admin` (see section 5) and, on a throwaway database, set the go-live date on a cut-off start (2026-09-26) in Payroll settings › Leave.
+
+- [ ] **R-243** The "Done when": the Sep 26 – Oct 10, 2026 draft with one Overtime and one Standard employee; their breakdowns match cases P1 and P2 (net ₱11,595.20 and ₱11,092.74).
+- [ ] **R-244** Each "Show amounts" writes a `reveal` (field `amounts`) visible in `/admin/audit`; a reload hides the amounts again.
+- [ ] **R-245** Each breakdown opened writes a `reveal` (field `breakdown`), with no amount in the entry.
+- [ ] **R-246** A Talent Read user who isn't HR, Accounting or the System Administrator gets no "Payroll" button and no access to `/talent/payroll` or a run; Accounting sees runs but can't compute or recompute.
+- [ ] **R-247** "Recompute" after changing an input: the lines and "Computed <when>" update, and the audit log has an `update` ("Recomputed") with no amount.
+- [ ] **R-248** `pnpm dev:payroll-drafts` with and without `--date`: it prints the dates and the draft created or why not; a second run creates nothing; HR is notified only for the job's draft.
+- [ ] **R-249** Payroll settings › Pay schedule › Payroll run: the card shows the seeded choices, and "Add version" saves.
+- [ ] **R-250** Light, dark and phone width: `/talent/payroll` and its sheet, the run page, the breakdown sheet, and the Payroll run card and its sheet.
+- [ ] **R-259** Accounting reads only: it sees the runs, "Show amounts" and the breakdowns (each writing its `reveal`), but no "Compute draft run" or "Recompute", and a direct call of either action is refused.
+- [ ] **R-260** An employee and a Board member (Talent Read, but not HR, Accounting or the System Administrator) get no access to `/talent/payroll` or a run, and the generic sensitive reveal of a draft line, their own included, is refused ([#284](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-261** Confirming or adding a holiday on a date inside a draft run's window recomputes the draft after the holidays-changed job.
+- [ ] **R-262** With the go-live date set and an ended cut-off without a run, `pnpm dev:payroll-drafts` creates one draft and sends HR one notification; a rerun creates nothing, sends nothing and only recomputes the drafts.
+
 ## 5. Before going live, and housekeeping
 
 ### Before real data or go-live
@@ -364,13 +392,13 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and set a go-live date in P
 - [ ] **R-196 · Key rotation tooling**: decide whether to build a re-wrap tool before go-live, and how often to rotate ([#3](HANDOFF.md#assumptions-to-check)).
 - [ ] **R-197 · The rest of [DEPLOYMENT › Still to decide](DEPLOYMENT.md#still-to-decide)**: where it runs, URL and TLS, releases and rollback, backups with a tested restore, monitoring.
 - [ ] **R-198 · Set the go-live date** in Payroll settings › Leave before go-live ([#168](HANDOFF.md#assumptions-to-check)). No credit or opening entry is written until it's set, and it locks after the first opening entry.
-- [ ] **R-237 · Accountant sign-off on pay before the first real payroll.** The hand calculations P1 and P2 (and P3 to P12) in [Payroll run computation](modules/talent.md#payroll-run-computation-build-step-29) and every pay formula (R-211 to R-229) are the agents' reading of the law, checked by no one yet. Their salaries and dates are invented test data ([#256](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-237 · Accountant sign-off on pay before the first real payroll.** The hand calculations P1 and P2 (and P3 to P12) in [Payroll run computation](modules/talent.md#payroll-run-computation-build-step-29) and every pay formula (R-211 to R-229, and R-251 to R-256 from the build) are the agents' reading of the law, checked by no one yet. Their salaries and dates are invented test data ([#256](HANDOFF.md#assumptions-to-check)).
 - [ ] **R-238 · Check every seeded payroll rate** against the latest issuances ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)) before the first real payroll, as section 2 says.
 - [ ] **R-239 · Set the go-live date on a cut-off start** (the 26th or the 11th, as seeded) ([#247](HANDOFF.md#assumptions-to-check)), so the first payroll cut-off begins on it (R-198, R-235).
 
 ### Development database
 
-- [ ] **R-199 · Rerun `pnpm seed:admin` on existing development databases** after steps 2.6 and 2.8 (it adds the onboarding and leave settings; a second run adds nothing). The real local `xtreme-pulse` database has base data but no users yet ([Local environment](HANDOFF.md#local-environment)).
+- [ ] **R-199 · Rerun `pnpm seed:admin` on existing development databases** after steps 2.6, 2.8 and 2.9 (it adds the onboarding, leave and payroll run settings; a second run adds nothing). The real local `xtreme-pulse` database has base data but no users yet ([Local environment](HANDOFF.md#local-environment)).
 
 ### Phase 1
 
@@ -382,7 +410,7 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and set a go-live date in P
 
 ### Git
 
-- [ ] **R-201 · Push `phase-1` and open a pull request to `main`**, only when you ask. `phase-1` is pushed up to step 1.8; everything since (1.9 to 2.8) is committed but not pushed ([Branches and commits](HANDOFF.md#branches-and-commits)).
+- [ ] **R-201 · Push `phase-1` and open a pull request to `main`**, only when you ask. `phase-1` is pushed up to step 1.8; everything since (1.9 to 2.9) is committed but not pushed ([Branches and commits](HANDOFF.md#branches-and-commits)).
 
 ### Known small gaps, left on purpose
 

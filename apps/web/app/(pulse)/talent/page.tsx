@@ -4,6 +4,7 @@ import { EMPLOYMENT_STATUSES, type EmploymentStatus } from '@pulse/core';
 import { type CurrentUser, listBrandOptions, listDirectoryDepartments } from '@pulse/core/server';
 import {
   canManageOpeningBalances,
+  canSeePayrollRuns,
   getExpiryAlertSettings,
   getOnboardingSettings,
   listEmployeeRecords,
@@ -48,6 +49,8 @@ function onboardingParam(value: string | undefined): OnboardingFilter | null {
 // needs the same Talent Read; it loads nothing here.
 // From step 2.8 the header's "Opening balances" shows only for Talent Write and HR or the System
 // Administrator (`canManageOpeningBalances`); `/talent/opening-balances` checks again.
+// From step 2.9 the header's "Payroll" shows only for Talent Read and HR, Accounting or the System
+// Administrator (`canSeePayrollRuns`); `/talent/payroll` checks again.
 export default async function TalentPage({
   searchParams,
 }: {
@@ -106,6 +109,7 @@ async function Employees({
       onboarding={list.onboarding ? onboarding : null}
       onboardingCounts={list.onboarding ?? null}
       canOpenOpeningBalances={canManageOpeningBalances(user)}
+      canOpenPayroll={canSeePayrollRuns(user)}
     />
   );
 }
