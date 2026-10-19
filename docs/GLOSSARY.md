@@ -82,7 +82,15 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Go-live date | The day Pulse Talent goes live (`talent.leaveSettings.goLiveDate`), as of which HR enters opening balances and year-to-date pay once |
 | Opening entry | A balance or year-to-date pay figure HR enters once per existing employee as of the go-live date, never an edit to a balance |
 | Absent minutes | On a day partly covered by time off with nothing worked, the scheduled minutes the time off doesn't cover (build step 2.8) |
-| Payroll run, draft run | One cut-off's pay for every employee (`PAY-` number). A draft is recomputed as a whole until step 2.10 submits and finalizes it (build step 2.9) |
+| Payroll run, draft run | One cut-off's pay for every employee (`PAY-` number). A draft is recomputed as a whole until HR submits it and a Board member approves it (build steps 2.9 and 2.10) |
+| Finalized run | A payroll run a Board member approved: locked for good, its payslips issued; corrections go into a later run (build step 2.10) |
+| Returned run | A payroll run a Board member sent back to HR with remarks; HR edits and submits it again (build step 2.10) |
+| Review flag | A mark on an employee's payroll line that HR must clear or acknowledge before submitting: onboarding incomplete, timesheet not approved, below minimum wage; net pay below zero and a stale manual entry must be fixed (build step 2.10) |
+| Manual entry | An earning, deduction or override HR adds to a run with a required reason, printed on the payslip as an adjustment and highlighted for the Board (build step 2.10) |
+| Override | A manual entry that replaces a computed line's amount (basic pay, a per cut-off allowance, a contribution share or the withholding tax), never an attendance item (build step 2.10) |
+| Back pay | Pay owed for an earlier period, such as a back-dated salary increase; added by HR as a taxable manual earning (build step 2.10) |
+| Payslip | An employee's statement for one finalized run, as a PDF in self-service, with the year-to-date figures frozen at finalizing (build step 2.10) |
+| Payroll register | A finalized run's list of employees with their bank, account number and net pay, used to credit salaries (build step 2.10) |
 | First payroll cut-off | The first cut-off that starts on or after the go-live date; earlier cut-offs were paid by the old system (build step 2.9) |
 | Base days | An employee's scheduled work days in a cut-off, holidays included, used to prorate basic pay and per cut-off allowances (build step 2.9) |
 | Workday before | The last scheduled work day before a holiday that isn't itself a holiday; being present or on paid leave then makes an unworked regular holiday paid (build step 2.9) |

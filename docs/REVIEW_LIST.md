@@ -1,6 +1,6 @@
 # Owner review list
 
-Last updated: 2026-10-19, through step 2.9 build.
+Last updated: 2026-10-19, through the step 2.10 spec.
 
 **Branch:** `phase-1` · **For:** the project owner
 
@@ -81,6 +81,19 @@ Marked Legal in the step 2.9 spec. The accountant checks the same rows (see sect
 - [ ] **R-221 · Basic salary earned for 13th month pay** ([#254](HANDOFF.md#assumptions-to-check), PD 851). Ask: right? Assumed: basic pay less absences, leave without pay, late, undertime, partial-day absences and holiday deductions (settlements included); daily-rated holiday pay, overtime, premiums, night differential, allowances and reimbursements are left out.
 - [ ] **R-251 · Holiday rules the spec leaves open** ([#261](HANDOFF.md#assumptions-to-check), Art. 94; from the build, for counsel and the accountant). Ask: right? Assumed: the base already paid for holiday work is what was actually paid that day; a special day worked on a rest day also gets a holiday pay line at `specialDayUnworked` (₱0 seeded); with `monthlyRatedUnworkedSpecialDay` `deducted`, the deduction waits for approval; provisional pay keeps every holiday pay line whose rule counts as met; the workday-before rule with no work day in the data is met unless the holiday is on or before the date hired.
 
+### Payroll approval and payslips (step 2.10)
+
+Marked Legal in the step 2.10 spec ([Payroll approval and payslips](COMPLIANCE.md#payroll-approval-and-payslips-build-step-210)). Not built yet; the build follows these answers unless you note otherwise.
+
+- [ ] **R-263 · Deductions from wages** ([#286](HANDOFF.md#assumptions-to-check), Labor Code Arts. 113 and 116). Ask: is HR's tick "authorized in writing by the employee or required by law" enough for a manual after-tax deduction (a loan, a cash advance), with the signed authorization filed in the 201 file? Is a limit needed? Assumed: the tick is required, no limit.
+- [ ] **R-264 · Net pay below zero** ([#287](HANDOFF.md#assumptions-to-check), Arts. 113 and 116). Ask: how should a deduction larger than the cut-off's pay be handled? Assumed: the run can't be submitted until HR brings net pay to ₱0.00 or more with manual entries, for example moving the deduction to the next cut-off; nothing carries forward by itself.
+- [ ] **R-265 · Electronic payslips** ([#289](HANDOFF.md#assumptions-to-check), Labor Code Art. 103, RA 8792). Ask: is a PDF in self-service, with no acknowledgement of receipt, enough? Must it show anything else (the employer shares, the rates)? Assumed: yes; it prints the spec's list, the company header, adjustments, the bank's last 4 digits and year-to-date figures.
+- [ ] **R-266 · Paying on time** ([#290](HANDOFF.md#assumptions-to-check), Art. 103). Ask: should the app warn or block when a run isn't approved by its pay date? Assumed: no; approving on time is HR's and the Board's control.
+- [ ] **R-267 · The Board's view while approving** ([#291](HANDOFF.md#assumptions-to-check), RA 10173). Ask: is this proportionate? Assumed: the approving Board member sees totals, each person's net pay and the manual entries after an audited "Show amounts", never a breakdown, bank account or payslip; a Board member may approve a run that holds their own pay.
+- [ ] **R-268 · Full bank account numbers in the payroll register** ([#292](HANDOFF.md#assumptions-to-check), RA 10173). Ask: proportionate for crediting salaries? Assumed: HR, Accounting and the System Administrator see them after an audited "Show register".
+- [ ] **R-269 · Manual entry labels and reasons aren't encrypted** ([#293](HANDOFF.md#assumptions-to-check), RA 10173). Ask: acceptable, given the reason goes into the audit log and the label onto the payslip? Assumed: yes, with the hint "Don't type amounts in the reason."
+- [ ] **R-270 · Payroll records are kept forever** ([#294](HANDOFF.md#assumptions-to-check)). Ask with R-036: how long must runs, payslips and manual entries be kept? Assumed: never deleted.
+
 ### Not covered by the spec yet
 
 - [ ] **R-036 · Retention of payroll, tax and accounting records** ([COMPLIANCE › Open questions](COMPLIANCE.md#open-questions), item 1). Ask counsel or the accountant how long payslips, payroll runs, invoices, books and receipt images must be kept.
@@ -133,6 +146,15 @@ Also check the counsel items R-211 to R-221 and R-251, which name the accountant
 - [ ] **R-255 · What a run reads, and its window** ([#269](HANDOFF.md#assumptions-to-check)): the lookback of the run's own settings version plus one more cut-off for the workday-before rule; each earlier period computed with the settings in effect on its own start; a period in the lookback with no run at all is settled in full (its attendance items, not its basic pay) by the next run.
 - [ ] **R-256 · The mid-month pairing and de minimis periods** ([#272](HANDOFF.md#assumptions-to-check)): an end-of-month run reads the same month's mid-month run whatever its status; an employee with no line in it is treated as having no mid-month run (estimate only); de minimis already paid counts finalized lines whose pay date falls in the same month, semester or year.
 - [ ] **R-258 · The minimum wage region is the current one** ([#285](HANDOFF.md#assumptions-to-check)): the minimum wage earner and de minimis checks use the employee's work region on the record now for the whole window (`DEFAULT_WORK_REGION` when none is set); there is no region history, so a move between regions inside a run's window uses the new region throughout. Also for counsel.
+
+### Payroll review and payslips (step 2.10)
+
+Also check the counsel items R-263 to R-265, which name the accountant too.
+
+- [ ] **R-271 · Manual earnings and deductions in tax and contributions** ([#288](HANDOFF.md#assumptions-to-check); RA 10963, RA 11199, RA 9679, PD 851): taxable unless HR says not; taxed and counted for SSS and Pag-IBIG in the cut-off and month they're paid, not the period they belong to; "counts as basic salary" adds back pay to 13th month pay. Case A2 (back pay ₱1,000.00: tax ₱207.92, net ₱12,445.20).
+- [ ] **R-272 · Overrides** ([#299](HANDOFF.md#assumptions-to-check)): allowed on basic pay, a per cut-off allowance, the contribution shares and EC, and withholding tax, with contributions and tax following the overridden figures; refused on attendance items, since a later run would settle them back.
+- [ ] **R-273 · Back pay is entered by HR, not computed** ([#300](HANDOFF.md#assumptions-to-check)), as is any change older than the 24-cut-off lookback.
+- [ ] **R-274 · Year-to-date on the payslip** ([#310](HANDOFF.md#assumptions-to-check)): the go-live opening entry (its year only) plus this year's finalized runs up to this one: gross, tax, and the SSS (MPF included), PhilHealth and Pag-IBIG employee shares, frozen at approval. Case A5.
 
 ### Receipts and reimbursements
 
@@ -219,6 +241,28 @@ The choices a business owner would most want to decide. Each was built as descri
 - [ ] **R-241 · Only the nightly job's draft notifies HR** ([#268](HANDOFF.md#assumptions-to-check)); a draft HR computes by hand notifies no one.
 - [ ] **R-242 · Payroll amounts are hidden again after every reload or recompute** ([#278](HANDOFF.md#assumptions-to-check)): "Show amounts" lasts one page view, and each time amounts are shown, and each breakdown opened, is a separate entry in the audit log.
 - [ ] **R-257 · Premiums follow the extra-hours treatment, not the timesheet type's name** ([#262](HANDOFF.md#assumptions-to-check)). Seeded: Overtime timesheet → overtime, Standard → offset. If HR ever maps the Standard type to overtime, its claimed hours are paid.
+
+### Payroll review and approval (step 2.10)
+
+- [ ] **R-275 · A returned run is edited like a draft** ([#295](HANDOFF.md#assumptions-to-check)); a run waiting for the Board is frozen, and there's no way to withdraw it (the Board returns it).
+- [ ] **R-276 · The review flags** ([#296](HANDOFF.md#assumptions-to-check)): onboarding incomplete (government IDs or bank account not entered or not verified), timesheet not approved, below minimum wage on any day, net pay below zero, and a manual entry that needs review.
+- [ ] **R-277 · Acknowledging a flag** ([#297](HANDOFF.md#assumptions-to-check)) with a reason lets the run go as computed; it stays acknowledged even if the flag clears and comes back; HR acknowledges HR staff's flags too. Net pay below zero and a stale manual entry must be fixed instead.
+- [ ] **R-278 · No flag takes anyone off the run** ([#298](HANDOFF.md#assumptions-to-check)); someone with no bank account is listed as such in the register and paid another way.
+- [ ] **R-279 · The manual entry audit** ([#301](HANDOFF.md#assumptions-to-check)): the audit log records each change with its reason, but the amount only as "changed"; the old and new amounts are kept encrypted and shown in the entry's History.
+- [ ] **R-280 · Each manual entry save recomputes the whole run** ([#302](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-281 · Manual entries for HR staff** are entered by the System Administrator or a Board member with Talent Write, never HR, and nobody enters one on their own pay ([#303](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-282 · Runs are submitted in cut-off order** ([#304](HANDOFF.md#assumptions-to-check)): a cut-off with no finalized run blocks every later submit.
+- [ ] **R-283 · Submitting recomputes the run first** ([#305](HANDOFF.md#assumptions-to-check)); if anything changed, the submit stops so HR reviews it.
+- [ ] **R-284 · Any one Board member approves or returns** ([#306](HANDOFF.md#assumptions-to-check)); with no active Board member nobody can approve (not sent to the System Administrator), and each Board member needs an e-signature on file to approve.
+- [ ] **R-285 · The outcome goes to HR only** ([#307](HANDOFF.md#assumptions-to-check)): the submitter and every active HR user; Accounting hears from HR.
+- [ ] **R-286 · Finalizing doesn't refresh later drafts at once** ([#308](HANDOFF.md#assumptions-to-check)); they update on their next recompute (nightly, "Recompute" or submit).
+- [ ] **R-287 · Payslips freeze the name, department, position and bank account at approval** ([#309](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-288 · Placeholder company details print on payslips** ([#311](HANDOFF.md#assumptions-to-check)); HR is warned before submitting, not blocked.
+- [ ] **R-289 · Payslip PDFs are rendered within about 10 minutes of approval**, or when first opened ([#312](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-290 · Who opens a payslip** ([#313](HANDOFF.md#assumptions-to-check)): the employee, HR, Accounting and the System Administrator; not Board members or supervisors. Every open is in the audit log, the employee's own included.
+- [ ] **R-291 · Net pay in the self-service list is behind Reveal** ([#314](HANDOFF.md#assumptions-to-check)), audited.
+- [ ] **R-292 · The payroll register is on screen only until step 2.16** ([#315](HANDOFF.md#assumptions-to-check)), for finalized runs, grouped by bank; no bank upload file yet.
+- [ ] **R-293 · The Fiscal posting is a placeholder** until Phase 5 ([#316](HANDOFF.md#assumptions-to-check)).
 
 ### Step 1.8 judgement calls
 
@@ -383,6 +427,10 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and, on a throwaway databas
 - [ ] **R-261** Confirming or adding a holiday on a date inside a draft run's window recomputes the draft after the holidays-changed job.
 - [ ] **R-262** With the go-live date set and an ended cut-off without a run, `pnpm dev:payroll-drafts` creates one draft and sends HR one notification; a rerun creates nothing, sends nothing and only recomputes the drafts.
 
+### 2.10 Payroll review, approval and payslips (spec only; the build adds the rest)
+
+- [ ] **R-294** The "Done when" (case A1): HR submits the Sep 26 – Oct 10, 2026 run; a Board member approves it from `/approvals` on a phone; the employee opens their payslip PDF from `/talent/me` on a phone (net ₱11,595.20, year-to-date gross ₱13,637.50, tax ₱57.92, contributions ₱921.88).
+
 ## 5. Before going live, and housekeeping
 
 ### Before real data or go-live
@@ -392,7 +440,7 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and, on a throwaway databas
 - [ ] **R-196 · Key rotation tooling**: decide whether to build a re-wrap tool before go-live, and how often to rotate ([#3](HANDOFF.md#assumptions-to-check)).
 - [ ] **R-197 · The rest of [DEPLOYMENT › Still to decide](DEPLOYMENT.md#still-to-decide)**: where it runs, URL and TLS, releases and rollback, backups with a tested restore, monitoring.
 - [ ] **R-198 · Set the go-live date** in Payroll settings › Leave before go-live ([#168](HANDOFF.md#assumptions-to-check)). No credit or opening entry is written until it's set, and it locks after the first opening entry.
-- [ ] **R-237 · Accountant sign-off on pay before the first real payroll.** The hand calculations P1 and P2 (and P3 to P12) in [Payroll run computation](modules/talent.md#payroll-run-computation-build-step-29) and every pay formula (R-211 to R-229, and R-251 to R-256 from the build) are the agents' reading of the law, checked by no one yet. Their salaries and dates are invented test data ([#256](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-237 · Accountant sign-off on pay before the first real payroll.** The hand calculations P1 and P2 (and P3 to P12) in [Payroll run computation](modules/talent.md#payroll-run-computation-build-step-29) and every pay formula (R-211 to R-229, R-251 to R-256 from the build, and step 2.10's R-263 to R-265 and R-271 to R-274 with cases A2 and A5) are the agents' reading of the law, checked by no one yet. Their salaries and dates are invented test data ([#256](HANDOFF.md#assumptions-to-check)).
 - [ ] **R-238 · Check every seeded payroll rate** against the latest issuances ([Seeded payroll rates](COMPLIANCE.md#seeded-payroll-rates-build-step-23)) before the first real payroll, as section 2 says.
 - [ ] **R-239 · Set the go-live date on a cut-off start** (the 26th or the 11th, as seeded) ([#247](HANDOFF.md#assumptions-to-check)), so the first payroll cut-off begins on it (R-198, R-235).
 
