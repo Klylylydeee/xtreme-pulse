@@ -3,18 +3,36 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Eye, RotateCw, ShieldCheck, Users, UserX } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCheck,
+  Eye,
+  Landmark,
+  RotateCw,
+  Send,
+  ShieldCheck,
+  Users,
+  UserX,
+} from 'lucide-react';
 import { type Centavos, formatDate, TIMESHEET_TYPE_LABELS } from '@pulse/core';
 import {
   formatPeriodRange,
-  PAYROLL_DRAFT_NOTE,
+  isAcknowledgeableFlag,
+  PAYROLL_ACKNOWLEDGE_ALL_LABEL,
+  PAYROLL_FLAG_LABELS,
   PAYROLL_LEFT_OUT_LABEL,
-  PAYROLL_NEGATIVE_NET_LABEL,
   PAYROLL_REVEAL_NOTE,
-  PAYROLL_TIMESHEET_NOT_APPROVED_LABEL,
+  PAYROLL_SUBMIT_LABEL,
+  type PayrollAcknowledgeableFlag,
+  type PayrollFlagKind,
   type PayrollTotals,
 } from '@pulse/talent';
-import type { PayrollRunPersonRow, PayrollRunView } from '@pulse/talent/server';
+import type {
+  PayrollBreakdownManualEntry,
+  PayrollRunApproverView,
+  PayrollRunPersonRow,
+  PayrollRunView,
+} from '@pulse/talent/server';
 import { cn } from '@pulse/ui';
 import { Button, buttonVariants } from '@pulse/ui/components/button';
 import {
@@ -34,41 +52,69 @@ import {
 } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { FormAlert } from '@/components/form-alert';
-import { Badge, plural, useActionSubmit } from '@/components/org-structure';
+import { plural, useActionSubmit } from '@/components/org-structure';
 import {
   type PayrollAmounts,
   recomputePayrollRunAction,
   showPayrollAmountsAction,
 } from '@/lib/actions/talent-payroll-runs';
-import { PAYROLL_HREF } from '@/lib/navigation';
-import { PersonMarks, personMarksText } from './payroll-badges';
+import { PAYROLL_HREF, payrollRegisterHref } from '@/lib/navigation';
+import { PersonMarks, personMarksText, RunStatusBadge } from './payroll-badges';
 import {
   loadPayrollBreakdown,
   type PayrollBreakdownLoad,
   PayrollBreakdownSheet,
 } from './payroll-breakdown-sheet';
 import { pesoText } from './payroll-format';
+import { ManualEntrySheet, RemoveManualEntrySheet } from './payroll-manual-entry-sheet';
+import { AcknowledgeSheet, SubmitSheet } from './payroll-review-sheets';
+import { NeedsReview, RunManualEntries, RunStatusPanel } from './payroll-run-sections';
 import { computedText } from './payroll-runs-list';
 
 // Spec: docs/modules/talent.md#payroll-run-computation-build-step-29 ("Recomputing a draft", "Who
-// may see and do what", "Screens": `/talent/payroll/<runId>`) and
-// docs/DESIGN_SYSTEM.md#layout--components ("Payroll runs on a phone": the run page, People, the
-// breakdown sheet) — one run, read-only.
+// may see and do what", "Screens": `/talent/payroll/<runId>`),
+// docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210 (step 2.10: "Review
+// flags", "Manual entries", "Submitting", "The Board's view while approving", "Screens") and
+// docs/DESIGN_SYSTEM.md#layout--components ("Payroll runs on a phone", "Payroll review and
+// payslips on a phone") — one run.
 //
 // - The large title is the period; under it the pay date, number and status badge, "Computed <when>
-//   by <name>" (or "by the nightly job") and, for a draft, the draft note in `text-secondary`.
-// - Tiles count Employees, "Timesheet not approved", "Net pay below zero" and "Left out"; each is a
-//   filter (a second press shows everyone). "Left out" shows the people left out of the run.
+//   by <name>", and the status panel: the draft note, the Board's remarks on a returned run,
+//   "Waiting for Board approval since <when>" (and for an approver "Approve or return in
+//   Approvals"), or "Finalized <when> by <name>" with the payslip count, the Fiscal placeholder and
+//   "Payroll register".
+// - Tiles count Employees, the review flags ("Onboarding incomplete", "Timesheet not approved",
+//   "Below minimum wage", "Net pay below zero", "Manual entry needs review" when any) and "Left
+//   out"; each is a filter (a second press shows everyone). Filtering by a flag HR may acknowledge
+//   offers "Acknowledge all" beside the count.
+// - "Needs review" lists each flag still in the way of a submit, with "Acknowledge" (a reason
+//   sheet) where it applies; "Manual entries" lists the run's live entries (at the top on the
+//   Board's view).
 // - Amounts are hidden behind "Show amounts", with the reveal note. Pressing it calls the reveal
 //   action (a `reveal` on the run is written first); afterwards the totals sit in an inset grouped
-//   list and each person's net pay shows in tabular numerals. The amounts live in this component's
-//   state only; the page is keyed by the run's version, so a recompute drops them.
-// - People are a list on a phone and a data table on a desktop. A row opens the breakdown sheet,
-//   fetched from that click (a `reveal` on the line first).
-// - "Recompute" (the server's `canRecompute`) asks for confirmation in a sheet; the page then
-//   reloads without amounts.
+//   list, each person's net pay and each manual entry's amount show in tabular numerals. The
+//   amounts live in this component's state only, for the run version they were shown for: a
+//   recompute or a manual entry save raises the version and hides them.
+// - People are a list on a phone and a data table on a desktop. For HR, Accounting and the System
+//   Administrator a row opens the breakdown sheet, fetched from that click (a `reveal` on the line
+//   first), where HR adds, edits and removes manual entries on an editable run. The Board's view
+//   never opens a breakdown.
+// - "Recompute" (the server's `canRecompute`) and "Submit for approval" (an editable run, HR or the
+//   System Administrator with Talent Write) each confirm in a sheet; the page then reloads.
 
-type Filter = 'all' | 'notApproved' | 'negativeNet' | 'leftOut';
+type Filter = 'all' | PayrollFlagKind | 'leftOut';
+
+type BreakdownMode =
+  | { kind: 'breakdown' }
+  | { kind: 'add' }
+  | { kind: 'edit'; entry: PayrollBreakdownManualEntry }
+  | { kind: 'remove'; entry: PayrollBreakdownManualEntry };
+
+type AcknowledgeTarget = {
+  flag: PayrollAcknowledgeableFlag;
+  person: { employeeId: string; name: string; flagText: string } | null;
+  count: number;
+};
 
 const countFormat = new Intl.NumberFormat('en-PH');
 const AMOUNTS_FAILED = 'Amounts couldn’t load. Check your connection and try again.';
@@ -144,6 +190,14 @@ function PhonePerson({ person, netPay }: { person: PayrollRunPersonRow; netPay: 
   );
 }
 
+/** Whether `person` carries `flag` (step 2.9's marks count for a run computed before 2.10). */
+function hasFlag(person: PayrollRunPersonRow, flag: PayrollFlagKind): boolean {
+  if (person.flags.some((row) => row.kind === flag)) return true;
+  if (flag === 'timesheetNotApproved') return person.provisional;
+  if (flag === 'netPayBelowZero') return person.negativeNet;
+  return false;
+}
+
 /** "Recompute": the confirmation sheet. */
 function RecomputeSheet({ runId, onDone }: { runId: string; onDone: () => void }) {
   const [networkError, setNetworkError] = useState<string | null>(null);
@@ -162,13 +216,13 @@ function RecomputeSheet({ runId, onDone }: { runId: string; onDone: () => void }
     <>
       <SheetHeader
         title="Recompute this run?"
-        description="Every employee’s line is computed again from the DTR, time off, reimbursements, pay and settings as they are now."
+        description="Every employee’s line is computed again from the DTR, time off, reimbursements, pay, manual entries and settings as they are now."
       />
       <SheetBody>
         <FormAlert message={save.fieldErrors.runId ?? save.formError ?? networkError} />
         <p className="text-subheadline text-text-secondary">
-          The figures may change. Amounts shown on this page are hidden again afterwards; show them
-          again to see the new ones. Nothing is paid until the run is finalized.
+          The figures and flags may change. Amounts shown on this page are hidden again afterwards;
+          show them again to see the new ones. Nothing is paid until the run is finalized.
         </p>
       </SheetBody>
       <SheetFooter>
@@ -184,27 +238,60 @@ function RecomputeSheet({ runId, onDone }: { runId: string; onDone: () => void }
   );
 }
 
-export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
+export interface PayrollRunScreenProps {
+  view: PayrollRunView;
+  /** The Board's view (read-only, the approver exception), or null for the payroll view. */
+  approver: PayrollRunApproverView['approver'] | null;
+  /** "Submit for approval" is offered: an editable run, and the viewer may submit. */
+  canSubmit: boolean;
+  /** The submit sheet's company details warning, or null. */
+  companyWarning: string | null;
+}
+
+export function PayrollRunScreen({
+  view,
+  approver,
+  canSubmit,
+  companyWarning,
+}: PayrollRunScreenProps) {
   const router = useRouter();
   const tilesId = useId();
+  const readOnly = approver !== null;
   const [filter, setFilter] = useState<Filter>('all');
-  const [amounts, setAmounts] = useState<PayrollAmounts | null>(null);
+  const [shownAmounts, setShownAmounts] = useState<PayrollAmounts | null>(null);
   const [amountsPending, setAmountsPending] = useState(false);
   const [amountsError, setAmountsError] = useState<string | null>(null);
   const amountsBusy = useRef(false);
+  // Amounts belong to the version they were shown for: a recompute or a save hides them.
+  const amounts = shownAmounts?.version === view.version ? shownAmounts : null;
 
   const recomputeFocus = useReturnFocus();
   const [recomputeOpen, setRecomputeOpen] = useState(false);
   const [recomputeSession, setRecomputeSession] = useState(0);
 
+  const submitFocus = useReturnFocus();
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitSession, setSubmitSession] = useState(0);
+
+  const acknowledgeFocus = useReturnFocus();
+  const [acknowledgeOpen, setAcknowledgeOpen] = useState(false);
+  const [acknowledgeTarget, setAcknowledgeTarget] = useState<AcknowledgeTarget | null>(null);
+  const [acknowledgeSession, setAcknowledgeSession] = useState(0);
+
   const breakdownFocus = useReturnFocus();
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [breakdownPerson, setBreakdownPerson] = useState<PayrollRunPersonRow | null>(null);
   const [breakdown, setBreakdown] = useState<PayrollBreakdownLoad>({ state: 'loading' });
+  const [breakdownMode, setBreakdownMode] = useState<BreakdownMode>({ kind: 'breakdown' });
+  const [entrySession, setEntrySession] = useState(0);
   const breakdownRequest = useRef(0);
 
   const netPayOf = useMemo(
     () => new Map((amounts?.netPay ?? []).map((row) => [row.lineId, row.netPayCentavos])),
+    [amounts],
+  );
+  const entryAmountOf = useMemo(
+    () => new Map((amounts?.manualEntries ?? []).map((row) => [row.id, row])),
     [amounts],
   );
 
@@ -218,7 +305,7 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
       if (!result.ok) setAmountsError(result.formError ?? AMOUNTS_FAILED);
       else if (!result.data) setAmountsError(RUN_CHANGED);
       else if (result.data.version !== view.version) setAmountsError(RUN_CHANGED);
-      else setAmounts(result.data);
+      else setShownAmounts(result.data);
     } catch {
       setAmountsError(AMOUNTS_FAILED);
     } finally {
@@ -238,6 +325,7 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
   function openPerson(person: PayrollRunPersonRow, trigger: HTMLElement) {
     breakdownFocus.remember(trigger);
     setBreakdownPerson(person);
+    setBreakdownMode({ kind: 'breakdown' });
     setBreakdownOpen(true);
     void fetchBreakdown(person);
   }
@@ -248,13 +336,33 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
       // Drop the breakdown as soon as the sheet closes.
       breakdownRequest.current += 1;
       setBreakdown({ state: 'loading' });
+      setBreakdownMode({ kind: 'breakdown' });
     }
   }
 
+  function openEntry(mode: BreakdownMode) {
+    setEntrySession((count) => count + 1);
+    setBreakdownMode(mode);
+  }
+
+  /** After a manual entry save or removal: the run and the breakdown load again. */
+  function entrySaved() {
+    setBreakdownMode({ kind: 'breakdown' });
+    router.refresh();
+    // The breakdown changed with the save: reload it, from this explicit save (a `reveal`).
+    if (breakdownPerson) void fetchBreakdown(breakdownPerson);
+  }
+
+  function openAcknowledge(target: AcknowledgeTarget, trigger: HTMLElement) {
+    acknowledgeFocus.remember(trigger);
+    setAcknowledgeTarget(target);
+    setAcknowledgeSession((count) => count + 1);
+    setAcknowledgeOpen(true);
+  }
+
   const people = useMemo(() => {
-    if (filter === 'notApproved') return view.people.filter((person) => person.provisional);
-    if (filter === 'negativeNet') return view.people.filter((person) => person.negativeNet);
-    return view.people;
+    if (filter === 'all' || filter === 'leftOut') return view.people;
+    return view.people.filter((person) => hasFlag(person, filter));
   }, [filter, view.people]);
 
   const shown = amounts !== null;
@@ -291,7 +399,7 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
       ),
       column.display({
         id: 'marks',
-        header: 'Notes',
+        header: 'Flags and notes',
         cell: (info) => <PersonMarks person={info.row.original} />,
       }),
       ...(shown
@@ -314,26 +422,112 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
   const tiles: { filter: Filter; label: string; count: number }[] = [
     { filter: 'all', label: 'Employees', count: view.tiles.employees },
     {
-      filter: 'notApproved',
-      label: PAYROLL_TIMESHEET_NOT_APPROVED_LABEL,
+      filter: 'onboardingIncomplete',
+      label: PAYROLL_FLAG_LABELS.onboardingIncomplete,
+      count: view.tiles.onboardingIncomplete,
+    },
+    {
+      filter: 'timesheetNotApproved',
+      label: PAYROLL_FLAG_LABELS.timesheetNotApproved,
       count: view.tiles.timesheetNotApproved,
     },
-    { filter: 'negativeNet', label: PAYROLL_NEGATIVE_NET_LABEL, count: view.tiles.negativeNet },
+    {
+      filter: 'belowMinimumWage',
+      label: PAYROLL_FLAG_LABELS.belowMinimumWage,
+      count: view.tiles.belowMinimumWage,
+    },
+    {
+      filter: 'netPayBelowZero',
+      label: PAYROLL_FLAG_LABELS.netPayBelowZero,
+      count: view.tiles.negativeNet,
+    },
+    ...(view.tiles.manualEntryStale > 0
+      ? [
+          {
+            filter: 'manualEntryStale' as const,
+            label: PAYROLL_FLAG_LABELS.manualEntryStale,
+            count: view.tiles.manualEntryStale,
+          },
+        ]
+      : []),
     { filter: 'leftOut', label: PAYROLL_LEFT_OUT_LABEL, count: view.tiles.leftOut },
   ];
   const filterLabel = tiles.find((tile) => tile.filter === filter)?.label ?? '';
-  const draft = view.status === 'draft';
+
+  // "Acknowledge all" for the flag being filtered: the people with it not yet acknowledged.
+  const acknowledgeAllFlag =
+    view.canAcknowledge && filter !== 'all' && filter !== 'leftOut' && isAcknowledgeableFlag(filter)
+      ? filter
+      : null;
+  const acknowledgeAllCount = acknowledgeAllFlag
+    ? view.people.filter((person) =>
+        person.flags.some((flag) => flag.kind === acknowledgeAllFlag && flag.unresolved),
+      ).length
+    : 0;
+
+  const breakdownControls =
+    !readOnly && breakdownPerson?.canEnterManualEntries
+      ? {
+          onAdd: () => openEntry({ kind: 'add' }),
+          onEdit: (entry: PayrollBreakdownManualEntry) => openEntry({ kind: 'edit', entry }),
+          onRemove: (entry: PayrollBreakdownManualEntry) => openEntry({ kind: 'remove', entry }),
+        }
+      : null;
+  const loadedBreakdown = breakdown.state === 'ready' ? breakdown.view : null;
+  const canShowAmounts = approver ? approver.canShowAmounts : true;
+
+  const actions = (
+    <>
+      {view.canRecompute ? (
+        <Button
+          variant="secondary"
+          onClick={(event) => {
+            recomputeFocus.remember(event.currentTarget);
+            setRecomputeSession((count) => count + 1);
+            setRecomputeOpen(true);
+          }}
+        >
+          <RotateCw aria-hidden="true" className="size-4.5" />
+          Recompute
+        </Button>
+      ) : null}
+      {!readOnly && view.status === 'finalized' ? (
+        <Link
+          href={payrollRegisterHref(view.id)}
+          className={buttonVariants({ variant: 'secondary' })}
+        >
+          <Landmark aria-hidden="true" className="size-4.5" />
+          Payroll register
+        </Link>
+      ) : null}
+      {canSubmit ? (
+        <Button
+          onClick={(event) => {
+            submitFocus.remember(event.currentTarget);
+            setSubmitSession((count) => count + 1);
+            setSubmitOpen(true);
+          }}
+        >
+          <Send aria-hidden="true" className="size-4.5" />
+          {PAYROLL_SUBMIT_LABEL}
+        </Button>
+      ) : null}
+    </>
+  );
+  const hasActions = view.canRecompute || canSubmit || (!readOnly && view.status === 'finalized');
 
   return (
     <>
       <div className="flex flex-col gap-3">
-        <Link
-          href={PAYROLL_HREF}
-          className={buttonVariants({ variant: 'plain', className: '-ml-3 w-fit text-accent' })}
-        >
-          <ArrowLeft aria-hidden="true" className="size-4.5" />
-          Payroll
-        </Link>
+        {readOnly ? null : (
+          <Link
+            href={PAYROLL_HREF}
+            className={buttonVariants({ variant: 'plain', className: '-ml-3 w-fit text-accent' })}
+          >
+            <ArrowLeft aria-hidden="true" className="size-4.5" />
+            Payroll
+          </Link>
+        )}
         <PageHeader
           title={formatPeriodRange(view.periodStart, view.periodEnd)}
           description={
@@ -342,29 +536,24 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
                 <span>Paid {formatDate(view.payDate)}</span>
                 <span aria-hidden="true">·</span>
                 <span>{view.number}</span>
-                <Badge tone={draft ? 'neutral' : 'accent'}>{view.statusLabel}</Badge>
+                <RunStatusBadge status={view.status} label={view.statusLabel} />
               </span>
               <span className="text-footnote numeric">{computedText(view)}</span>
-              {draft ? <span className="text-footnote">{PAYROLL_DRAFT_NOTE}</span> : null}
             </span>
           }
-          actions={
-            view.canRecompute ? (
-              <Button
-                variant="secondary"
-                onClick={(event) => {
-                  recomputeFocus.remember(event.currentTarget);
-                  setRecomputeSession((count) => count + 1);
-                  setRecomputeOpen(true);
-                }}
-              >
-                <RotateCw aria-hidden="true" className="size-4.5" />
-                Recompute
-              </Button>
-            ) : null
-          }
+          actions={hasActions ? actions : null}
         />
+        <RunStatusPanel view={view} approver={approver} />
       </div>
+
+      {readOnly ? (
+        <RunManualEntries
+          entries={view.manualEntries}
+          amounts={entryAmountOf}
+          amountsShown={shown}
+          first
+        />
+      ) : null}
 
       <section aria-labelledby={tilesId} className="flex flex-col gap-2">
         <h2 id={tilesId} className="sr-only">
@@ -401,9 +590,27 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
         </ul>
       </section>
 
+      {!readOnly && view.editable ? (
+        <NeedsReview
+          people={view.people}
+          canAcknowledge={view.canAcknowledge}
+          onAcknowledge={(person, flag, trigger) =>
+            openAcknowledge(
+              {
+                flag: flag.kind as PayrollAcknowledgeableFlag,
+                person: { employeeId: person.employeeId, name: person.name, flagText: flag.text },
+                count: 1,
+              },
+              trigger,
+            )
+          }
+          onOpen={readOnly ? null : openPerson}
+        />
+      ) : null}
+
       {amounts ? (
         <Totals totals={amounts.totals} />
-      ) : (
+      ) : canShowAmounts ? (
         <div className="flex flex-col gap-2 rounded-card bg-surface px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-start gap-2 text-footnote text-text-secondary">
             <ShieldCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
@@ -419,6 +626,11 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
             Show amounts
           </Button>
         </div>
+      ) : (
+        <p className="flex items-start gap-2 rounded-card bg-surface px-4 py-3 text-footnote text-text-secondary shadow-card">
+          <ShieldCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
+          <span>Amounts are shown only while the run is waiting for your approval.</span>
+        </p>
       )}
       <FormAlert message={amountsError} />
       {amountsError === RUN_CHANGED ? (
@@ -426,6 +638,14 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
           Reload the page
         </Button>
       ) : null}
+
+      {readOnly ? null : (
+        <RunManualEntries
+          entries={view.manualEntries}
+          amounts={entryAmountOf}
+          amountsShown={shown}
+        />
+      )}
 
       {filter === 'leftOut' ? (
         <section aria-label={PAYROLL_LEFT_OUT_LABEL} className="flex flex-col gap-2">
@@ -468,11 +688,27 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
                 ? plural(people.length, 'employee', 'employees')
                 : `${plural(people.length, 'employee', 'employees')} · ${filterLabel}`}
             </p>
-            {filter !== 'all' ? (
-              <Button variant="plain" onClick={() => setFilter('all')} className="min-h-11">
-                Show everyone
-              </Button>
-            ) : null}
+            <span className="flex flex-wrap items-center gap-2">
+              {acknowledgeAllFlag && acknowledgeAllCount > 0 ? (
+                <Button
+                  variant="tinted"
+                  onClick={(event) =>
+                    openAcknowledge(
+                      { flag: acknowledgeAllFlag, person: null, count: acknowledgeAllCount },
+                      event.currentTarget,
+                    )
+                  }
+                >
+                  <CheckCheck aria-hidden="true" className="size-4.5" />
+                  {PAYROLL_ACKNOWLEDGE_ALL_LABEL}
+                </Button>
+              ) : null}
+              {filter !== 'all' ? (
+                <Button variant="plain" onClick={() => setFilter('all')} className="min-h-11">
+                  Show everyone
+                </Button>
+              ) : null}
+            </span>
           </div>
           {people.length > 0 ? (
             <DataTable
@@ -482,10 +718,12 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
               data={people}
               getRowId={(row) => row.lineId}
               selectedRowId={breakdownOpen ? (breakdownPerson?.lineId ?? null) : null}
-              rowActionLabel={(row) =>
-                [`Breakdown for ${row.name}`, ...personMarksText(row)].join(', ')
+              rowActionLabel={
+                readOnly
+                  ? undefined
+                  : (row) => [`Breakdown for ${row.name}`, ...personMarksText(row)].join(', ')
               }
-              onRowSelect={openPerson}
+              onRowSelect={readOnly ? undefined : openPerson}
               renderPhoneRow={(row) => (
                 <PhonePerson person={row} netPay={netPayOf.get(row.lineId) ?? null} />
               )}
@@ -526,20 +764,94 @@ export function PayrollRunScreen({ view }: { view: PayrollRunView }) {
         </Sheet>
       ) : null}
 
-      <Sheet open={breakdownOpen && breakdownPerson !== null} onOpenChange={changeBreakdownOpen}>
-        <SheetContent
-          onCloseAutoFocus={breakdownFocus.onCloseAutoFocus}
-          className="sm:w-[min(40rem,calc(100vw-2rem))]"
-        >
-          {breakdownPerson ? (
-            <PayrollBreakdownSheet
-              name={breakdownPerson.name}
-              loaded={breakdown}
-              onRetry={() => void fetchBreakdown(breakdownPerson)}
+      {canSubmit ? (
+        <Sheet open={submitOpen} onOpenChange={setSubmitOpen}>
+          <SheetContent onCloseAutoFocus={submitFocus.onCloseAutoFocus}>
+            <SubmitSheet
+              key={submitSession}
+              runId={view.id}
+              version={view.version}
+              employeeCount={view.employeeCount}
+              manualEntryCount={view.manualEntryCount}
+              acknowledgedFlagCount={view.acknowledgedFlagCount}
+              unresolvedFlaggedEmployees={view.unresolvedFlaggedEmployees}
+              companyWarning={companyWarning}
+              onDone={() => {
+                setSubmitOpen(false);
+                router.refresh();
+              }}
+              onReload={() => {
+                setSubmitOpen(false);
+                router.refresh();
+              }}
             />
-          ) : null}
-        </SheetContent>
-      </Sheet>
+          </SheetContent>
+        </Sheet>
+      ) : null}
+
+      {view.canAcknowledge ? (
+        <Sheet
+          open={acknowledgeOpen && acknowledgeTarget !== null}
+          onOpenChange={setAcknowledgeOpen}
+        >
+          <SheetContent onCloseAutoFocus={acknowledgeFocus.onCloseAutoFocus}>
+            {acknowledgeTarget ? (
+              <AcknowledgeSheet
+                key={acknowledgeSession}
+                runId={view.id}
+                flag={acknowledgeTarget.flag}
+                person={acknowledgeTarget.person}
+                count={acknowledgeTarget.count}
+                onDone={() => {
+                  setAcknowledgeOpen(false);
+                  router.refresh();
+                }}
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      ) : null}
+
+      {readOnly ? null : (
+        <Sheet open={breakdownOpen && breakdownPerson !== null} onOpenChange={changeBreakdownOpen}>
+          <SheetContent
+            onCloseAutoFocus={breakdownFocus.onCloseAutoFocus}
+            className="sm:w-[min(40rem,calc(100vw-2rem))]"
+          >
+            {breakdownPerson && breakdownMode.kind === 'breakdown' ? (
+              <PayrollBreakdownSheet
+                name={breakdownPerson.name}
+                loaded={breakdown}
+                onRetry={() => void fetchBreakdown(breakdownPerson)}
+                controls={breakdownControls}
+              />
+            ) : null}
+            {breakdownPerson &&
+            loadedBreakdown &&
+            (breakdownMode.kind === 'add' || breakdownMode.kind === 'edit') ? (
+              <ManualEntrySheet
+                key={entrySession}
+                runId={view.id}
+                employeeId={breakdownPerson.employeeId}
+                name={breakdownPerson.name}
+                entry={breakdownMode.kind === 'edit' ? breakdownMode.entry : null}
+                overrideTargets={loadedBreakdown.overrideTargets}
+                onSaved={entrySaved}
+                onCancel={() => setBreakdownMode({ kind: 'breakdown' })}
+              />
+            ) : null}
+            {breakdownPerson && breakdownMode.kind === 'remove' ? (
+              <RemoveManualEntrySheet
+                key={entrySession}
+                runId={view.id}
+                entry={breakdownMode.entry}
+                onRemoved={entrySaved}
+                onCancel={() => setBreakdownMode({ kind: 'breakdown' })}
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      )}
     </>
   );
 }

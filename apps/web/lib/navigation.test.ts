@@ -30,6 +30,7 @@ import {
   OPENING_BALANCES_HREF,
   OWN_TIME_OFF_HREF,
   PAYROLL_HREF,
+  payrollRegisterHref,
   TIME_OFF_REQUESTS_HREF,
   TIMESHEETS_LIST_HREF,
   type NavigationViewer,
@@ -48,7 +49,8 @@ import {
 // docs/TESTING.md#onboarding-and-change-request-tests (Onboarding and Change request, step 2.6),
 // docs/TESTING.md#timesheet-approval-dtr-and-offset-tests (Timesheets, step 2.7), Time off and the
 // opening balances (step 2.8, docs/TESTING.md#leave-and-time-off-tests), Payroll and Payroll run
-// (step 2.9, docs/TESTING.md#payroll-run-tests) and
+// (step 2.9, docs/TESTING.md#payroll-run-tests), Payroll run for a Board approver and Payroll
+// register (step 2.10, docs/TESTING.md#payroll-review-and-payslip-tests) and
 // docs/modules/core.md#administration-area — the sidebar, and the
 // command bar built from it, list only what the user can open; breadcrumbs use the longest matching
 // entry. Pure: no database.
@@ -690,15 +692,61 @@ describe('Payroll runs (step 2.9)', () => {
     });
   });
 
-  it('isn’t a sidebar entry, and reads "No access" without Talent Read', () => {
+  it('isn’t a sidebar entry, and the list reads "No access" without Talent Read', () => {
     expect(visibleHrefs(systemAdministrator)).not.toContain(PAYROLL_HREF);
     for (const someone of [newUser, hr]) {
-      for (const path of [PAYROLL_HREF, run]) {
-        expect(breadcrumbFor(visibleNavigation(someone), path)).toEqual({
-          current: NO_ACCESS_PAGE_TITLE,
-        });
-      }
+      expect(breadcrumbFor(visibleNavigation(someone), PAYROLL_HREF)).toEqual({
+        current: NO_ACCESS_PAGE_TITLE,
+      });
     }
+  });
+});
+
+describe('Payroll review (step 2.10)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const runId = '64b7f0c2a1b2c3d4e5f60718';
+  const run = `${PAYROLL_HREF}/${runId}`;
+  const register = payrollRegisterHref(runId);
+
+  it('builds the register path under the run', () => {
+    expect(register).toBe(`/talent/payroll/${runId}/register`);
+  });
+
+  it('reads "Pulse Talent › Payroll register", with Talent current', () => {
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, register)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll register',
+      });
+      expect(breadcrumbFor(groups, run)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll run',
+      });
+      expect(activeEntry(groups, register)?.entry.label).toBe('Talent');
+    }
+  });
+
+  it('names the run for a Board approver with no Talent access (the page decides)', () => {
+    for (const someone of [newUser, hr]) {
+      expect(breadcrumbFor(visibleNavigation(someone), run)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Payroll run',
+      });
+    }
+  });
+
+  it('reads "No access" on the register without Talent Read', () => {
+    for (const someone of [newUser, hr]) {
+      expect(breadcrumbFor(visibleNavigation(someone), register)).toEqual({
+        current: NO_ACCESS_PAGE_TITLE,
+      });
+    }
+  });
+
+  it('isn’t a sidebar entry', () => {
+    expect(visibleHrefs(systemAdministrator)).not.toContain(register);
   });
 });
 

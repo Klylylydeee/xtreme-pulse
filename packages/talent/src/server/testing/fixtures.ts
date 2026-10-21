@@ -637,6 +637,19 @@ export async function finalizePayrollRun(runId: string): Promise<void> {
 }
 
 /**
+ * Step 2.10 (chunk C1): sets a run's status directly in `payrollRuns` (a test shortcut for a run
+ * returned, waiting for Board approval or finalized, before the submit and approval are built).
+ */
+export async function setRunStatus(
+  runId: string,
+  status: 'draft' | 'pendingApproval' | 'returned' | 'finalized',
+): Promise<void> {
+  await database()
+    .collection('payrollRuns')
+    .updateOne({ _id: new Types.ObjectId(runId) }, { $set: { status } });
+}
+
+/**
  * A live reimbursement line of `amountCentavos` on a timesheet, stored straight in
  * `reimbursements` (a test shortcut past the receipt upload and claim). Made-up receipt details.
  */

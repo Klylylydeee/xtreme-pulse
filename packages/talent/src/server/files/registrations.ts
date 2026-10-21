@@ -17,7 +17,16 @@ import { documentLabel } from '../documents/service';
 import { type EmployeeDocumentRecord, EmployeeDocumentModel } from '../documents/model';
 import { type ESignatureRecord, ESignatureModel } from '../e-signatures/model';
 import {
+  PAYROLL_RUN_EMPLOYEE_RECORD_TYPE,
+  type PayrollRunDocument,
+  type PayrollRunEmployeeDocument,
+  PayrollRunEmployeeModel,
+  PayrollRunModel,
+} from '../payroll-runs/model';
+import { PAYSLIP_FILE_TYPE } from '../payslips/service';
+import {
   canOpenCertificationAttachment,
+  canOpenPayslip,
   canSeeDocumentCategory,
   canOpenTimeOffAttachment,
   canSeeESignatureImage,
@@ -48,6 +57,11 @@ import { type TimeOffRequestDocument, TimeOffRequestModel } from '../time-off/mo
 //   and the request's approvers (Core's `isApproverFor`), never Accounting as such. Every open is
 //   audit-logged (`auditView`), labelled with the request's number (never its type, so a
 //   confidential one stays hidden). A replaced attachment no longer opens.
+// - `talent.payslip` (build step 2.10): a payslip PDF, only the file a finalized run's line points
+//   at, for the employee (their own, outside module access) and Talent Read with HR, Accounting or
+//   the System Administrator (`canOpenPayslip`); never a Board member as such or a supervisor.
+//   Every open, the employee's own included, is audit-logged (`auditView`) as a `reveal` on
+//   `talent.payrollRunEmployee` (field `file`), labelled `<run number> · <employee number>`.
 //
 // Each check reads the record the file belongs to and requires that record to point at this very
 // file, so a replaced or stray file never opens through someone else's record.
@@ -71,12 +85,34 @@ async function documentOf(file: StoredFile): Promise<EmployeeDocumentRecord | nu
   return EmployeeDocumentModel.findOne({ _id: ownerId, fileId }).lean<EmployeeDocumentRecord>();
 }
 
+type PayslipLine = Pick<PayrollRunEmployeeDocument, '_id' | 'employeeId' | 'runId'>;
+
+/** The finalized run's line a payslip file belongs to, when the line points at this very file. */
+async function payslipLineOf(
+  file: StoredFile,
+): Promise<{ line: PayslipLine; runNumber: string } | null> {
+  const ownerId = objectIdOf(file.ownerId);
+  const fileId = objectIdOf(file.id);
+  if (!ownerId || !fileId) return null;
+  await connectDb();
+  const line = await PayrollRunEmployeeModel.findOne(
+    { _id: ownerId, 'payslip.fileId': fileId },
+    { employeeId: 1, runId: 1 },
+  ).lean<PayslipLine>();
+  if (!line) return null;
+  const run = await PayrollRunModel.findOne(
+    { _id: line.runId, status: 'finalized' },
+    { number: 1 },
+  ).lean<Pick<PayrollRunDocument, '_id' | 'number'>>();
+  return run ? { line, runNumber: run.number } : null;
+}
+
 let registered = false;
 
 /**
  * Registers Talent's file access checks (`talent.employeeDocument` with its audited views,
- * `talent.eSignature`, `talent.certification`, `talent.reimbursement`, and `talent.timeOffRequest`
- * with its audited views). Safe to call on every request: it registers once per process (per
+ * `talent.eSignature`, `talent.certification`, `talent.reimbursement`, `talent.timeOffRequest`
+ * with its audited views, and from step 2.10 `talent.payslip` with its audited views). Safe to call on every request: it registers once per process (per
  * bundle in Next).
  */
 export function registerTalentFileAccess(): void {
@@ -183,6 +219,29 @@ export function registerTalentFileAccess(): void {
             type: TIME_OFF_REQUEST_TYPE,
             id: request._id,
             label: employee ? `${employee.employeeNumber} · ${request.number}` : request.number,
+          };
+        },
+      },
+    },
+  );
+
+  registerFileAccess(
+    PAYSLIP_FILE_TYPE,
+    async (user, file) => {
+      const found = await payslipLineOf(file);
+      return found ? canOpenPayslip(user, found.line.employeeId.toHexString()) : false;
+    },
+    {
+      auditView: {
+        module: 'talent',
+        async record(file) {
+          const found = await payslipLineOf(file);
+          if (!found) throw new Error('The payroll run line for this payslip is missing.');
+          const employee = await employeeAuditLabel(found.line.employeeId);
+          return {
+            type: PAYROLL_RUN_EMPLOYEE_RECORD_TYPE,
+            id: found.line._id,
+            label: employee ? `${found.runNumber} · ${employee.employeeNumber}` : found.runNumber,
           };
         },
       },

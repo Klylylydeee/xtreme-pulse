@@ -16,11 +16,11 @@ import {
   payrollRunWindow,
   type PayrollRunVersions,
 } from './compute';
-import { type PayrollRunDocument, PayrollRunModel } from './model';
+import { PAYROLL_RUN_EDITABLE_STATUSES, type PayrollRunDocument, PayrollRunModel } from './model';
 import {
   PAYROLL_RUN_EXISTS,
   PAYROLL_RUN_GONE,
-  PAYROLL_RUN_NOT_DRAFT,
+  PAYROLL_RUN_NOT_EDITABLE,
   recomputePayrollDraft,
   storePayrollDraft,
 } from './service';
@@ -28,7 +28,8 @@ import {
 // Spec: docs/ARCHITECTURE.md#background-jobs and
 // docs/modules/talent.md#payroll-run-computation-build-step-29 ("The draft job"; decision 342 in
 // docs/BUILD_PLAN.md) — the daily job `talent.payrollDraftRuns`, at 05:00 Manila (cron
-// `0 5 * * *`).
+// `0 5 * * *`). From step 2.10 (decision 351) a `returned` run is recomputed like a draft, and a
+// run waiting for Board approval or finalized is skipped; "drafts" below means both.
 //
 // - While `talent.leaveSettings.goLiveDate` is set: creates the draft of the latest ended cut-off
 //   on or after the first payroll cut-off when it has no run and either every included
@@ -70,7 +71,10 @@ export interface PayrollDraftsResult {
 async function draftsInOrder(): Promise<
   Pick<PayrollRunDocument, '_id' | 'periodStart' | 'periodEnd'>[]
 > {
-  return PayrollRunModel.find({ status: 'draft' }, { periodStart: 1, periodEnd: 1 })
+  return PayrollRunModel.find(
+    { status: { $in: [...PAYROLL_RUN_EDITABLE_STATUSES] } },
+    { periodStart: 1, periodEnd: 1 },
+  )
     .sort({ periodStart: 1, _id: 1 })
     .lean();
 }
@@ -173,10 +177,10 @@ export async function recomputeDraftsForDates(dates: readonly BusinessDate[]): P
   return count;
 }
 
-/** A draft submitted (step 2.10) or gone since it was listed is left as it is. */
+/** A run submitted or finalized (step 2.10), or gone, since it was listed is left as it is. */
 function isLeftDraft(error: unknown): boolean {
   return (
     error instanceof ActionError &&
-    (error.message === PAYROLL_RUN_NOT_DRAFT || error.message === PAYROLL_RUN_GONE)
+    (error.message === PAYROLL_RUN_NOT_EDITABLE || error.message === PAYROLL_RUN_GONE)
   );
 }

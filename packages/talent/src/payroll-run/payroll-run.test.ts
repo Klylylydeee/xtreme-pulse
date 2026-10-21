@@ -31,10 +31,45 @@ import {
   settlementCutOffs,
   sumAttendanceItems,
   attendanceItemsPaidFor,
+  accountNumberLastFour,
+  buildPayslipView,
+  countPayrollFlags,
+  daysBelowMinimumWage,
+  derivePayrollLineFlags,
+  isAcknowledgeableFlag,
+  isEditablePayrollRunStatus,
+  isOverridableLineKey,
+  livePayrollManualEntries,
+  overrideTargetRefusal,
+  parsePayrollYearToDate,
+  PAYROLL_AUTHORIZATION_REQUIRED_MESSAGE,
+  PAYROLL_OVERRIDE_ATTENDANCE_MESSAGE,
+  PAYROLL_OVERRIDE_TARGET_MESSAGE,
+  payrollAcknowledgementAuditReason,
+  payrollApprovalTitle,
+  payrollFinalizeFirstMessage,
+  payrollFlagAcknowledgementSchema,
+  payrollFlaggedRefusal,
+  payrollFlagText,
+  payrollManualEntryFormSchema,
+  payrollManualEntryHistory,
+  payrollManualEntrySchema,
+  payrollOverriddenText,
+  payrollSubmitSummary,
+  payrollYearToDate,
+  payrollYtdFiguresOf,
+  payslipFileName,
+  payslipReadyText,
+  serializePayrollYearToDate,
+  unresolvedPayrollFlags,
+  type PayrollLineFlag,
+  type PayrollManualEntryInput,
+  type PayrollYtdOpeningInput,
+  type PayslipSnapshotInput,
 } from './index';
 
 // The payroll run engine tests (docs/TESTING.md#payroll-run-tests, build step 2.9, decisions
-// 325–349 in docs/BUILD_PLAN.md): the hand-checked cases P1–P12 and H2 of
+// 325–349 in docs/BUILD_PLAN.md; from step 2.10 also the pure parts of cases A1–A7, at the end): the hand-checked cases P1–P12 and H2 of
 // docs/modules/talent.md#payroll-run-computation-build-step-29, each its own test, to the
 // centavo, from hand-built inputs (DTRs from `computeDtr`, the seeded rates and schedule). P1
 // and P2 are the step's Done when. The salaries are invented test figures (HANDOFF item 256).
@@ -948,12 +983,12 @@ describe('contributions and the line', () => {
 });
 
 describe('the breakdown, cut-offs and membership', () => {
-  it('serializes and parses the breakdown (version 1)', () => {
+  it('serializes and parses the breakdown (version 2 from step 2.10)', () => {
     const result = run(P1);
     const json = serializePayrollBreakdown(result);
     expect(parsePayrollBreakdown(json)).toEqual(result);
-    expect(() => parsePayrollBreakdown(JSON.stringify({ ...result, breakdownVersion: 2 }))).toThrow(
-      'does not match version 1',
+    expect(() => parsePayrollBreakdown(JSON.stringify({ ...result, breakdownVersion: 3 }))).toThrow(
+      'does not match version 1 or 2',
     );
     expect(() => parsePayrollBreakdown('{')).toThrow('not valid JSON');
   });
@@ -1000,5 +1035,748 @@ describe('the breakdown, cut-offs and membership', () => {
     expect(payrollDraftReadyText(SEP26.start, SEP26.end)).toBe(
       'Draft payroll for Sep 26 – Oct 10 is ready to review',
     );
+  });
+});
+
+// --- Step 2.10: manual entries, flags, year-to-date and the payslip ---------------------------
+// The pure parts of cases A1–A7 of docs/modules/talent.md#payroll-review-approval-and-payslips-
+// build-step-210 (decisions 352–366), to the centavo, on step 2.9's P1 and P2.
+
+function earning(
+  id: string,
+  label: string,
+  amount: number,
+  taxable = true,
+  countsAsBasicSalary = false,
+): PayrollManualEntryInput {
+  return {
+    id,
+    kind: 'earning',
+    targetLineKey: null,
+    label,
+    amountCentavos: pesos(amount),
+    taxable,
+    reducesTaxablePay: null,
+    authorizedInWriting: null,
+    countsAsBasicSalary,
+  };
+}
+function deduction(
+  id: string,
+  label: string,
+  amount: number,
+  reducesTaxablePay: boolean,
+  countsAsBasicSalary = false,
+): PayrollManualEntryInput {
+  return {
+    id,
+    kind: 'deduction',
+    targetLineKey: null,
+    label,
+    amountCentavos: pesos(amount),
+    taxable: null,
+    reducesTaxablePay,
+    authorizedInWriting: !reducesTaxablePay,
+    countsAsBasicSalary,
+  };
+}
+function override(id: string, targetLineKey: string, amount: number): PayrollManualEntryInput {
+  return {
+    id,
+    kind: 'override',
+    targetLineKey,
+    label: targetLineKey,
+    amountCentavos: pesos(amount),
+    taxable: null,
+    reducesTaxablePay: null,
+    authorizedInWriting: null,
+    countsAsBasicSalary: null,
+  };
+}
+const withEntries = (c: Case, manualEntries: PayrollManualEntryInput[]): PayrollBreakdown =>
+  computePayrollLine({ ...inputOf(c), manualEntries });
+
+const BACK_PAY = earning('m1', 'Back pay: salary increase from Sep 15', 1000, true, true);
+const P1_SNAPSHOT: PayslipSnapshotInput = {
+  employeeName: 'Juan Dela Cruz',
+  employeeNumber: 'XW-0001',
+  departmentName: 'Engineering',
+  positionTitle: 'Network Engineer',
+  bank: { bank: 'unionbank', accountName: 'Juan Dela Cruz', accountNumberLastFour: '4321' },
+};
+const DONE = { states: { governmentIds: 'done', bankAccount: 'done' } } as const;
+
+describe('manual entries (decisions 355–357)', () => {
+  it('A2: a taxable back pay earning counting as basic salary', () => {
+    const before = run(P1);
+    const result = withEntries(P1, [BACK_PAY]);
+    expect(lineOf(result, 'manual:m1')).toMatchObject({
+      kind: 'manual',
+      group: 'earnings',
+      side: 'earning',
+      label: 'Back pay: salary increase from Sep 15',
+      amountCentavos: pesos(1000),
+      taxable: true,
+      taxableCentavos: pesos(1000),
+      manual: { entryId: 'm1', countsAsBasicSalary: true },
+    });
+    expect(result.totals.grossCentavos).toBe(pesos(14637.5));
+    // Contributions unchanged: the mid-month cut-off deducts the estimate.
+    expect(result.totals.employeeContributionsCentavos).toBe(pesos(921.88));
+    expect(result.compensationForContributionsCentavos).toBe(pesos(12725));
+    expect(result.taxableCompensationCentavos).toBe(pesos(11803.12));
+    expect(result.taxCentavos).toBe(pesos(207.92));
+    expect(result.totals.deductionsCentavos).toBe(pesos(2192.3));
+    expect(result.totals.netPayCentavos).toBe(pesos(12445.2));
+    expect(result.basicSalaryEarnedCentavos - before.basicSalaryEarnedCentavos).toBe(pesos(1000));
+    expect(result.manualEntries).toEqual([
+      expect.objectContaining({ entryId: 'm1', kind: 'earning', staleReason: null }),
+    ]);
+
+    // Once finalized, the Oct 11 – 25 draft (P6) reads it in the month's compensation.
+    const next = run({
+      period: OCT11,
+      salaries: P1.salaries,
+      entries: presentEveryDay(OCT11),
+      midMonth: midMonthFiguresOf(result),
+    });
+    expect(next.contributions.monthCompensationCentavos).toBe(pesos(23600));
+    expect(next.contributions.sss.mscCentavos).toBe(pesos(23500));
+    expect(next.contributions.sss.month.employeeCentavos).toBe(pesos(1175));
+    expect(amountOf(next, 'sssEmployee')).toBe(pesos(625));
+  });
+
+  it('a manual earning is never an attendance item, so it is never settled again', () => {
+    const result = withEntries(P1, [BACK_PAY]);
+    const items = attendanceItemsPaidFor(result, SEP26.start);
+    expect(items.some((item) => item.key.startsWith('manual:'))).toBe(false);
+    expect(result.attendanceItems).toEqual(run(P1).attendanceItems);
+  });
+
+  it('a non-taxable earning counts in neither compensation nor tax', () => {
+    const result = withEntries(P1, [earning('m1', 'Correction', 500, false)]);
+    expect(result.totals.grossCentavos).toBe(pesos(14137.5));
+    expect(result.compensationForContributionsCentavos).toBe(pesos(11725));
+    expect(result.taxCentavos).toBe(pesos(57.92));
+    expect(result.totals.netPayCentavos).toBe(pesos(12095.2));
+    expect(lineOf(result, 'manual:m1').taxable).toBe(false);
+  });
+
+  it('A3: an after-tax deduction lowers net pay only', () => {
+    const result = withEntries(P2, [deduction('m2', 'Cash advance', 500, false)]);
+    expect(lineOf(result, 'manual:m2')).toMatchObject({
+      group: 'deductions',
+      side: 'deduction',
+      taxableCentavos: 0,
+      manual: { reducesTaxablePay: false, authorizedInWriting: true },
+    });
+    expect(result.totals.netPayCentavos).toBe(pesos(10592.74));
+    expect(result.taxCentavos).toBe(pesos(31.01));
+    expect(result.compensationForContributionsCentavos).toBe(
+      run(P2).compensationForContributionsCentavos,
+    );
+  });
+
+  it('A3: the form refuses an after-tax deduction until it is authorized in writing', () => {
+    const typed = {
+      kind: 'deduction',
+      label: 'Cash advance',
+      amount: '500.00',
+      reducesTaxablePay: false,
+      countsAsBasicSalary: false,
+      reason: 'Cash advance on Oct 1',
+    };
+    const refused = payrollManualEntryFormSchema.safeParse(typed);
+    expect(refused.success).toBe(false);
+    expect(refused.error?.issues[0]).toMatchObject({
+      path: ['authorizedInWriting'],
+      message: PAYROLL_AUTHORIZATION_REQUIRED_MESSAGE,
+    });
+    expect(payrollManualEntryFormSchema.parse({ ...typed, authorizedInWriting: true })).toEqual({
+      kind: 'deduction',
+      targetLineKey: null,
+      label: 'Cash advance',
+      amountCentavos: 50000,
+      taxable: null,
+      reducesTaxablePay: false,
+      authorizedInWriting: true,
+      countsAsBasicSalary: false,
+      reason: 'Cash advance on Oct 1',
+    });
+  });
+
+  it('a deduction that reduces taxable pay lowers compensation, tax and basic salary earned', () => {
+    const result = withEntries(P1, [deduction('m3', 'Correction', 1000, true, true)]);
+    expect(result.compensationForContributionsCentavos).toBe(pesos(10725));
+    expect(result.taxableCompensationCentavos).toBe(pesos(9803.12));
+    expect(result.taxCentavos).toBe(0);
+    expect(result.totals.netPayCentavos).toBe(pesos(11595.2) + pesos(57.92) - pesos(1000));
+    expect(run(P1).basicSalaryEarnedCentavos - result.basicSalaryEarnedCentavos).toBe(pesos(1000));
+  });
+
+  it('A4: overriding withholding tax to ₱0.00, and refusing an override of absences', () => {
+    const result = withEntries(P1, [override('m4', 'withholdingTax', 0)]);
+    expect(lineOf(result, 'withholdingTax')).toMatchObject({
+      amountCentavos: 0,
+      override: { entryId: 'm4', computedAmountCentavos: pesos(57.92) },
+    });
+    expect(payrollOverriddenText(pesos(57.92))).toBe('Overridden (computed ₱57.92)');
+    expect(result.taxCentavos).toBe(0);
+    expect(result.totals.taxWithheldCentavos).toBe(0);
+    expect(result.taxableCompensationCentavos).toBe(pesos(10803.12));
+    expect(result.totals.netPayCentavos).toBe(pesos(11653.12));
+    expect(result.manualEntries[0]).toMatchObject({
+      computedAmountCentavos: pesos(57.92),
+      staleReason: null,
+    });
+
+    expect(overrideTargetRefusal('absence')).toBe(PAYROLL_OVERRIDE_ATTENDANCE_MESSAGE);
+    expect(
+      payrollManualEntrySchema.safeParse({
+        kind: 'override',
+        targetLineKey: 'absence',
+        amountCentavos: 0,
+        reason: 'Excused',
+      }).error?.issues[0]?.message,
+    ).toBe(PAYROLL_OVERRIDE_ATTENDANCE_MESSAGE);
+    // Given anyway, the engine leaves the line as computed and marks the entry stale.
+    const stale = withEntries(P1, [override('m5', 'absence', 0)]);
+    expect(amountOf(stale, 'absence')).toBe(pesos(1000));
+    expect(stale.manualEntries[0]?.staleReason).toBe('notOverridable');
+    expect(stale.totals.netPayCentavos).toBe(pesos(11595.2));
+  });
+
+  it('refuses an override of every attendance item and allows the overridable lines', () => {
+    for (const key of [
+      'overtimeOrdinary',
+      'restDayWork',
+      'nightDifferential',
+      'holidayPay:2026-11-30',
+      'allowanceDay:meal',
+      'reimbursement',
+      'late',
+      'undertime',
+      'leaveWithoutPay',
+    ]) {
+      expect(overrideTargetRefusal(key)).toBe(PAYROLL_OVERRIDE_ATTENDANCE_MESSAGE);
+    }
+    for (const key of [
+      'basicPay',
+      'allowance:internet',
+      'sssEmployee',
+      'sssEc',
+      'withholdingTax',
+    ]) {
+      expect(isOverridableLineKey(key)).toBe(true);
+    }
+    expect(overrideTargetRefusal('manual:m1')).toBe(PAYROLL_OVERRIDE_TARGET_MESSAGE);
+  });
+
+  it('overriding basic pay works contributions and tax out from the new figure', () => {
+    const result = withEntries(P1, [override('m6', 'basicPay', 11000)]);
+    expect(lineOf(result, 'basicPay')).toMatchObject({
+      amountCentavos: pesos(11000),
+      taxableCentavos: pesos(11000),
+      override: { computedAmountCentavos: pesos(10875) },
+    });
+    expect(result.totals.grossCentavos).toBe(pesos(13762.5));
+    expect(result.compensationForContributionsCentavos).toBe(pesos(11850));
+    expect(result.taxableCompensationCentavos).toBe(pesos(10928.12));
+    expect(result.taxCentavos).toBe(pesos(76.67));
+    expect(result.basicSalaryEarnedCentavos).toBe(pesos(11000) - pesos(1062.5));
+  });
+
+  it('overriding a per cut-off allowance replaces its amount', () => {
+    const result = withEntries(P1, [override('m7', 'allowance:internet', 800)]);
+    expect(amountOf(result, 'allowance:internet')).toBe(pesos(800));
+    expect(result.totals.grossCentavos).toBe(pesos(13937.5));
+    expect(result.manualEntries[0]?.computedAmountCentavos).toBe(pesos(500));
+  });
+
+  it('overriding an employee share lowers what is deducted and raises the tax', () => {
+    const result = withEntries(P1, [override('m8', 'sssEmployee', 0)]);
+    expect(lineOf(result, 'sssEmployee')).toMatchObject({
+      amountCentavos: 0,
+      override: { computedAmountCentavos: pesos(550) },
+    });
+    expect(result.contributions.sss.thisCutOff.employeeCentavos).toBe(0);
+    expect(midMonthFiguresOf(result).sss.employeeCentavos).toBe(0);
+    expect(result.totals.employeeContributionsCentavos).toBe(pesos(371.88));
+    expect(result.taxableCompensationCentavos).toBe(pesos(11353.12));
+    expect(result.taxCentavos).toBe(pesos(140.42));
+    expect(result.totals.netPayCentavos).toBe(pesos(12062.7));
+  });
+
+  it('an employer share override changes nothing on the employee’s pay', () => {
+    const before = run(P1);
+    const result = withEntries(P1, [override('m9', 'sssEmployer', 0)]);
+    expect(result.totals.netPayCentavos).toBe(before.totals.netPayCentavos);
+    expect(result.totals.employerContributionsCentavos).toBe(
+      before.totals.employerContributionsCentavos - (amountOf(before, 'sssEmployer') ?? 0),
+    );
+    expect(lineOf(result, 'sssEmployer').override?.computedAmountCentavos).toBe(
+      amountOf(before, 'sssEmployer'),
+    );
+  });
+
+  it('marks an override whose line is gone, and an earlier override of the same line, stale', () => {
+    const result = withEntries(P1, [
+      override('a', 'allowance:meal', 100),
+      override('b', 'withholdingTax', 10),
+      override('c', 'withholdingTax', 20),
+    ]);
+    expect(result.manualEntries.map((entry) => entry.staleReason)).toEqual([
+      'targetMissing',
+      'duplicateTarget',
+      null,
+    ]);
+    expect(result.taxCentavos).toBe(pesos(20));
+  });
+
+  it('A7: net pay below zero is flagged, can’t be acknowledged, and a manual entry clears it', () => {
+    const reversed: PayrollEarlierPeriodInput = {
+      periodStart: SEP26.start,
+      periodEnd: SEP26.end,
+      now: [],
+      paid: [
+        {
+          key: 'overtimeOrdinary',
+          kind: 'overtimeOrdinary',
+          side: 'earning',
+          label: 'Overtime, ordinary day',
+          quantity: '2400',
+          unit: 'minutes',
+          rateText: null,
+          amountCentavos: pesos(12000),
+          taxableCentavos: pesos(12000),
+          deMinimisKey: null,
+          typeKey: null,
+        },
+      ],
+    };
+    const negative: Case = { period: OCT11, salaries: [salary(21750)], earlierPeriods: [reversed] };
+    const result = run(negative);
+    expect(result.negativeNet).toBe(true);
+    const flags = derivePayrollLineFlags({
+      breakdown: result,
+      onboarding: DONE,
+      daysBelowMinimumWage: [],
+    });
+    expect(flags.map((flag) => flag.kind)).toEqual(['netPayBelowZero']);
+    expect(unresolvedPayrollFlags(flags, ['netPayBelowZero'])).toEqual(flags);
+    expect(
+      payrollFlagAcknowledgementSchema.safeParse({ flag: 'netPayBelowZero', reason: 'Seen' })
+        .success,
+    ).toBe(false);
+
+    const shortfall = -result.totals.netPayCentavos;
+    const fixed = withEntries(negative, [
+      { ...earning('m10', 'Deduction moved to next cut-off', 0, false), amountCentavos: shortfall },
+    ]);
+    expect(fixed.totals.netPayCentavos).toBe(0);
+    expect(fixed.negativeNet).toBe(false);
+    expect(
+      derivePayrollLineFlags({ breakdown: fixed, onboarding: DONE, daysBelowMinimumWage: [] }),
+    ).toEqual([]);
+  });
+});
+
+describe('review flags (decisions 352–354)', () => {
+  it('A6: a bank account entered but not verified flags onboarding incomplete', () => {
+    const flags = derivePayrollLineFlags({
+      breakdown: run(P2),
+      onboarding: { states: { governmentIds: 'done', bankAccount: 'waitingForVerification' } },
+      daysBelowMinimumWage: [],
+    });
+    expect(flags).toEqual([
+      { kind: 'onboardingIncomplete', items: ['bankAccount:waitingForVerification'] },
+    ]);
+    expect(payrollFlagText(flags[0] as PayrollLineFlag)).toBe(
+      'Onboarding incomplete: payroll bank account not verified',
+    );
+    expect(unresolvedPayrollFlags(flags, [])).toHaveLength(1);
+    expect(payrollFlaggedRefusal(1)).toBe('Resolve or acknowledge 1 flagged employee first.');
+    expect(payrollFlaggedRefusal(2)).toBe('Resolve or acknowledge 2 flagged employees first.');
+    // Acknowledged: nothing left in the way.
+    expect(unresolvedPayrollFlags(flags, ['onboardingIncomplete'])).toEqual([]);
+    expect(
+      payrollAcknowledgementAuditReason('onboardingIncomplete', 'XW-0002', 'Paid by check'),
+    ).toBe('Acknowledged onboarding incomplete for XW-0002: Paid by check');
+    expect(payrollFlagText({ kind: 'onboardingIncomplete', items: ['governmentIds:todo'] })).toBe(
+      'Onboarding incomplete: government IDs not entered',
+    );
+  });
+
+  it('flags a timesheet not approved (P3) or missing, and nothing for P1 with everything done', () => {
+    const p3 = derivePayrollLineFlags({
+      breakdown: run({ ...P1, status: 'pendingHr' }),
+      onboarding: DONE,
+      daysBelowMinimumWage: [],
+    });
+    expect(p3).toEqual([{ kind: 'timesheetNotApproved', items: [] }]);
+    const none = derivePayrollLineFlags({
+      breakdown: run({ ...P1, status: null }),
+      onboarding: DONE,
+      daysBelowMinimumWage: [],
+    });
+    expect(none.map((flag) => flag.kind)).toEqual(['timesheetNotApproved']);
+    expect(
+      derivePayrollLineFlags({ breakdown: run(P1), onboarding: DONE, daysBelowMinimumWage: [] }),
+    ).toEqual([]);
+  });
+
+  it('flags a daily rate below the day’s minimum wage, not one equal to it', () => {
+    const input = inputOf(P1);
+    const minimumOf = (dailyCentavos: Centavos | null) => ({
+      employee: input.employee,
+      calendar: input.calendar,
+      dailyRateFactor: input.payrollSettings.dailyRateFactor,
+      minimumWageByDay: Object.fromEntries(input.calendar.map((day) => [day.date, dailyCentavos])),
+    });
+    // ₱21,750 a month × 12 ÷ 261 = ₱1,000.00 a day.
+    expect(daysBelowMinimumWage(minimumOf(pesos(1000)))).toEqual([]);
+    expect(daysBelowMinimumWage(minimumOf(null))).toEqual([]);
+    const below = daysBelowMinimumWage(minimumOf(pesos(1000.01)));
+    expect(below).toHaveLength(input.calendar.length);
+    const flags = derivePayrollLineFlags({
+      breakdown: run(P1),
+      onboarding: DONE,
+      daysBelowMinimumWage: below,
+    });
+    expect(flags.map((flag) => [flag.kind, payrollFlagText(flag)])).toEqual([
+      ['belowMinimumWage', 'Below minimum wage'],
+    ]);
+  });
+
+  it('flags a stale manual entry, which can’t be acknowledged', () => {
+    const flags = derivePayrollLineFlags({
+      breakdown: withEntries(P1, [override('s1', 'allowance:meal', 100)]),
+      onboarding: DONE,
+      daysBelowMinimumWage: [],
+    });
+    expect(flags).toEqual([{ kind: 'manualEntryStale', items: ['s1'] }]);
+    expect(isAcknowledgeableFlag('manualEntryStale')).toBe(false);
+    expect(unresolvedPayrollFlags(flags, ['manualEntryStale'])).toEqual(flags);
+  });
+
+  it('counts each flag kind once per line', () => {
+    expect(
+      countPayrollFlags([
+        { flags: [{ kind: 'timesheetNotApproved', items: [] }] },
+        {
+          flags: [
+            { kind: 'timesheetNotApproved', items: [] },
+            { kind: 'netPayBelowZero', items: [] },
+          ],
+        },
+        { flags: [] },
+      ]),
+    ).toEqual({
+      onboardingIncomplete: 0,
+      timesheetNotApproved: 2,
+      belowMinimumWage: 0,
+      netPayBelowZero: 1,
+      manualEntryStale: 0,
+    });
+  });
+
+  it('takes an acknowledgement’s reason of 1–300 characters', () => {
+    expect(
+      payrollFlagAcknowledgementSchema.parse({
+        flag: 'belowMinimumWage',
+        reason: '  Raise in Nov ',
+      }),
+    ).toEqual({ flag: 'belowMinimumWage', reason: 'Raise in Nov' });
+    expect(
+      payrollFlagAcknowledgementSchema.safeParse({ flag: 'belowMinimumWage', reason: ' ' }).success,
+    ).toBe(false);
+    expect(
+      payrollFlagAcknowledgementSchema.safeParse({
+        flag: 'belowMinimumWage',
+        reason: 'x'.repeat(301),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('manual entry chains and the form (decision 358)', () => {
+  const t = (minute: number) => new Date(`2026-10-19T08:${String(minute).padStart(2, '0')}:00Z`);
+  it('keeps the latest of each chain that isn’t removed, oldest first', () => {
+    const entries = [
+      { id: 'a1', supersedesId: null, removed: false, createdAt: t(1) },
+      { id: 'b1', supersedesId: null, removed: false, createdAt: t(2) },
+      { id: 'a2', supersedesId: 'a1', removed: false, createdAt: t(3) },
+      { id: 'c1', supersedesId: null, removed: false, createdAt: t(4) },
+      { id: 'c2', supersedesId: 'c1', removed: true, createdAt: t(5) },
+    ];
+    expect(livePayrollManualEntries(entries).map((entry) => entry.id)).toEqual(['b1', 'a2']);
+    expect(payrollManualEntryHistory(entries, 'a2').map((entry) => entry.id)).toEqual(['a2', 'a1']);
+  });
+
+  it('parses an earning and an override typed in pesos', () => {
+    expect(
+      payrollManualEntryFormSchema.parse({
+        kind: 'earning',
+        label: ' Back pay ',
+        amount: '1,000.00',
+        taxable: true,
+        countsAsBasicSalary: true,
+        reason: 'Salary increase from Sep 15',
+      }),
+    ).toMatchObject({ kind: 'earning', label: 'Back pay', amountCentavos: 100000, taxable: true });
+    expect(
+      payrollManualEntryFormSchema.parse({
+        kind: 'override',
+        targetLineKey: 'withholdingTax',
+        amount: '0',
+        reason: 'Exempt this cut-off',
+      }),
+    ).toMatchObject({ kind: 'override', targetLineKey: 'withholdingTax', amountCentavos: 0 });
+    const zero = payrollManualEntryFormSchema.safeParse({
+      kind: 'earning',
+      label: 'Back pay',
+      amount: '0',
+      taxable: true,
+      countsAsBasicSalary: false,
+      reason: 'x',
+    });
+    expect(zero.error?.issues[0]?.path).toEqual(['amount']);
+    expect(
+      payrollManualEntrySchema.safeParse({
+        kind: 'earning',
+        label: 'x'.repeat(81),
+        amountCentavos: 100,
+        taxable: true,
+        countsAsBasicSalary: false,
+        reason: 'r',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('breakdown version 2 (decision 372)', () => {
+  it('writes version 2 with manual and overridden lines and reads it back', () => {
+    const result = withEntries(P1, [BACK_PAY, override('m4', 'withholdingTax', 0)]);
+    expect(result.breakdownVersion).toBe(2);
+    expect(parsePayrollBreakdown(serializePayrollBreakdown(result))).toEqual(result);
+  });
+
+  it('still reads a version 1 breakdown, with no manual or overridden line', () => {
+    const v2 = run(P1);
+    const { manualEntries: _entries, ...rest } = v2;
+    void _entries;
+    const v1 = {
+      ...rest,
+      breakdownVersion: 1,
+      lines: v2.lines.map((line) => {
+        const { manual: _manual, override: _override, ...v1Line } = line;
+        void _manual;
+        void _override;
+        return v1Line;
+      }),
+    };
+    const parsed = parsePayrollBreakdown(JSON.stringify(v1));
+    expect(parsed).toEqual({ ...v2, breakdownVersion: 1 });
+    expect(parsed.manualEntries).toEqual([]);
+    expect(parsed.lines.every((line) => line.manual === null && line.override === null)).toBe(true);
+    // Read back and written again, it is version 2.
+    expect(JSON.parse(serializePayrollBreakdown(parsed)).breakdownVersion).toBe(2);
+    // A version 2 without its entries and line fields is refused.
+    expect(() => parsePayrollBreakdown(JSON.stringify({ ...v1, breakdownVersion: 2 }))).toThrow(
+      'does not match version 1 or 2',
+    );
+  });
+});
+
+describe('year-to-date and the payslip (decisions 363–366)', () => {
+  const ytdOf = (breakdown: PayrollBreakdown, opening: PayrollYtdOpeningInput[] = []) =>
+    payrollYearToDate({
+      payDate: breakdown.cutOff.payDate,
+      periodStart: breakdown.cutOff.periodStart,
+      openingEntries: opening,
+      lines: [
+        {
+          payDate: breakdown.cutOff.payDate,
+          periodStart: breakdown.cutOff.periodStart,
+          figures: payrollYtdFiguresOf(breakdown),
+        },
+      ],
+    });
+
+  it('A1: P1’s payslip', () => {
+    const breakdown = run(P1);
+    const ytd = ytdOf(breakdown);
+    expect(ytd).toEqual({
+      grossCentavos: pesos(13637.5),
+      taxWithheldCentavos: pesos(57.92),
+      sssEmployeeCentavos: pesos(550),
+      philhealthEmployeeCentavos: pesos(271.88),
+      pagibigEmployeeCentavos: pesos(100),
+      contributionsCentavos: pesos(921.88),
+    });
+    const view = buildPayslipView({
+      runNumber: 'PAY-2026-0001',
+      breakdown,
+      snapshot: P1_SNAPSHOT,
+      yearToDate: ytd,
+    });
+    expect(view).toMatchObject({
+      title: 'Payslip PAY-2026-0001',
+      periodText: 'Sep 26 – Oct 10, 2026',
+      payDate: '2026-10-15',
+      payDateText: 'Oct 15, 2026',
+      grossCentavos: pesos(13637.5),
+      deductionsCentavos: pesos(2042.3),
+      netPayCentavos: pesos(11595.2),
+      creditedText: 'Credited to UnionBank ending 4321',
+      employee: { name: 'Juan Dela Cruz', number: 'XW-0001' },
+    });
+    expect(view.earnings.map((line) => line.label)).toEqual(
+      breakdown.lines.filter((line) => line.group === 'earnings').map((line) => line.label),
+    );
+    expect(view.deductions.map((line) => line.label)).toEqual([
+      'Absences',
+      'Late',
+      'SSS',
+      'PhilHealth',
+      'Pag-IBIG',
+      'Withholding tax',
+    ]);
+    // No employer share and no rate anywhere on it.
+    const text = JSON.stringify(view);
+    expect(text).not.toContain('employer');
+    expect(text).not.toContain('EC,');
+    expect(text).not.toContain('rateText');
+    expect(text).not.toContain('a month');
+  });
+
+  it('A2 and A4 on the payslip: "Adjustment: <label>" and "Adjusted"', () => {
+    const breakdown = withEntries(P1, [BACK_PAY, override('m4', 'withholdingTax', 0)]);
+    const view = buildPayslipView({
+      runNumber: 'PAY-2026-0001',
+      breakdown,
+      snapshot: { ...P1_SNAPSHOT, bank: null },
+      yearToDate: ytdOf(breakdown),
+    });
+    expect(view.earnings.at(-1)).toEqual({
+      label: 'Adjustment: Back pay: salary increase from Sep 15',
+      amountCentavos: pesos(1000),
+      manual: true,
+      adjusted: false,
+    });
+    expect(view.deductions.find((line) => line.label === 'Withholding tax')).toEqual({
+      label: 'Withholding tax',
+      amountCentavos: 0,
+      manual: false,
+      adjusted: true,
+    });
+    expect(view.adjustedLabel).toBe('Adjusted');
+    expect(view.creditedText).toBe('Paid by other means');
+    expect(view.netPayCentavos).toBe(pesos(12445.2) + pesos(207.92));
+  });
+
+  it('A5: year-to-date with P1’s opening entry for 2026', () => {
+    const opening: PayrollYtdOpeningInput = {
+      year: 2026,
+      createdAt: new Date('2026-10-01T00:00:00Z'),
+      figures: {
+        grossCentavos: pesos(200000),
+        taxWithheldCentavos: pesos(9000),
+        sssEmployeeCentavos: pesos(5250),
+        philhealthEmployeeCentavos: pesos(2500),
+        pagibigEmployeeCentavos: pesos(900),
+      },
+    };
+    const older: PayrollYtdOpeningInput = {
+      ...opening,
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      figures: { ...opening.figures, grossCentavos: 1 },
+    };
+    const lastYear: PayrollYtdOpeningInput = {
+      ...opening,
+      year: 2025,
+      createdAt: new Date('2026-10-02T00:00:00Z'),
+      figures: { ...opening.figures, grossCentavos: 2 },
+    };
+    const ytd = ytdOf(run(P1), [older, opening, lastYear]);
+    expect(ytd.grossCentavos).toBe(pesos(213637.5));
+    expect(ytd.taxWithheldCentavos).toBe(pesos(9057.92));
+    expect(ytd.contributionsCentavos).toBe(pesos(9571.88));
+  });
+
+  it('counts only lines paid in the pay date’s year, up to this run', () => {
+    const figures = payrollYtdFiguresOf(run(P1));
+    const ytd = payrollYearToDate({
+      payDate: '2026-10-15',
+      periodStart: '2026-09-26',
+      openingEntries: [],
+      lines: [
+        { payDate: '2025-12-15', periodStart: '2025-11-26', figures },
+        { payDate: '2026-09-30', periodStart: '2026-09-11', figures },
+        { payDate: '2026-10-15', periodStart: '2026-09-26', figures },
+        { payDate: '2026-10-30', periodStart: '2026-10-11', figures },
+      ],
+    });
+    expect(ytd.grossCentavos).toBe(2 * pesos(13637.5));
+    expect(parsePayrollYearToDate(serializePayrollYearToDate(ytd))).toEqual(ytd);
+    expect(() => parsePayrollYearToDate('{"ytdVersion":2}')).toThrow('do not match version 1');
+  });
+
+  it('settlements print as adjustments from earlier cut-offs, signed by their effect', () => {
+    const p3 = run({ ...P1, status: 'pendingHr' });
+    const now = computePeriodPay({
+      ...inputOf(P1),
+      periodStart: SEP26.start,
+      periodEnd: SEP26.end,
+    });
+    const breakdown = run({
+      period: OCT11,
+      salaries: P1.salaries,
+      entries: presentEveryDay(OCT11),
+      midMonth: midMonthFiguresOf(p3),
+      earlierPeriods: [
+        {
+          periodStart: SEP26.start,
+          periodEnd: SEP26.end,
+          now: now.attendanceItems,
+          paid: attendanceItemsPaidFor(p3, SEP26.start),
+        },
+      ],
+    });
+    const view = buildPayslipView({
+      runNumber: 'PAY-2026-0002',
+      breakdown,
+      snapshot: P1_SNAPSHOT,
+      yearToDate: ytdOf(breakdown),
+    });
+    expect(view.adjustmentsLabel).toBe('Adjustments from earlier cut-offs');
+    expect(
+      view.adjustments.find((line) => line.label === 'Absences · Sep 26 – Oct 10')?.amountCentavos,
+    ).toBe(pesos(-1000));
+    expect(view.adjustments.find((line) => line.label.startsWith('Overtime'))?.amountCentavos).toBe(
+      pesos(1250),
+    );
+  });
+
+  it('words the approval, the summary and the notification without an amount', () => {
+    expect(payrollApprovalTitle(SEP26.start, SEP26.end)).toBe('Payroll · Sep 26 – Oct 10, 2026');
+    expect(
+      payrollSubmitSummary({
+        employeeCount: 2,
+        manualEntryCount: 1,
+        acknowledgedFlagCount: 1,
+        payDate: SEP26.payDate,
+      }),
+    ).toBe('2 employees · 1 manual entry · 1 flag acknowledged · pay date Oct 15, 2026');
+    expect(payslipReadyText(SEP26.start, SEP26.end)).toBe(
+      'Your payslip for Sep 26 – Oct 10 is ready',
+    );
+    expect(payrollFinalizeFirstMessage(SEP26.start, SEP26.end, 'PAY-2026-0001')).toBe(
+      'Finalize Sep 26 – Oct 10, 2026 (PAY-2026-0001) first.',
+    );
+    expect(payslipFileName('XW-0001', '2026-10-15')).toBe('Payslip XW-0001 2026-10-15.pdf');
+    expect(accountNumberLastFour('1234-5678-9012')).toBe('9012');
+    expect(isEditablePayrollRunStatus('returned')).toBe(true);
+    expect(isEditablePayrollRunStatus('pendingApproval')).toBe(false);
   });
 });

@@ -26,6 +26,10 @@ import { columnAlign, formatCell, generatedLine, type Report, totalCells } from 
 
 export const PDF_CONTENT_TYPE = 'application/pdf' as const;
 
+// The font files and tokens.css are read from disk at run time. In the web app's server bundle
+// (step 2.10's payslips render there) the bundler must leave these lookups to Node:
+// `turbopackIgnore` keeps Turbopack from resolving them at build time, where it can't map the
+// template path onto @fontsource/inter's export patterns.
 const require = createRequire(import.meta.url);
 
 /** The font family names documents use. Latin first, then Latin Extended (it has the ₱ sign). */
@@ -37,7 +41,9 @@ let fontsRegistered = false;
 export function registerPdfFonts(): void {
   if (fontsRegistered) return;
   const file = (subset: string, weight: number) =>
-    require.resolve(`@fontsource/inter/files/inter-${subset}-${weight}-normal.woff`);
+    require.resolve(
+      /* turbopackIgnore: true */ `@fontsource/inter/files/inter-${subset}-${weight}-normal.woff`,
+    );
   for (const [family, subset] of [
     ['Inter', 'latin'],
     ['Inter Extended', 'latin-ext'],
@@ -61,7 +67,10 @@ let colors: PdfColors | null = null;
 /** The light-appearance colors from tokens.css. */
 export function pdfColors(): PdfColors {
   if (colors) return colors;
-  const css = readFileSync(require.resolve('@pulse/ui/tokens.css'), 'utf8');
+  const css = readFileSync(
+    require.resolve(/* turbopackIgnore: true */ '@pulse/ui/tokens.css'),
+    'utf8',
+  );
   const light = /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? '';
   const token = (name: string) => {
     const value = new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{3,8})\\s*;`).exec(light)?.[1];

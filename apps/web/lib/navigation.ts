@@ -192,6 +192,21 @@ export const OPENING_BALANCES_HREF = '/talent/opening-balances';
  */
 export const PAYROLL_HREF = '/talent/payroll';
 
+/**
+ * A finalized run's payroll register (step 2.10,
+ * docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210), for Talent Read and
+ * HR, Accounting or the System Administrator: "Pulse Talent › Payroll register", reached from the
+ * run page's "Payroll register" button.
+ */
+export function payrollRegisterHref(runId: string): string {
+  return `${PAYROLL_HREF}/${runId}/register`;
+}
+
+/** `/talent/payroll/<runId>` exactly (a run page, not its register). */
+const PAYROLL_RUN_PATH = /^\/talent\/payroll\/[^/]+$/;
+/** `/talent/payroll/<runId>/register`. */
+const PAYROLL_REGISTER_PATH = /^\/talent\/payroll\/[^/]+\/register$/;
+
 /*
  * Every section of the app, in sidebar order. Spec: docs/ARCHITECTURE.md#one-application and
  * docs/modules/core.md#administration-area. The modules follow the build order
@@ -499,6 +514,12 @@ export const SECTION_PAGES: {
    * (`/talent/timesheets/<employeeId>`), whose parent path is the timesheets list (step 2.7).
    */
   under?: boolean;
+  /**
+   * Only the paths matching it, in place of `exact` and `under`: a payroll run
+   * (`/talent/payroll/<runId>`) apart from its register (`/talent/payroll/<runId>/register`),
+   * step 2.10.
+   */
+  match?: RegExp;
 }[] = [
   { href: '/talent/payroll-settings', section: '/talent', title: 'Payroll settings' },
   // Step 2.7 (decision 294): the timesheets list, "Pulse Talent › Timesheets", Talent Read only.
@@ -537,7 +558,23 @@ export const SECTION_PAGES: {
   // Talent › Payroll run"), for Talent readers; the pages also check HR, Accounting or the System
   // Administrator. `/talent/payroll-settings` isn't under `/talent/payroll/`, so it keeps its own.
   { href: PAYROLL_HREF, section: '/talent', title: 'Payroll', exact: true },
-  { href: PAYROLL_HREF, section: '/talent', title: 'Payroll run', under: true },
+  // Step 2.10 (decision 365): a Board member who is or was an approver of a run's request opens
+  // the run page read-only with no module access (the approver exception; the page decides), so
+  // it names itself for them too. The register ("Pulse Talent › Payroll register") is for Talent
+  // readers only (the page also checks HR, Accounting or the System Administrator).
+  {
+    href: PAYROLL_HREF,
+    section: '/talent',
+    title: 'Payroll run',
+    openToOthers: true,
+    match: PAYROLL_RUN_PATH,
+  },
+  {
+    href: PAYROLL_HREF,
+    section: '/talent',
+    title: 'Payroll register',
+    match: PAYROLL_REGISTER_PATH,
+  },
 ];
 
 /**
@@ -607,9 +644,10 @@ function isAtOrUnder(href: string, pathname: string): boolean {
 
 /** Whether `pathname` is a section page's, as its `exact` or `under` says. */
 function isSectionPageAt(
-  page: { href: string; exact?: boolean; under?: boolean },
+  page: { href: string; exact?: boolean; under?: boolean; match?: RegExp },
   pathname: string,
 ): boolean {
+  if (page.match) return page.match.test(pathname);
   if (page.exact) return pathname === page.href;
   if (page.under) return pathname.startsWith(`${page.href}/`);
   return isAtOrUnder(page.href, pathname);

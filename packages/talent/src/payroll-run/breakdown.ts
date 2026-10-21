@@ -11,14 +11,17 @@ import {
   PAYROLL_QUANTITY_UNITS,
   type PayrollLineGroup,
 } from './kinds';
+import { PAYROLL_MANUAL_ENTRY_KINDS, PAYROLL_MANUAL_STALE_REASONS } from './manual';
 import type { PayrollBreakdown, PayrollLine } from './types';
 
-// Spec: docs/DATA_MODEL.md#collection-ownership (`payrollRunEmployees.breakdown`, decision 343)
-// — the breakdown is one JSON value, encrypted as a `sensitiveField()` (category `payslip`), with
-// `breakdownVersion` 1. `serializePayrollBreakdown` writes it and `parsePayrollBreakdown` reads it
-// back, refusing anything that doesn't match version 1. Never log either.
+// Spec: docs/DATA_MODEL.md#collection-ownership (`payrollRunEmployees.breakdown`, decisions 343
+// and 372) — the breakdown is one JSON value, encrypted as a `sensitiveField()` (category
+// `payslip`). Version 2 (step 2.10) adds each line's `manual` and `override` and the line's
+// `manualEntries`. `serializePayrollBreakdown` writes version 2; `parsePayrollBreakdown` reads
+// version 2, and version 1 with those fields null and empty (its version kept), and refuses
+// anything else. Never log either.
 
-export const PAYROLL_BREAKDOWN_VERSION = 1;
+export const PAYROLL_BREAKDOWN_VERSION = 2;
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const centavos = z.number().int().refine(Number.isSafeInteger);
@@ -40,6 +43,18 @@ const lineSchema = z.object({
   taxableCentavos: centavos,
   deMinimisKey: z.string().nullable(),
   typeKey: z.string().nullable(),
+});
+
+const lineSchemaV2 = lineSchema.extend({
+  manual: z
+    .object({
+      entryId: z.string().min(1),
+      countsAsBasicSalary: z.boolean(),
+      reducesTaxablePay: z.boolean().nullable(),
+      authorizedInWriting: z.boolean().nullable(),
+    })
+    .nullable(),
+  override: z.object({ entryId: z.string().min(1), computedAmountCentavos: centavos }).nullable(),
 });
 
 const itemSchema = lineSchema
@@ -71,8 +86,9 @@ const agency = z.object({
   thisCutOff: shares,
 });
 
-export const payrollBreakdownSchema = z.object({
-  breakdownVersion: z.literal(PAYROLL_BREAKDOWN_VERSION),
+/** Version 1 (step 2.9), still read. */
+export const payrollBreakdownV1Schema = z.object({
+  breakdownVersion: z.literal(1),
   cutOff: z.object({
     key: z.enum(CUT_OFF_KEYS),
     periodStart: date,
@@ -143,12 +159,43 @@ export const payrollBreakdownSchema = z.object({
   negativeNet: z.boolean(),
 });
 
-/** The breakdown as one JSON string, for its encrypted field. */
+/** Version 2 (step 2.10): version 1 plus manual and overridden lines and the manual entries. */
+export const payrollBreakdownSchema = payrollBreakdownV1Schema.extend({
+  breakdownVersion: z.literal(PAYROLL_BREAKDOWN_VERSION),
+  lines: z.array(lineSchemaV2),
+  manualEntries: z.array(
+    z.object({
+      entryId: z.string().min(1),
+      kind: z.enum(PAYROLL_MANUAL_ENTRY_KINDS),
+      targetLineKey: z.string().nullable(),
+      label: z.string(),
+      amountCentavos: centavos,
+      computedAmountCentavos: centavos.nullable(),
+      staleReason: z.enum(PAYROLL_MANUAL_STALE_REASONS).nullable(),
+    }),
+  ),
+});
+
+/** The breakdown as one JSON string (always version 2), for its encrypted field. */
 export function serializePayrollBreakdown(breakdown: PayrollBreakdown): string {
-  return JSON.stringify(payrollBreakdownSchema.parse(breakdown));
+  return JSON.stringify(
+    payrollBreakdownSchema.parse({ ...breakdown, breakdownVersion: PAYROLL_BREAKDOWN_VERSION }),
+  );
 }
 
-/** A stored breakdown read back; throws when it isn't a version 1 breakdown. */
+/** A version 1 breakdown in the engine's shape: no manual or overridden line, no entries. */
+function fromVersion1(value: z.output<typeof payrollBreakdownV1Schema>): PayrollBreakdown {
+  return {
+    ...value,
+    lines: value.lines.map((line) => ({ ...line, manual: null, override: null })),
+    manualEntries: [],
+  };
+}
+
+/**
+ * A stored breakdown read back: version 2 as it is, version 1 with no manual or overridden line
+ * (its `breakdownVersion` kept as 1). Throws on anything else.
+ */
 export function parsePayrollBreakdown(json: string): PayrollBreakdown {
   let value: unknown;
   try {
@@ -156,16 +203,25 @@ export function parsePayrollBreakdown(json: string): PayrollBreakdown {
   } catch {
     throw new RangeError('The payroll breakdown is not valid JSON.');
   }
-  const parsed = payrollBreakdownSchema.safeParse(value);
+  const version =
+    typeof value === 'object' && value !== null
+      ? (value as { breakdownVersion?: unknown }).breakdownVersion
+      : undefined;
   // Never include the value in the error: it holds pay amounts.
-  if (!parsed.success) throw new RangeError('The payroll breakdown does not match version 1.');
-  return parsed.data;
+  if (version === 1) {
+    const parsed = payrollBreakdownV1Schema.safeParse(value);
+    if (parsed.success) return fromVersion1(parsed.data);
+  } else {
+    const parsed = payrollBreakdownSchema.safeParse(value);
+    if (parsed.success) return parsed.data;
+  }
+  throw new RangeError('The payroll breakdown does not match version 1 or 2.');
 }
 
 // The parsed shape must stay assignable to the engine's type, and back.
 type Parsed = z.output<typeof payrollBreakdownSchema>;
 const _toEngine = (value: Parsed): PayrollBreakdown => value;
-const _fromEngine = (value: PayrollBreakdown): Parsed => value;
+const _fromEngine = (value: PayrollBreakdown & { breakdownVersion: 2 }): Parsed => value;
 void _toEngine;
 void _fromEngine;
 

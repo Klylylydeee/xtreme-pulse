@@ -16,7 +16,9 @@ import { reconcileTimeOffRequests, type TimeOffReconcileResult } from '../time-o
 // `core.holidaysChanged` handler runs it outside any transaction, possibly more than once: it is
 // idempotent. From step 2.9 (decision 341) it then recomputes every draft payroll run whose cut-off
 // or lookback holds a changed date, in cut-off order, each in its own transaction, with no actor
-// (server/payroll-runs/job.ts `recomputeDraftsForDates`).
+// (server/payroll-runs/job.ts `recomputeDraftsForDates`). From step 2.10 (decision 351) that is
+// every editable run, `draft` or `returned`; a run waiting for Board approval or finalized is
+// skipped (a later run settles the difference).
 
 /** The listener's name. */
 export const RECOMPUTE_DTR_LISTENER = 'talent.recomputeDtr';
@@ -25,7 +27,7 @@ export const RECOMPUTE_DTR_LISTENER = 'talent.recomputeDtr';
 export interface RecomputeDtrResult extends OffsetReconcileResult {
   /** Step 2.8: the approved time off requests covering a changed date. */
   timeOff: TimeOffReconcileResult;
-  /** Step 2.9: the draft payroll runs recomputed. */
+  /** Step 2.9: the draft payroll runs recomputed (from step 2.10, returned runs too). */
   payrollDrafts: number;
 }
 

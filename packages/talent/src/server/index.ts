@@ -294,6 +294,135 @@ export {
   runPayrollDrafts,
 } from './payroll-runs/job';
 export { PAYROLL_RUN_EMPLOYEE_RECORD_TYPE, PAYROLL_RUN_RECORD_TYPE } from './payroll-runs/model';
+// Payroll review (build step 2.10,
+// docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210; chunk C1).
+// - The run page adds each person's flags and acknowledgements, the flag tiles and the live manual
+//   entries (amounts only after "Show amounts"); the breakdown sheet adds each entry chain with its
+//   History and the override targets. A `returned` run is edited like a draft.
+// - "Add manual entry", "Edit", "Remove" (`addPayrollManualEntry`, `editPayrollManualEntry`,
+//   `removePayrollManualEntry`): each recomputes the whole run in the entry's transaction.
+// - "Acknowledge" and "Acknowledge all" (`acknowledgePayrollFlag`, `acknowledgeAllPayrollFlag`).
+// - Server-only for the submit and the Board's view (chunk C2): `recomputeEditablePayrollRun`,
+//   `computeStoredPayrollRun`, `payrollRunUnresolvedFlags`, `buildPayrollRunView`,
+//   `recordPayrollRunAmountsReveal`, `loadPayrollManualEntries`, `loadPayrollFlagAcknowledgements`.
+export {
+  buildPayrollRunView,
+  computeStoredPayrollRun,
+  loadPayrollFlagAcknowledgements,
+  PAYROLL_RUN_NOT_EDITABLE,
+  type PayrollBreakdownManualEntry,
+  type PayrollManualEntryVersion,
+  type PayrollOverrideTarget,
+  payrollOverrideTargets,
+  type PayrollRecomputeContext,
+  type PayrollRunFlagRow,
+  type PayrollRunManualEntryRow,
+  recomputeEditablePayrollRun,
+  recordPayrollRunAmountsReveal,
+  unresolvedFlaggedEmployeesOf,
+} from './payroll-runs/service';
+export { loadPayrollManualEntries, type StoredPayrollManualEntry } from './payroll-runs/compute';
+export {
+  addPayrollManualEntry,
+  type AddPayrollManualEntryInput,
+  editPayrollManualEntry,
+  type EditPayrollManualEntryInput,
+  PAYROLL_MANUAL_ENTRY_CHANGED,
+  PAYROLL_MANUAL_ENTRY_GONE,
+  PAYROLL_MANUAL_ENTRY_KIND_FIXED,
+  PAYROLL_MANUAL_RECOMPUTE_REASON,
+  PAYROLL_OVERRIDE_EXISTS,
+  type PayrollManualEntrySaved,
+  removePayrollManualEntry,
+  type RemovePayrollManualEntryInput,
+} from './payroll-review/manual';
+export {
+  acknowledgeAllPayrollFlag,
+  type AcknowledgeAllPayrollFlagInput,
+  acknowledgePayrollFlag,
+  type AcknowledgePayrollFlagInput,
+  PAYROLL_FLAG_ALREADY_ACKNOWLEDGED,
+  PAYROLL_FLAG_NOT_ON_LINE,
+  PAYROLL_NOTHING_TO_ACKNOWLEDGE,
+  payrollRunUnresolvedFlags,
+  type PayrollUnresolvedEmployee,
+} from './payroll-review/acknowledgements';
+export { PAYROLL_MANUAL_ENTRY_RECORD_TYPE } from './payroll-review/model';
+// Payroll approval (build step 2.10; chunk C2).
+// - "Submit for approval" (`submitPayrollRun`, Talent Write and HR or the System Administrator):
+//   cut-off order, the page's version, the recompute at submit (saved and refused when anything
+//   changed), the flags, a line and an active Board member; then `talent.payrollRun` is sent and
+//   the run moves to `pendingApproval`. `payrollCompanyDetailsWarning` for the submit sheet.
+// - `talent.payrollRun` is registered by `registerTalentApprovalTypes()`: approve finalizes the
+//   run (payslip snapshots with year-to-date, `talent.payslipReady`), return sends it back with
+//   remarks; the outcome goes to the requester and every active HR user.
+// - The Board's view while approving (`getPayrollRunApproverView`, the approver exception; "Show
+//   amounts" only while a pending approver, the `reveal` first) and `canViewPayrollRunAsApprover`.
+// - The payroll register (`getPayrollRegister`, finalized runs; "Show register" writes the
+//   `reveal` first).
+// - `getPayslip`: server-only, a finalized line's frozen payslip (no access check, no audit; the
+//   caller checks `canOpenPayslip` and audits), for the payslip service and steps 2.12 and 2.14.
+export {
+  payrollCompanyDetailsWarning,
+  PAYROLL_NO_EMPLOYEES_MESSAGE,
+  PAYROLL_SUBMITTED_REASON,
+  submitPayrollRun,
+  type SubmitPayrollRunInput,
+  type SubmittedPayrollRun,
+} from './payroll-review/submit';
+export {
+  PAYROLL_RUN_APPROVAL_STEP_LABEL,
+  PAYROLL_RUN_APPROVAL_STEPS,
+  PAYROLL_RUN_APPROVAL_TYPE,
+  PAYROLL_RUN_APPROVAL_TYPE_LABEL,
+} from './payroll-review/approval';
+export {
+  PAYROLL_FINALIZED_REASON,
+  PAYSLIP_READY_EVENT,
+  payslipReadyDedupeKey,
+  PAYSLIPS_HREF,
+} from './payroll-review/finalize';
+export {
+  canViewPayrollRunAsApprover,
+  getPayrollRunApproverView,
+  PAYROLL_AMOUNTS_APPROVER_DENIED,
+  PAYROLL_RUN_APPROVER_DENIED,
+  type PayrollRunApproverView,
+} from './payroll-review/board-view';
+export {
+  getPayrollRegister,
+  PAYROLL_REGISTER_FIELD,
+  type PayrollRegisterGroup,
+  type PayrollRegisterGroupKey,
+  type PayrollRegisterRow,
+  type PayrollRegisterView,
+} from './payroll-review/register';
+export { getPayslip, type PayslipRecord, type PayslipRef } from './payroll-review/payslip';
+// Payslip PDFs (build step 2.10; chunk C3).
+// - `/talent/me#payslips`: `listOwnPayslips` (self-service, finalized runs, newest first, net pay
+//   masked for the generic `talent.payrollRunEmployee` reveal); "Open payslip" calls
+//   `openPayslipHref`, which renders the PDF if needed and returns the file route URL (null when
+//   missing or refused). The file route's `talent.payslip` check and `reveal` entry are registered
+//   by `registerTalentFileAccess()`.
+// - The `talent.payslipPdfs` job for the worker (`runPayslipPdfs`, every 10 minutes).
+export {
+  loadPayslipCompany,
+  listOwnPayslips,
+  openPayslipHref,
+  type OwnPayslipRow,
+  PAYSLIP_FILE_TYPE,
+  payslipFileHref,
+  payslipFileName,
+  payslipIdempotencyKey,
+  type RenderedPayslip,
+  renderPayslipFile,
+} from './payslips/service';
+export {
+  PAYSLIP_PDFS_JOB,
+  PAYSLIP_PDFS_SCHEDULE,
+  type PayslipPdfsResult,
+  runPayslipPdfs,
+} from './payslips/job';
 // Leave and offset time off requests (build step 2.8,
 // docs/modules/talent.md#leave-offset-time-off-and-opening-balances-build-step-28; chunk D).
 // - Self-service (no employee id): `fileTimeOff`, `resendTimeOff`, `cancelTimeOff`,
@@ -497,6 +626,24 @@ export {
   canSeePayrollRuns,
   PAYROLL_COMPUTE_DENIED,
   PAYROLL_RUNS_DENIED,
+  // Step 2.10
+  assertCanAcknowledgePayrollFlags,
+  assertCanEnterPayrollManualEntry,
+  canAcknowledgePayrollFlags,
+  mayEnterPayrollManualEntries,
+  PAYROLL_ACKNOWLEDGE_DENIED,
+  PAYROLL_MANUAL_ENTRY_DENIED,
+  PAYROLL_MANUAL_ENTRY_HR_DENIED,
+  PAYROLL_MANUAL_ENTRY_OWN_DENIED,
+  payrollManualEntryRefusal,
+  assertCanSeePayrollRegister,
+  assertCanSubmitPayrollRuns,
+  canOpenPayslip,
+  canSeePayrollRegister,
+  canSubmitPayrollRuns,
+  PAYROLL_REGISTER_DENIED,
+  PAYROLL_SUBMIT_DENIED,
+  PAYSLIP_DENIED,
   // Step 2.6
   assertCanConfirmNoSupervisor,
   assertCanVerifySensitiveDetails,

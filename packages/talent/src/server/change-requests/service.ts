@@ -90,6 +90,7 @@ import {
   type TalentActor,
 } from '../policy';
 import { isDuplicateKey, objectIdOf } from '../shared';
+import { registerPayrollRunApprovalType } from '../payroll-review/approval';
 import { registerTimeOffApprovalTypes } from '../time-off/approval';
 import { registerTimesheetApprovalType } from '../timesheets/approval';
 import {
@@ -192,6 +193,8 @@ let registered = false;
 export function registerTalentApprovalTypes(): void {
   registerTimesheetApprovalType();
   registerTimeOffApprovalTypes();
+  // Step 2.10: `talent.payrollRun` (../payroll-review/approval.ts).
+  registerPayrollRunApprovalType();
   if (registered) return;
   registerApprovalType(CHANGE_REQUEST_TYPE, {
     module: 'talent',

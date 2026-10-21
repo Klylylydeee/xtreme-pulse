@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { type ClientSession, Types } from 'mongoose';
 import { connectDb } from '@pulse/db';
 import { ActionError, addDays, type BusinessDate, type Centavos } from '@pulse/core';
 import {
@@ -15,6 +15,7 @@ import type { DtrTimeOffInput } from '../../dtr/compute';
 import { DEFAULT_WORK_REGION, type WorkRegion } from '../../fixed-sets';
 import type { CutOffPeriod } from '../../payroll/lookups';
 import { minimumWageForRegion } from '../../payroll/minimum-wage';
+import type { OnboardingGateStatus } from '../../onboarding/gates';
 import { type PayrollRunSettings, SEED_PAYROLL_RUN_SETTINGS } from '../../payroll/run-settings';
 import type {
   AllowanceTypes,
@@ -32,7 +33,11 @@ import {
   computePayrollLine,
   computePeriodPay,
   contributionMonthOf,
+  countPayrollFlags,
+  daysBelowMinimumWage,
+  derivePayrollLineFlags,
   firstPayrollCutOff,
+  livePayrollManualEntries,
   midMonthFiguresOf,
   parsePayrollBreakdown,
   type PayrollAllowanceEntry,
@@ -41,7 +46,11 @@ import {
   type PayrollCalendarDay,
   payrollCalendar,
   type PayrollEarlierPeriodInput,
+  type PayrollFlagCounts,
   type PayrollLeftOutReason,
+  type PayrollLineFlag,
+  type PayrollManualEntryInput,
+  type PayrollManualEntryKind,
   type PayrollMidMonthFigures,
   type PayrollPeriodInput,
   type PayrollPriorDay,
@@ -60,6 +69,12 @@ import { AllowanceAssignmentModel } from '../allowances/model';
 import { CompensationEntryModel } from '../compensation/model';
 import { type DtrSources, dtrOf } from '../dtr/service';
 import { workRegionsOf } from '../minimum-wage/service';
+import { deriveOnboarding } from '../onboarding/service';
+import {
+  PAYROLL_MANUAL_ENTRY_AMOUNT_SELECT,
+  type PayrollManualEntryDocument,
+  PayrollManualEntryModel,
+} from '../payroll-review/model';
 import {
   ALLOWANCE_TYPES_SETTING,
   DE_MINIMIS_LIMITS_SETTING,
@@ -98,6 +113,14 @@ import {
 // docs/BUILD_PLAN.md) — the run service's actorless loaders and the computation of one run's
 // lines with the pure engine (../../payroll-run/). Nothing here writes; ./service.ts stores the
 // result in a transaction.
+//
+// Step 2.10 (docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210, "Review
+// flags", "Manual entries"; decisions 352–358): a stored run's live manual entries (the latest of
+// each chain, not removed) are applied to their employee's line, and each line's review flags are
+// derived from the onboarding status on the day of the compute (`includeInPayroll`), the daily
+// minimum wage in effect on each day for the employee's current work region, the timesheet, net
+// pay and the entries the engine couldn't apply. A live entry whose employee has no line is stale
+// (`employeeNotInRun`) and counted in `flagCounts.manualEntryStale`.
 //
 // Performance (HANDOFF › 2.9 notes, "Risks"): a run reconciles up to `adjustmentLookbackCutOffs`
 // earlier cut-offs per employee. Every setting's versions, the holidays and the finalized runs
@@ -254,6 +277,10 @@ interface EmployeeSources {
   /** The finalized regular runs' lines for this employee, decrypted. */
   finalized: { payDate: BusinessDate; breakdown: PayrollBreakdown }[];
   midMonth: PayrollMidMonthFigures | null;
+  /** Step 2.10: the line's live manual entries, oldest first. */
+  manualEntries: PayrollManualEntryInput[];
+  /** Step 2.10: the onboarding item states on the day of the compute. */
+  onboarding: OnboardingGateStatus;
 }
 
 const objectIds = (ids: readonly string[]) => ids.map((id) => new Types.ObjectId(id));
@@ -374,6 +401,97 @@ async function loadLines(runIds: readonly Types.ObjectId[], employeeIds: readonl
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Manual entries (step 2.10, decisions 355–358)
+
+/** A stored manual entry, its amount decrypted when asked for (`payrollManualEntries`). */
+export interface StoredPayrollManualEntry {
+  id: string;
+  runId: string;
+  employeeId: string;
+  kind: PayrollManualEntryKind;
+  targetLineKey: string | null;
+  label: string;
+  /** Whole centavos when loaded with amounts; null without them, and on a removal with none. */
+  amountCentavos: Centavos | null;
+  taxable: boolean | null;
+  reducesTaxablePay: boolean | null;
+  authorizedInWriting: boolean | null;
+  countsAsBasicSalary: boolean | null;
+  reason: string;
+  supersedesId: string | null;
+  removed: boolean;
+  createdAt: Date;
+  /** The user who entered it. */
+  createdBy: string | null;
+}
+
+/** A stored entry document as the services read it. */
+export async function storedManualEntryOf(
+  row: Omit<PayrollManualEntryDocument, 'amountCentavos'> & { amountCentavos?: unknown },
+  withAmount: boolean,
+): Promise<StoredPayrollManualEntry> {
+  return {
+    id: row._id.toHexString(),
+    runId: row.runId.toHexString(),
+    employeeId: row.employeeId.toHexString(),
+    kind: row.kind,
+    targetLineKey: row.targetLineKey ?? null,
+    label: row.label,
+    amountCentavos: withAmount ? await decryptCentavos(row.amountCentavos) : null,
+    taxable: row.taxable ?? null,
+    reducesTaxablePay: row.reducesTaxablePay ?? null,
+    authorizedInWriting: row.authorizedInWriting ?? null,
+    countsAsBasicSalary: row.countsAsBasicSalary ?? null,
+    reason: row.reason,
+    supersedesId: row.supersedesId ? row.supersedesId.toHexString() : null,
+    removed: row.removed === true,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ? row.createdBy.toHexString() : null,
+  };
+}
+
+/**
+ * Every manual entry of a run (each chain whole, oldest first), optionally one employee's only.
+ * The amounts are decrypted only with `withAmounts`: a caller that sends them has written its
+ * `reveal` first, or applies them in a compute.
+ */
+export async function loadPayrollManualEntries(
+  runId: Types.ObjectId,
+  {
+    withAmounts = false,
+    employeeId = null,
+    session = null,
+  }: { withAmounts?: boolean; employeeId?: string | null; session?: ClientSession | null } = {},
+): Promise<StoredPayrollManualEntry[]> {
+  const filter: Record<string, unknown> = { runId };
+  if (employeeId) filter.employeeId = new Types.ObjectId(employeeId);
+  const query = PayrollManualEntryModel.find(filter)
+    .sort({ createdAt: 1, _id: 1 })
+    .session(session);
+  if (withAmounts) query.select(PAYROLL_MANUAL_ENTRY_AMOUNT_SELECT);
+  const rows =
+    await query.lean<
+      (Omit<PayrollManualEntryDocument, 'amountCentavos'> & { amountCentavos?: unknown })[]
+    >();
+  return Promise.all(rows.map((row) => storedManualEntryOf(row, withAmounts)));
+}
+
+/** A live entry as the engine reads it (its amount must have been loaded). */
+function engineEntryOf(entry: StoredPayrollManualEntry): PayrollManualEntryInput {
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    targetLineKey: entry.targetLineKey,
+    label: entry.label,
+    amountCentavos: entry.amountCentavos ?? 0,
+    taxable: entry.taxable,
+    reducesTaxablePay: entry.reducesTaxablePay,
+    authorizedInWriting: entry.authorizedInWriting,
+    countsAsBasicSalary: entry.countsAsBasicSalary,
+  };
+}
+
 /** The run's window: every cut-off whose days it reads, oldest first. */
 interface RunWindow {
   cutOff: CutOffPeriod;
@@ -424,6 +542,10 @@ export interface ComputedPayrollLine {
   /** The run's own period start and each settled one. */
   settledPeriods: BusinessDate[];
   breakdown: PayrollBreakdown;
+  /** Step 2.10: the review flags (decision 352), plain. */
+  flags: PayrollLineFlag[];
+  /** Step 2.10: the live manual entries given to the line (applied or stale). */
+  manualEntryCount: number;
 }
 
 export interface ComputedPayrollRun {
@@ -433,6 +555,13 @@ export interface ComputedPayrollRun {
   leftOut: { employeeId: string; reason: PayrollLeftOutReason }[];
   totals: PayrollTotals;
   settingVersions: PayrollRunSettingVersion[];
+  /**
+   * Step 2.10: per flag kind, the lines carrying it; `manualEntryStale` also counts each employee
+   * with a live entry but no line (`employeeNotInRun`).
+   */
+  flagCounts: PayrollFlagCounts;
+  /** Step 2.10: live manual entries whose employee has no line in the run (`employeeNotInRun`). */
+  orphanEntries: { entryId: string; employeeId: string }[];
 }
 
 const ZERO_TOTALS: PayrollTotals = {
@@ -505,6 +634,44 @@ export interface ComputeRunOptions {
   /** Today's Manila day (the DTR lists every day of an ended cut-off). */
   today: BusinessDate;
   versions?: PayrollRunVersions;
+  /** Step 2.10: the stored run whose live manual entries apply; none for a new draft. */
+  runId?: Types.ObjectId | null;
+  /**
+   * Step 2.10: entries not stored yet, applied as if they were (a manual entry save computes the
+   * run with its own new entry, then stores both in one transaction). Each needs its amount,
+   * except a removal.
+   */
+  pendingEntries?: readonly StoredPayrollManualEntry[];
+}
+
+/** The live entries of a run (stored and pending), by employee. */
+async function liveEntriesByEmployee(
+  runId: Types.ObjectId | null | undefined,
+  pending: readonly StoredPayrollManualEntry[],
+): Promise<Map<string, StoredPayrollManualEntry[]>> {
+  const stored = runId ? await loadPayrollManualEntries(runId, { withAmounts: true }) : [];
+  const live = livePayrollManualEntries([...stored, ...pending]);
+  const result = new Map<string, StoredPayrollManualEntry[]>();
+  for (const entry of live) {
+    const list = result.get(entry.employeeId);
+    if (list) list.push(entry);
+    else result.set(entry.employeeId, [entry]);
+  }
+  return result;
+}
+
+/** The daily minimum wage in effect on each day of `calendar` for `region` (or null). */
+function minimumWageByDay(
+  calendar: readonly Pick<PayrollCalendarDay, 'date'>[],
+  versions: PayrollRunVersions,
+  region: WorkRegion,
+): Record<BusinessDate, Centavos | null> {
+  const result: Record<BusinessDate, Centavos | null> = {};
+  for (const { date } of calendar) {
+    const wages = versionOn(versions.minimumWages, date)?.value ?? null;
+    result[date] = minimumWageForRegion(wages, region)?.dailyRateCentavos ?? null;
+  }
+  return result;
 }
 
 /**
@@ -515,7 +682,7 @@ export interface ComputeRunOptions {
 export async function computePayrollRun(
   cutOff: CutOffPeriod,
   first: CutOffPeriod,
-  { today, versions: given }: ComputeRunOptions,
+  { today, versions: given, runId = null, pendingEntries = [] }: ComputeRunOptions,
 ): Promise<ComputedPayrollRun> {
   await connectDb();
   const versions = given ?? (await loadPayrollRunVersions());
@@ -561,7 +728,18 @@ export async function computePayrollRun(
     leftOut,
     totals: { ...ZERO_TOTALS },
     settingVersions: settingVersionsOf(cutOff, versions),
+    flagCounts: countPayrollFlags([]),
+    orphanEntries: [],
   };
+  // The live manual entries (decision 358); an employee with entries but no line makes them stale.
+  const manualEntries = await liveEntriesByEmployee(runId, pendingEntries);
+  const memberSet = new Set(members.map((identity) => identity.employeeId));
+  for (const [employeeId, entries] of manualEntries) {
+    if (memberSet.has(employeeId)) continue;
+    for (const entry of entries) result.orphanEntries.push({ entryId: entry.id, employeeId });
+  }
+  const orphanEmployees = new Set(result.orphanEntries.map((entry) => entry.employeeId)).size;
+  result.flagCounts.manualEntryStale = orphanEmployees;
   if (members.length === 0) return result;
   const memberIds = members.map((identity) => identity.employeeId);
 
@@ -578,6 +756,7 @@ export async function computePayrollRun(
     entryRows,
     finalizedRuns,
     midMonthRun,
+    onboarding,
   ] = await Promise.all([
     listConfirmedHolidays({ from: window.from, to: window.to }),
     loadAllowanceEntries(memberIds),
@@ -613,6 +792,8 @@ export async function computePayrollRun(
           .select({ _id: 1 })
           .lean<Pick<PayrollRunDocument, '_id'>>()
       : Promise.resolve(null),
+    // The `includeInPayroll` gate on the day of the compute (decision 352): presence facts only.
+    deriveOnboarding(memberIds, today),
   ]);
 
   const approvedIds = timesheetRows
@@ -670,6 +851,8 @@ export async function computePayrollRun(
         breakdown: line.breakdown,
       })),
       midMonth: midMonthLine ? midMonthFiguresOf(midMonthLine.breakdown) : null,
+      manualEntries: (manualEntries.get(employeeId) ?? []).map(engineEntryOf),
+      onboarding: onboarding.get(employeeId)?.status ?? { states: {} },
     };
     const line = computeEmployeeLine(sources, {
       window,
@@ -682,6 +865,11 @@ export async function computePayrollRun(
     result.lines.push(line);
     result.totals = addTotals(result.totals, line.breakdown.totals);
   }
+  const lineCounts = countPayrollFlags(result.lines);
+  result.flagCounts = {
+    ...lineCounts,
+    manualEntryStale: lineCounts.manualEntryStale + orphanEmployees,
+  };
   return result;
 }
 
@@ -842,8 +1030,21 @@ function computeEmployeeLine(sources: EmployeeSources, context: LineContext): Co
     deMinimisPaidCentavos,
     midMonth: cutOff.key === 'endOfMonth' ? sources.midMonth : null,
     earlierPeriods,
+    manualEntries: sources.manualEntries,
   });
   const stored = sources.timesheets.get(cutOff.start) ?? null;
+  // The review flags (decision 352): the minimum wage by day for the employee's current region
+  // (HANDOFF item 285), with the cut-off's daily rate factor.
+  const flags = derivePayrollLineFlags({
+    breakdown,
+    onboarding: sources.onboarding,
+    daysBelowMinimumWage: daysBelowMinimumWage({
+      employee: own.employee,
+      calendar: own.calendar,
+      dailyRateFactor: own.payrollSettings.dailyRateFactor,
+      minimumWageByDay: minimumWageByDay(own.calendar, versions, sources.region),
+    }),
+  });
   return {
     employeeId: identity.employeeId,
     timesheetId: stored ? stored._id.toHexString() : null,
@@ -851,6 +1052,8 @@ function computeEmployeeLine(sources: EmployeeSources, context: LineContext): Co
     timesheetApproved: stored?.status === 'approved',
     settledPeriods: [cutOff.start, ...breakdown.settledPeriods],
     breakdown,
+    flags,
+    manualEntryCount: sources.manualEntries.length,
   };
 }
 

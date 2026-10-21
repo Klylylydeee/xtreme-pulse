@@ -17,3 +17,8 @@ export {
 export * from './line';
 export * from './periods';
 export * from './breakdown';
+// Step 2.10 (docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210): manual
+// entries, the review flags, year-to-date and the payslip's view model.
+export * from './manual';
+export * from './flags';
+export * from './payslip';

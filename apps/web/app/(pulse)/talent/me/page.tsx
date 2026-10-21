@@ -12,6 +12,7 @@ import {
   getWorkScheduleSection,
   listOwnChangeRequests,
   listOwnESignatures,
+  listOwnPayslips,
 } from '@pulse/talent/server';
 import { Avatar } from '@pulse/ui/components/avatar';
 import { EmptyState } from '@pulse/ui/components/empty-state';
@@ -24,6 +25,7 @@ import { ONBOARDING_HREF } from '@/lib/navigation';
 import { onboardingDoneText } from '@/lib/onboarding';
 import { getUploadHints } from '@/lib/upload-hints';
 import { WorkScheduleSection } from '../employee-record-sections';
+import { OwnPayslips } from './own-payslips';
 import { OwnPhotoAndSignature } from './own-photo-signature';
 import { OwnRecord } from './own-record';
 
@@ -64,6 +66,12 @@ const DESCRIPTION =
 // change requests), uploads their own 201 documents and adds certifications, and sees their own
 // Change requests list. A link to the onboarding checklist shows while any own item is To do.
 // Every one of these reads and writes the signed-in user's own employee only.
+//
+// From step 2.10 (docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210) the
+// Payslips section (`#payslips`, where the `talent.payslipReady` notification links): the
+// employee's own payslips of finalized runs, newest first, with net pay masked behind Reveal and
+// "Open payslip". `listOwnPayslips` reads the signed-in user's own employee only. It sits above
+// the record's sections, since it's what an employee opens this page for most often.
 export default async function MyRecordPage() {
   const user = await requireCurrentUser();
   return (
@@ -77,15 +85,17 @@ export default async function MyRecordPage() {
 }
 
 async function MyRecord({ user }: { user: CurrentUser }) {
-  const [view, versions, uploads, states, changeRequests, brands, reminder] = await Promise.all([
-    getOwnRecordView(user),
-    listOwnESignatures(user),
-    getUploadHints(),
-    getOwnChangeRequestStates(user),
-    listOwnChangeRequests(user),
-    listBrandOptions(),
-    getOwnOnboardingReminder(user),
-  ]);
+  const [view, versions, uploads, states, changeRequests, brands, reminder, payslips] =
+    await Promise.all([
+      getOwnRecordView(user),
+      listOwnESignatures(user),
+      getUploadHints(),
+      getOwnChangeRequestStates(user),
+      listOwnChangeRequests(user),
+      listBrandOptions(),
+      getOwnOnboardingReminder(user),
+      listOwnPayslips(user),
+    ]);
   if (!view || !states) {
     return (
       <EmptyState
@@ -149,6 +159,7 @@ async function MyRecord({ user }: { user: CurrentUser }) {
           />
         </Link>
       ) : null}
+      <OwnPayslips payslips={payslips} />
       <OwnRecord
         view={view}
         states={states}

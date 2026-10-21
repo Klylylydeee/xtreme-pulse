@@ -164,6 +164,8 @@ class LineAccumulator {
           taxableCentavos: line.compensation && !line.deMinimisKey ? amount : 0,
           deMinimisKey: line.deMinimisKey ?? null,
           typeKey: line.typeKey ?? null,
+          manual: null,
+          override: null,
         };
       })
       .filter((line) => line.amountCentavos !== 0);

@@ -24,10 +24,11 @@ import {
 } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { FormAlert } from '@/components/form-alert';
-import { Badge, plural, useActionSubmit } from '@/components/org-structure';
+import { plural, useActionSubmit } from '@/components/org-structure';
 import { createPayrollDraftRunAction } from '@/lib/actions/talent-payroll-runs';
 import { PAYROLL_HREF } from '@/lib/navigation';
 import { dayOfMonth } from '../timesheet-ui/format';
+import { RunStatusBadge } from './payroll-badges';
 import { monthShortText } from '../time-off-ui/format';
 
 // Spec: docs/modules/talent.md#payroll-run-computation-build-step-29 ("Creating a draft",
@@ -89,7 +90,7 @@ function RunRow({ run }: { run: PayrollRunListRow }) {
               {run.periodText}
             </span>
             <span className="text-footnote text-text-secondary numeric">{run.number}</span>
-            <Badge tone={run.status === 'draft' ? 'neutral' : 'accent'}>{run.statusLabel}</Badge>
+            <RunStatusBadge status={run.status} label={run.statusLabel} />
           </span>
           <span className="text-footnote break-words text-text-secondary numeric">
             Paid {formatDate(run.payDate)} · {counts}

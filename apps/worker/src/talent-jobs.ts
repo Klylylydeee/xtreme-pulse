@@ -9,11 +9,14 @@ import {
   OPEN_TIMESHEETS_SCHEDULE,
   PAYROLL_DRAFTS_JOB,
   PAYROLL_DRAFTS_SCHEDULE,
+  PAYSLIP_PDFS_JOB,
+  PAYSLIP_PDFS_SCHEDULE,
   registerTalentHolidaysChangedListener,
   runExpiryAlerts,
   runLeaveCredits,
   runOpenTimesheets,
   runPayrollDrafts,
+  runPayslipPdfs,
   runTimesheetReminders,
   TIMESHEET_REMINDERS_JOB,
   TIMESHEET_REMINDERS_SCHEDULE,
@@ -39,6 +42,11 @@ export const talentJobHandlers: JobHandler[] = [
   // run per cut-off) and recomputes every draft; runs every day, so a missed run is made up the
   // next morning.
   handleJob(PAYROLL_DRAFTS_JOB, () => runPayrollDrafts()),
+  // The payslip PDFs of finalized runs (build step 2.10, decision 366). Renders each missing PDF
+  // (idempotent through the file's key and the line's `payslip.fileId: null` filter), then clears
+  // the run's `payslipsPending`. Counts only; when a line fails it throws (counts only) after the
+  // other lines, so BullMQ retries it and the next 10-minute run tries again.
+  handleJob(PAYSLIP_PDFS_JOB, () => runPayslipPdfs()),
 ];
 
 export const talentJobSchedules: ScheduleDefinition[] = [
@@ -47,6 +55,7 @@ export const talentJobSchedules: ScheduleDefinition[] = [
   TIMESHEET_REMINDERS_SCHEDULE,
   LEAVE_CREDITS_SCHEDULE,
   PAYROLL_DRAFTS_SCHEDULE,
+  PAYSLIP_PDFS_SCHEDULE,
 ];
 
 /**

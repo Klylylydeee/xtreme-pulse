@@ -16,9 +16,17 @@ import {
   type PayrollLineKind,
   settlementLabel,
 } from './kinds';
+import {
+  isOverrideContributionKey,
+  overrideTargetRefusal,
+  type PayrollManualEntryInput,
+  type PayrollOverrideContributionKey,
+} from './manual';
 import { computePeriodPay, isEmployedOn, salaryOn, workingBaseDays } from './period';
 import type {
   AgencyContribution,
+  PayrollAppliedManualEntry,
+  PayrollOverrideInfo,
   PayrollAttendanceItem,
   PayrollBreakdown,
   PayrollContributionBasis,
@@ -322,6 +330,8 @@ function contributionLine(
     taxableCentavos: 0,
     deMinimisKey: null,
     typeKey: null,
+    manual: null,
+    override: null,
   };
 }
 
@@ -368,16 +378,153 @@ function applyDeMinimis(
   return result;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Manual entries (step 2.10, decisions 355–357)
+
+type ShareField = 'employeeCentavos' | 'employerCentavos' | 'ecCentavos';
+
+/** Where each contribution override lands: the agency's share deducted in this cut-off. */
+const CONTRIBUTION_TARGETS: Record<
+  Exclude<PayrollOverrideContributionKey, 'withholdingTax'>,
+  [ContributionAgency, ShareField]
+> = {
+  sssEmployee: ['sss', 'employeeCentavos'],
+  philhealthEmployee: ['philhealth', 'employeeCentavos'],
+  pagibigEmployee: ['pagibig', 'employeeCentavos'],
+  sssEmployer: ['sss', 'employerCentavos'],
+  sssEc: ['sss', 'ecCentavos'],
+  philhealthEmployer: ['philhealth', 'employerCentavos'],
+  pagibigEmployer: ['pagibig', 'employerCentavos'],
+};
+
+interface OverrideTarget {
+  entry: PayrollManualEntryInput;
+  record: PayrollAppliedManualEntry;
+}
+
+/**
+ * The live overrides by target: the last one given for a line applies and an earlier one on the
+ * same line is stale (`duplicateTarget`); one on a line that can't be overridden is stale
+ * (`notOverridable`).
+ */
+function overridesByTarget(
+  entries: readonly PayrollManualEntryInput[],
+  records: readonly PayrollAppliedManualEntry[],
+): Map<string, OverrideTarget> {
+  const result = new Map<string, OverrideTarget>();
+  entries.forEach((entry, index) => {
+    const record = records[index] as PayrollAppliedManualEntry;
+    if (entry.kind !== 'override') return;
+    const key = entry.targetLineKey ?? '';
+    if (overrideTargetRefusal(key) !== null) {
+      record.staleReason = 'notOverridable';
+      return;
+    }
+    const previous = result.get(key);
+    if (previous) previous.record.staleReason = 'duplicateTarget';
+    result.set(key, { entry, record });
+  });
+  return result;
+}
+
+/** A manual earning or deduction as a line of the run's cut-off (decision 355). */
+function manualLine(
+  entry: PayrollManualEntryInput,
+  cutOff: PayrollLineInput['cutOff'],
+): PayrollLine {
+  const earning = entry.kind === 'earning';
+  const reducesTaxablePay = earning ? null : entry.reducesTaxablePay === true;
+  const counts = earning ? entry.taxable === true : reducesTaxablePay === true;
+  return {
+    key: `manual:${entry.id}`,
+    kind: 'manual',
+    group: earning ? 'earnings' : 'deductions',
+    side: earning ? 'earning' : 'deduction',
+    label: entry.label,
+    periodStart: cutOff.start,
+    periodEnd: cutOff.end,
+    quantity: null,
+    unit: null,
+    rateText: null,
+    amountCentavos: entry.amountCentavos,
+    taxable: false,
+    taxableCentavos: counts ? entry.amountCentavos : 0,
+    deMinimisKey: null,
+    typeKey: null,
+    manual: {
+      entryId: entry.id,
+      countsAsBasicSalary: entry.countsAsBasicSalary === true,
+      reducesTaxablePay,
+      authorizedInWriting: earning ? null : entry.authorizedInWriting === true,
+    },
+    override: null,
+  };
+}
+
+/** A deduction that lowers the compensation: attendance and holiday, or a manual one that says so. */
+function reducesCompensation(line: PayrollLine): boolean {
+  return COMPENSATION_DEDUCTIONS.has(line.kind) || line.manual?.reducesTaxablePay === true;
+}
+
+/**
+ * A minimum wage earner's taxed lines (decision 337; step 2.10 *Assumption*): taxable allowances
+ * and de minimis excess, and a manual entry that doesn't count as basic salary. Back pay of basic
+ * salary stays exempt with the rest of the minimum wage.
+ */
+function taxedForMinimumWageEarner(line: PayrollLine): boolean {
+  return line.kind === 'allowance' || (line.manual !== null && !line.manual.countsAsBasicSalary);
+}
+
 /**
  * A run's employee line (decisions 328–340): the cut-off's own pay (`computePeriodPay`), the
  * differences settled for earlier cut-offs, the de minimis limits, the contributions with the
  * employer shares, the withholding tax, the totals and basic salary earned. Net pay below zero is
  * kept as computed and marked.
+ *
+ * Step 2.10 (decisions 355–357) applies the line's manual entries: an override of basic pay or a
+ * per cut-off allowance replaces the computed line before anything else is worked out from it; a
+ * manual earning (taxable or not) and a deduction (reducing taxable pay or after tax) are lines of
+ * this cut-off, counted in the compensation for contributions and the taxable compensation when
+ * they say so; an override of a contribution share or EC replaces this cut-off's share, and tax
+ * is worked out from the overridden figures unless overridden itself. "Counts as basic salary"
+ * moves basic salary earned. Attendance items are never overridden, so nothing here is settled
+ * again by a later run.
  */
 export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
   const { cutOff } = input;
   const contributionMonth = cutOff.payDate.slice(0, 7);
   const own = computePeriodPay({ ...input, periodStart: cutOff.start, periodEnd: cutOff.end });
+
+  const entries = input.manualEntries ?? [];
+  const manualRecords: PayrollAppliedManualEntry[] = entries.map((entry) => ({
+    entryId: entry.id,
+    kind: entry.kind,
+    targetLineKey: entry.kind === 'override' ? entry.targetLineKey : null,
+    label: entry.label,
+    amountCentavos: entry.amountCentavos,
+    computedAmountCentavos: null,
+    staleReason: null,
+  }));
+  const overrides = overridesByTarget(entries, manualRecords);
+
+  // Overrides of basic pay and per cut-off allowances, before anything is worked out from them.
+  for (const [key, { entry, record }] of overrides) {
+    if (isOverrideContributionKey(key)) continue;
+    const line = own.lines.find(
+      (candidate) => candidate.key === key && candidate.side === 'earning',
+    );
+    if (!line) {
+      record.staleReason = 'targetMissing';
+      continue;
+    }
+    record.computedAmountCentavos = line.amountCentavos;
+    line.override = { entryId: entry.id, computedAmountCentavos: line.amountCentavos };
+    // A taxable line stays taxable at the new amount; a de minimis line's excess is worked out
+    // below; a non-taxable allowance stays non-taxable.
+    line.taxableCentavos =
+      line.deMinimisKey || line.taxableCentavos === 0 ? 0 : entry.amountCentavos;
+    line.amountCentavos = entry.amountCentavos;
+  }
 
   // Settlements of earlier cut-offs, item by item against finalized runs (decision 339).
   const settled: PayrollPeriodItems[] = [];
@@ -396,22 +543,29 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
         periodStart: period.periodStart,
         periodEnd: period.periodEnd,
         taxable: false,
+        manual: null,
+        override: null,
       });
     }
   }
 
-  const payLines = [...own.lines, ...settlementLines];
+  const manualLines = entries
+    .filter((entry) => entry.kind !== 'override')
+    .map((entry) => manualLine(entry, cutOff));
+
+  const payLines = [...own.lines, ...settlementLines, ...manualLines];
   const presentDays = own.facts.timesheetApproved
     ? own.facts.presentDays
     : workingBaseDays({ calendar: input.calendar, employee: input.employee });
   const deMinimis = applyDeMinimis(payLines, input, presentDays);
 
   // Compensation for contributions: pay, taxable allowances and de minimis excess, less
-  // attendance and holiday deductions, settlements included (decision 336).
+  // attendance and holiday deductions, settlements included (decision 336); from step 2.10 also
+  // taxable manual earnings, less manual deductions that reduce taxable pay (decision 355).
   let compensation = 0;
   for (const line of payLines) {
     if (line.side === 'earning') compensation += line.taxableCentavos;
-    else if (line.side === 'deduction' && COMPENSATION_DEDUCTIONS.has(line.kind)) {
+    else if (line.side === 'deduction' && reducesCompensation(line)) {
       compensation -= line.taxableCentavos;
     }
   }
@@ -438,6 +592,19 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
     philhealth: input.philhealth,
     pagibig: input.pagibig,
   });
+
+  // Overrides of this cut-off's contribution shares and EC (decision 356): what is deducted and
+  // paid, so the same month's end-of-month run reads them as the mid-month run's.
+  const contributionOverrides = new Map<string, PayrollOverrideInfo>();
+  for (const [key, { entry, record }] of overrides) {
+    if (!isOverrideContributionKey(key) || key === 'withholdingTax') continue;
+    const [agency, field] = CONTRIBUTION_TARGETS[key];
+    const shares = contributions[agency].thisCutOff;
+    record.computedAmountCentavos = shares[field];
+    contributionOverrides.set(key, { entryId: entry.id, computedAmountCentavos: shares[field] });
+    shares[field] = entry.amountCentavos;
+  }
+
   const employeeShares =
     contributions.sss.thisCutOff.employeeCentavos +
     contributions.philhealth.thisCutOff.employeeCentavos +
@@ -445,23 +612,45 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
 
   // Withholding (decision 337): the semi-monthly table, no annualization. A minimum wage earner
   // (the flag on the salary in effect on the pay date) is taxed only on taxable allowances and de
-  // minimis excess, with no contribution subtracted.
+  // minimis excess (and manual entries not counted as basic salary), with no contribution
+  // subtracted.
   const mwe = salaryOn(input.employee.salaries, cutOff.payDate)?.minimumWageEarner ?? false;
   const taxable = mwe
     ? Math.max(
         0,
         payLines
-          .filter((line) => line.kind === 'allowance')
-          .reduce((sum, line) => sum + line.taxableCentavos, 0),
+          .filter(taxedForMinimumWageEarner)
+          .reduce(
+            (sum, line) =>
+              line.kind === 'manual' && line.side === 'deduction'
+                ? sum - line.taxableCentavos
+                : sum + line.taxableCentavos,
+            0,
+          ),
       )
     : Math.max(0, compensation - employeeShares);
-  const tax = semiMonthlyWithholding(taxable, input.withholding);
+  const computedTax = semiMonthlyWithholding(taxable, input.withholding);
+  let tax = computedTax;
+  const taxOverride = overrides.get('withholdingTax');
+  if (taxOverride) {
+    taxOverride.record.computedAmountCentavos = computedTax;
+    contributionOverrides.set('withholdingTax', {
+      entryId: taxOverride.entry.id,
+      computedAmountCentavos: computedTax,
+    });
+    tax = taxOverride.entry.amountCentavos;
+  }
 
   for (const line of payLines) {
-    line.taxable = line.taxableCentavos !== 0 && (!mwe || line.kind === 'allowance');
+    line.taxable = line.taxableCentavos !== 0 && (!mwe || taxedForMinimumWageEarner(line));
   }
 
   const { start, end } = cutOff;
+  // A contribution line of 0.00 is left out, unless an override set it.
+  const kept = (line: PayrollLine): boolean => {
+    line.override = contributionOverrides.get(line.key) ?? null;
+    return line.amountCentavos !== 0 || line.override !== null;
+  };
   const contributionLines = [
     contributionLine('sssEmployee', contributions.sss.thisCutOff.employeeCentavos, start, end),
     contributionLine(
@@ -477,7 +666,7 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
       end,
     ),
     contributionLine('withholdingTax', tax, start, end),
-  ].filter((line) => line.amountCentavos !== 0);
+  ].filter(kept);
   const employerLines = [
     contributionLine('sssEmployer', contributions.sss.thisCutOff.employerCentavos, start, end),
     contributionLine('sssEc', contributions.sss.thisCutOff.ecCentavos, start, end),
@@ -493,12 +682,16 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
       start,
       end,
     ),
-  ].filter((line) => line.amountCentavos !== 0);
+  ].filter(kept);
 
-  const earnings = own.lines.filter((line) => line.side === 'earning');
+  const earnings = [
+    ...own.lines.filter((line) => line.side === 'earning'),
+    ...manualLines.filter((line) => line.side === 'earning'),
+  ];
   const deductions = [
     ...own.lines.filter((line) => line.side === 'deduction'),
     ...contributionLines,
+    ...manualLines.filter((line) => line.side === 'deduction'),
   ];
   const lines = [...earnings, ...deductions, ...settlementLines, ...employerLines];
 
@@ -520,13 +713,19 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
       contributions.pagibig.thisCutOff.employerCentavos,
   };
 
-  // Basic salary earned (decision 340): basic pay less attendance and holiday deductions.
+  // Basic salary earned (decision 340): basic pay less attendance and holiday deductions; from
+  // step 2.10 plus manual earnings and less manual deductions that count as basic salary (back
+  // pay of basic salary, decision 357; PD 851).
+  const countsAsBasic = (side: PayrollLine['side']) => (line: PayrollLine) =>
+    line.side === side && line.manual?.countsAsBasicSalary === true;
   const basicSalaryEarned =
     sumOf((line) => line.kind === 'basicPay') -
-    sumOf((line) => COMPENSATION_DEDUCTIONS.has(line.kind));
+    sumOf((line) => COMPENSATION_DEDUCTIONS.has(line.kind)) +
+    sumOf(countsAsBasic('earning')) -
+    sumOf(countsAsBasic('deduction'));
 
   return {
-    breakdownVersion: 1,
+    breakdownVersion: 2,
     cutOff: {
       key: cutOff.key,
       periodStart: cutOff.start,
@@ -549,6 +748,7 @@ export function computePayrollLine(input: PayrollLineInput): PayrollBreakdown {
     basicSalaryEarnedCentavos: basicSalaryEarned,
     totals,
     negativeNet: totals.netPayCentavos < 0,
+    manualEntries: manualRecords,
   };
 }
 

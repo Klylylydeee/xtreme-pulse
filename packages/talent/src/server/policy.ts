@@ -624,3 +624,109 @@ export function canComputePayrollRuns(actor: TalentActor): boolean {
 export function assertCanComputePayrollRuns(actor: TalentActor): void {
   if (!canComputePayrollRuns(actor)) throw new AccessDeniedError(PAYROLL_COMPUTE_DENIED);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.10: payroll review (SECURITY.md#sensitive-data, "Payroll runs";
+// docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210, "Manual entries",
+// "Review flags" and "Who may see and do what"; decisions 353, 358 and 359 in docs/BUILD_PLAN.md).
+//
+// - Acknowledging flags: Talent Write and HR or the System Administrator (the compute rule), for
+//   every line, HR staff's included, since it changes no pay.
+// - Manual entries: Talent Write and HR or the System Administrator; for an employee in the HR
+//   department, Talent Write and the System Administrator or a Board member, never HR; never on
+//   one's own line. Accounting reads only.
+
+export const PAYROLL_ACKNOWLEDGE_DENIED =
+  'Only HR and the System Administrator, with Talent Write, acknowledge payroll flags.';
+export const PAYROLL_MANUAL_ENTRY_DENIED =
+  'Only HR and the System Administrator, with Talent Write, add manual entries to a payroll run.';
+export const PAYROLL_MANUAL_ENTRY_HR_DENIED =
+  'Only the System Administrator or a Board member, with Talent Write, adds manual entries for HR staff.';
+export const PAYROLL_MANUAL_ENTRY_OWN_DENIED =
+  'You can’t add a manual entry on your own line. Ask HR or the System Administrator.';
+
+/** True when `actor` may acknowledge review flags: the compute rule. */
+export function canAcknowledgePayrollFlags(actor: TalentActor): boolean {
+  return canComputePayrollRuns(actor);
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may acknowledge review flags. */
+export function assertCanAcknowledgePayrollFlags(actor: TalentActor): void {
+  if (!canAcknowledgePayrollFlags(actor)) throw new AccessDeniedError(PAYROLL_ACKNOWLEDGE_DENIED);
+}
+
+/**
+ * True when `actor` may enter manual entries for anyone at all (Talent Write and HR, the System
+ * Administrator or a Board member); {@link payrollManualEntryRefusal} decides each employee.
+ */
+export function mayEnterPayrollManualEntries(actor: TalentActor): boolean {
+  return (
+    hasModuleAccess(actor, 'talent', 'write') &&
+    (isHR(actor) || isSystemAdministrator(actor) || isBoard(actor))
+  );
+}
+
+/** Why `actor` may not add, edit or remove a manual entry on `target`'s line, or null. */
+export function payrollManualEntryRefusal(actor: TalentActor, target: RecordTarget): string | null {
+  if (!hasModuleAccess(actor, 'talent', 'write')) return PAYROLL_MANUAL_ENTRY_DENIED;
+  if (isOwn(actor, target)) return PAYROLL_MANUAL_ENTRY_OWN_DENIED;
+  if (target.departmentCode === ROLE_DEPARTMENT_CODES.hr) {
+    return isSystemAdministrator(actor) || isBoard(actor) ? null : PAYROLL_MANUAL_ENTRY_HR_DENIED;
+  }
+  return isSystemAdministrator(actor) || isHR(actor) ? null : PAYROLL_MANUAL_ENTRY_DENIED;
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may enter manual entries on `target`'s line. */
+export function assertCanEnterPayrollManualEntry(actor: TalentActor, target: RecordTarget): void {
+  const refusal = payrollManualEntryRefusal(actor, target);
+  if (refusal) throw new AccessDeniedError(refusal);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.10: submitting, the register and payslips (SECURITY.md#sensitive-data, "Payroll review,
+// approval and payslips"; docs/modules/talent.md#payroll-review-approval-and-payslips-build-step-210,
+// "Submitting", "The payroll register", "Payslips"; decisions 360, 367 and 369 in
+// docs/BUILD_PLAN.md).
+//
+// - Submitting a run: Talent Write and HR or the System Administrator (the compute rule), since it
+//   changes no pay. Approving and returning are the Board's, through the approvals engine.
+// - The payroll register: Talent Read and HR, Accounting or the System Administrator (the rule for
+//   seeing runs), for a finalized run only.
+// - A payslip: the employee (their own, outside module access), and Talent Read and HR,
+//   Accounting or the System Administrator for anyone, HR staff included; never a Board member as
+//   such, nor a supervisor.
+
+export const PAYROLL_SUBMIT_DENIED =
+  'Only HR and the System Administrator, with Talent Write, submit payroll runs for approval.';
+export const PAYROLL_REGISTER_DENIED =
+  'You don’t have access to the payroll register. HR, Accounting and the System Administrator, with Talent access, see it.';
+export const PAYSLIP_DENIED = 'You don’t have access to this payslip.';
+
+/** True when `actor` may submit runs for approval: the compute rule. */
+export function canSubmitPayrollRuns(actor: TalentActor): boolean {
+  return canComputePayrollRuns(actor);
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may submit runs for approval. */
+export function assertCanSubmitPayrollRuns(actor: TalentActor): void {
+  if (!canSubmitPayrollRuns(actor)) throw new AccessDeniedError(PAYROLL_SUBMIT_DENIED);
+}
+
+/** True when `actor` may open a finalized run's register: the rule for seeing runs. */
+export function canSeePayrollRegister(actor: TalentActor): boolean {
+  return canSeePayrollRuns(actor);
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may open the payroll register. */
+export function assertCanSeePayrollRegister(actor: TalentActor): void {
+  if (!canSeePayrollRegister(actor)) throw new AccessDeniedError(PAYROLL_REGISTER_DENIED);
+}
+
+/**
+ * True when `actor` may open the payslip of `employeeId`: their own, or Talent Read and HR,
+ * Accounting or the System Administrator (the `payslip` reveal rule).
+ */
+export function canOpenPayslip(actor: TalentActor, employeeId: string): boolean {
+  if (actor.employee !== null && actor.employee.id === employeeId) return true;
+  return canSeePayrollRuns(actor);
+}

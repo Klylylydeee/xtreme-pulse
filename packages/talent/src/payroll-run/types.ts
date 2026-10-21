@@ -23,6 +23,11 @@ import type {
   PayrollLineSide,
   PayrollQuantityUnit,
 } from './kinds';
+import type {
+  PayrollManualEntryInput,
+  PayrollManualEntryKind,
+  PayrollManualStaleReason,
+} from './manual';
 
 // Spec: docs/modules/talent.md#payroll-run-computation-build-step-29 (decisions 325–341 in
 // docs/BUILD_PLAN.md) — the pure pay engine's inputs and outputs. Inputs are plain data the run
@@ -183,6 +188,11 @@ export interface PayrollLineInput extends Omit<PayrollPeriodInput, 'periodStart'
   midMonth: PayrollMidMonthFigures | null;
   /** Earlier cut-offs within the lookback, on or after the first payroll cut-off. */
   earlierPeriods: readonly PayrollEarlierPeriodInput[];
+  /**
+   * Step 2.10: the line's live manual entries (`livePayrollManualEntries`), oldest first; none
+   * when left out (decisions 355–357).
+   */
+  manualEntries?: readonly PayrollManualEntryInput[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -219,6 +229,40 @@ export interface PayrollLine {
   deMinimisKey: string | null;
   /** The allowance type, for an allowance line. */
   typeKey: string | null;
+  /** Step 2.10 (breakdown version 2): a manual earning or deduction's entry, else null. */
+  manual: PayrollManualLineInfo | null;
+  /** Step 2.10 (breakdown version 2): the override that replaced this computed line, else null. */
+  override: PayrollOverrideInfo | null;
+}
+
+/** A manual line's entry and switches (decision 355). */
+export interface PayrollManualLineInfo {
+  entryId: string;
+  /** Adds it to basic salary earned (an earning) or takes it off (a deduction), for 13th month. */
+  countsAsBasicSalary: boolean;
+  /** A deduction: true when it lowers the compensation and taxable compensation; else null. */
+  reducesTaxablePay: boolean | null;
+  /** An after-tax deduction's "authorized in writing by the employee or required by law". */
+  authorizedInWriting: boolean | null;
+}
+
+/** An overridden line: the entry and the amount the engine computed ("Overridden (computed ₱X)"). */
+export interface PayrollOverrideInfo {
+  entryId: string;
+  computedAmountCentavos: Centavos;
+}
+
+/** A manual entry as the line applied it, kept in the breakdown (version 2). */
+export interface PayrollAppliedManualEntry {
+  entryId: string;
+  kind: PayrollManualEntryKind;
+  targetLineKey: string | null;
+  label: string;
+  amountCentavos: Centavos;
+  /** An override's computed amount of its line, when applied; else null. */
+  computedAmountCentavos: Centavos | null;
+  /** Why it wasn't applied and needs review (`manualEntryStale`), or null when applied. */
+  staleReason: PayrollManualStaleReason | null;
 }
 
 /** An attendance item of a period: the waiting items and holiday pay (decision 339). */
@@ -333,9 +377,13 @@ export interface PayrollPeriodItems {
   items: PayrollAttendanceItem[];
 }
 
-/** A run's employee line, as stored in its encrypted breakdown (version 1). */
+/**
+ * A run's employee line, as stored in its encrypted breakdown. Version 2 (step 2.10) adds the
+ * lines' `manual` and `override` and `manualEntries`; a stored version 1 is read back with them
+ * null and empty, its version kept (`parsePayrollBreakdown`).
+ */
 export interface PayrollBreakdown {
-  breakdownVersion: 1;
+  breakdownVersion: 1 | 2;
   cutOff: {
     key: CutOffPeriod['key'];
     periodStart: BusinessDate;
@@ -359,4 +407,6 @@ export interface PayrollBreakdown {
   basicSalaryEarnedCentavos: Centavos;
   totals: PayrollTotals;
   negativeNet: boolean;
+  /** Step 2.10: every live manual entry given, applied or stale, in the order given. */
+  manualEntries: PayrollAppliedManualEntry[];
 }

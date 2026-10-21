@@ -399,9 +399,15 @@ importers:
       '@pulse/db':
         specifier: workspace:*
         version: link:../db
+      '@react-pdf/renderer':
+        specifier: 4.9.0
+        version: 4.9.0(react@19.3.0)
       mongoose:
         specifier: 9.10.2
         version: 9.10.2
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
       server-only:
         specifier: 0.0.1
         version: 0.0.1
@@ -412,6 +418,9 @@ importers:
       '@types/node':
         specifier: 24.13.6
         version: 24.13.6
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
