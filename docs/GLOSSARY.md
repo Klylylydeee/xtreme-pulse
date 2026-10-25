@@ -91,6 +91,11 @@ The words Xtreme Pulse uses, in the UI and in code. Use these terms consistently
 | Back pay | Pay owed for an earlier period, such as a back-dated salary increase; added by HR as a taxable manual earning (build step 2.10) |
 | Payslip | An employee's statement for one finalized run, as a PDF in self-service, with the year-to-date figures frozen at finalizing (build step 2.10) |
 | Payroll register | A finalized run's list of employees with their bank, account number and net pay, used to credit salaries (build step 2.10) |
+| Remittance | A month's payment to SSS, PhilHealth, Pag-IBIG or BIR of the contributions and tax that month's finalized runs deducted and owe, with its report and payment record (build step 2.11) |
+| Remittance month | The contribution month of a payroll run (its pay date's month), whose finalized runs make up that month's remittance reports (build step 2.11) |
+| MPF | The Mandatory Provident Fund (formerly WISP): the part of an SSS contribution on the monthly salary credit above ₱20,000, shown apart from the regular SS part (build step 2.11) |
+| Upload file | A remittance report as the text file an agency's portal takes (SSS R-3, PhilHealth RF-1, Pag-IBIG MCRF); its layout is an unverified assumption until checked against the agency's specification (build step 2.11) |
+| PRN | Payment Reference Number: the number an agency's portal gives a remittance before it is paid (SSS, and Pag-IBIG under Circular No. 499-2026); recorded as the payment's reference (build step 2.11) |
 | First payroll cut-off | The first cut-off that starts on or after the go-live date; earlier cut-offs were paid by the old system (build step 2.9) |
 | Base days | An employee's scheduled work days in a cut-off, holidays included, used to prorate basic pay and per cut-off allowances (build step 2.9) |
 | Workday before | The last scheduled work day before a holiday that isn't itself a holiday; being present or on paid leave then makes an unworked regular holiday paid (build step 2.9) |

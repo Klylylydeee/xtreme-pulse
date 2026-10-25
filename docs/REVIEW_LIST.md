@@ -1,6 +1,6 @@
 # Owner review list
 
-Last updated: 2026-10-20, through step 2.10 build.
+Last updated: 2026-10-25, through the step 2.11 spec.
 
 **Branch:** `phase-1` · **For:** the project owner
 
@@ -95,6 +95,13 @@ Marked Legal in the step 2.10 spec ([Payroll approval and payslips](COMPLIANCE.m
 - [ ] **R-270 · Payroll records are kept forever** ([#294](HANDOFF.md#assumptions-to-check)). Ask with R-036: how long must runs, payslips and manual entries be kept? Assumed: never deleted.
 - [ ] **R-295 · A minimum wage earner's manual entries** ([#325](HANDOFF.md#assumptions-to-check), RA 10963, RR 11-2018; from the build, for the accountant and counsel). Ask: right? Assumed: a taxable manual earning that isn't basic salary (a bonus, a correction) is taxed for a minimum wage earner like a taxable allowance; back pay of their basic salary stays tax-exempt; both count for contributions.
 
+### Remittances (step 2.11)
+
+Marked Legal in the step 2.11 spec ([Remittances](COMPLIANCE.md#remittances-build-step-211)). Not built yet; a "No" note here becomes a spec change before the build.
+
+- [ ] **R-330 · Remittance data and privacy** ([#386](HANDOFF.md#assumptions-to-check), RA 10173). Ask: proportionate? Assumed: every report's rows and totals and each payment amount are encrypted; viewing amounts and every export are in the audit log; exports carry full government IDs and are kept forever; the PhilHealth upload file carries the date of birth and sex, as RF-1 did.
+- [ ] **R-331 · Remitting what was deducted** ([#382](HANDOFF.md#assumptions-to-check), RA 11199, RA 11223, RA 9679; with the accountant). Ask: is it right to remit exactly what the finalized runs deducted and computed (overrides included), flag a row that differs from the table, and correct it in a later run? Penalties for late payment aren't computed.
+
 ### Not covered by the spec yet
 
 - [ ] **R-036 · Retention of payroll, tax and accounting records** ([COMPLIANCE › Open questions](COMPLIANCE.md#open-questions), item 1). Ask counsel or the accountant how long payslips, payroll runs, invoices, books and receipt images must be kept.
@@ -158,6 +165,22 @@ Also check the counsel items R-263 to R-265 and R-295, which name the accountant
 - [ ] **R-274 · Year-to-date on the payslip** ([#310](HANDOFF.md#assumptions-to-check)): the go-live opening entry (its year only) plus this year's finalized runs up to this one: gross, tax, and the SSS (MPF included), PhilHealth and Pag-IBIG employee shares, frozen at approval. Case A5.
 - [ ] **R-296 · What an override changes** ([#326](HANDOFF.md#assumptions-to-check)): overriding an SSS, PhilHealth or Pag-IBIG share in the mid-month cut-off makes the end-of-month cut-off deduct the rest of the month's share; overriding the tax changes only the tax, not the taxable pay shown. Basic pay and a taxable allowance stay taxable at the overridden amount.
 - [ ] **R-323 · Year-to-date's figures, from the build** ([#330](HANDOFF.md#assumptions-to-check), [#351](HANDOFF.md#assumptions-to-check)): each line's own gross (reimbursements and settlements included, as the run's gross), tax withheld and employee shares after overrides; the latest opening entry of the pay date's year plus the finalized regular runs paid that year whose cut-off starts on or before this one.
+
+### Remittances (step 2.11)
+
+Also check the counsel item R-331, which names the accountant too. Before the first real remittance.
+
+- [ ] **R-332 · SSS due date** ([#373](HANDOFF.md#assumptions-to-check)): the last day of the month after (SSS Circular No. 2019-012). Still current?
+- [ ] **R-333 · PhilHealth due date** ([#374](HANDOFF.md#assumptions-to-check)): seeded the 15th; the company's window depends on the last digit of its PhilHealth employer number (0–4: 11th–15th; 5–9: 16th–20th). Set the right day in Payroll settings › Pay schedule › Remittances.
+- [ ] **R-334 · Pag-IBIG due date** ([#375](HANDOFF.md#assumptions-to-check)): seeded the 14th (HDMF Circular No. 275's earliest window). Circular No. 499-2026 replaced that schedule; find its schedule and set the company's date.
+- [ ] **R-335 · BIR 1601-C due date and filing** ([#376](HANDOFF.md#assumptions-to-check)): the 10th of the next month, December's on January 15; eFPS filers by group 11 to 15 days after. Does the company file through eFPS (which group) or eBIRForms? Confirm there's no upload file.
+- [ ] **R-336 · The 1601-C items** ([#381](HANDOFF.md#assumptions-to-check)): how each item 14–25 is filled from the runs, especially item 23 (taxable pay not subject to withholding) and item 17 (0 until 13th month pay).
+- [ ] **R-337 · Get SSS's upload file specification** ([#378](HANDOFF.md#assumptions-to-check)): the R3 File Generator or My.SSS e-CL layout. The app's R-3 file is an assumed fixed-width layout, marked not verified; the next build replaces it.
+- [ ] **R-338 · Get PhilHealth's EPRS upload template** ([#379](HANDOFF.md#assumptions-to-check)). The app's RF-1 CSV is assumed, marked not verified.
+- [ ] **R-339 · Get Pag-IBIG's eSRS upload template** ([#380](HANDOFF.md#assumptions-to-check)) under Circular No. 499-2026. The app's MCRF CSV is assumed, marked not verified.
+- [ ] **R-340 · The SS and MPF split** ([#383](HANDOFF.md#assumptions-to-check)) when a share was overridden or estimated: regular SS first, the rest MPF.
+- [ ] **R-341 · The go-live month** ([#384](HANDOFF.md#assumptions-to-check)): if go-live is on an end-of-month cut-off, the report covers only the Pulse cut-off; HR adds the old system's half outside Pulse. Right?
+- [ ] **R-342 · The remittance month is the pay date's month** ([#397](HANDOFF.md#assumptions-to-check)) for every agency and the 1601-C.
 
 ### Receipts and reimbursements
 
@@ -282,6 +305,22 @@ The choices a business owner would most want to decide. Each was built as descri
 - [ ] **R-324 · The payslip prints no company TIN** ([#334](HANDOFF.md#assumptions-to-check)): the logo, registered name and address only, as the spec's payslip list says. Add the TIN? (Counsel's R-265 asks what else a payslip must show.)
 - [ ] **R-325 · The payslip shows the first and last name only** ([#350](HANDOFF.md#assumptions-to-check)), no middle name, with the department and position as they were at approval.
 - [ ] **R-326 · An HR or Accounting user who is also on the Board** gets the payroll view of a run, not the Board's view ([#364](HANDOFF.md#assumptions-to-check)), and approves only through Approvals; an HR submitter on the Board doesn't count as an approver ([#346](HANDOFF.md#assumptions-to-check)).
+
+### Remittances (step 2.11)
+
+- [ ] **R-343 · Earliest due dates, never moved** ([#377](HANDOFF.md#assumptions-to-check)): reminders come early rather than late; a due date on a weekend stays put.
+- [ ] **R-344 · Reports wait for the whole month** ([#385](HANDOFF.md#assumptions-to-check)): both cut-offs paid in the month must be finalized first.
+- [ ] **R-345 · Accounting needs Talent Write to record payments** ([#387](HANDOFF.md#assumptions-to-check)); HR or the System Administrator generates the reports.
+- [ ] **R-346 · A different payment amount** ([#388](HANDOFF.md#assumptions-to-check)) warns once and saves on "Save anyway".
+- [ ] **R-347 · A paid report is locked** ([#389](HANDOFF.md#assumptions-to-check)); void the payment (with a reason) to regenerate it.
+- [ ] **R-348 · The upload file waits** for every employee's ID and the employer number ([#390](HANDOFF.md#assumptions-to-check)); PDF and Excel never wait.
+- [ ] **R-349 · Reminders go to HR only** ([#391](HANDOFF.md#assumptions-to-check)): 5 days before, on the day, and once overdue. Add Accounting?
+- [ ] **R-350 · New hire and separated marks** come from the dates in Core ([#392](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-351 · Names in upload files** are upper-case ASCII, Ñ as N ([#393](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-352 · The Fiscal disbursement is a placeholder** until Phase 5 ([#394](HANDOFF.md#assumptions-to-check)).
+- [ ] **R-353 · One small Core change** ([#395](HANDOFF.md#assumptions-to-check)): text and CSV files can be generated and stored.
+- [ ] **R-354 · Exports are stored and audited twice** ([#396](HANDOFF.md#assumptions-to-check)): when exported and when opened.
+- [ ] **R-355 · Upload formats are code, not settings** ([#398](HANDOFF.md#assumptions-to-check)): a new agency layout needs a code change.
 
 ### Step 1.8 judgement calls
 
@@ -464,6 +503,13 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and, on a throwaway databas
 - [ ] **R-320** After approval the run reads "Payslips: being prepared", then "Payslips: 2 of 2 ready" within about 10 minutes (the job, with the worker running).
 - [ ] **R-321** A finalized run refuses recompute, manual entries and acknowledgements, and shows "Pulse Fiscal posting: waiting for Pulse Fiscal (Phase 5)."
 - [ ] **R-322** Light, dark and phone width: the run page in each status and its sheets (flags, manual entry, submit), the Board's view, the register, and the Payslips section.
+
+### 2.11 Employer contributions and remittances (not built yet)
+
+Setup first: rerun `pnpm seed:admin` once built (it adds the remittance settings), and on a throwaway database finalize step 2.10's October 2026 runs (Sep 26 – Oct 10 and Oct 11 – 25).
+
+- [ ] **R-356** The "Done when" (cases R1 and R2): the SSS report for October 2026 shows employee ₱2,375.00, employer ₱4,750.00, EC ₱60.00, amount due ₱7,185.00, matching the two runs; recording the payment (date, reference, amount) shows SSS October 2026 "Paid" on `/talent/remittances`.
+- [ ] **R-357** Light, dark and phone width: the remittances list, the report page, the export buttons and the upload warning, the payment sheet, and the Remittances card in Payroll settings.
 
 ## 5. Before going live, and housekeeping
 

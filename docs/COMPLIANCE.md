@@ -53,7 +53,7 @@ The offset arrangement for Standard-timesheet positions (extra hours become offs
 | Obligation | Where it's implemented |
 |---|---|
 | SSS, PhilHealth and Pag-IBIG employee and employer shares, plus the SSS EC contribution, from versioned tables | [Pay computation per cut-off](modules/talent.md#pay-computation-per-cut-off), [Employer contributions & monthly remittances](modules/talent.md#employer-contributions--monthly-remittances) |
-| Monthly remittance reports in each agency's upload format, with due-date reminders | [Employer contributions & monthly remittances](modules/talent.md#employer-contributions--monthly-remittances) |
+| Monthly remittance reports in each agency's upload format, with due-date reminders (build step 2.11; the layouts and due dates are unverified assumptions, see [Remittances](#remittances-build-step-211)) | [Employer contributions & monthly remittances](modules/talent.md#employer-contributions--monthly-remittances), [Employer contributions and remittances](modules/talent.md#employer-contributions-and-remittances-build-step-211) |
 | Employer numbers (SSS, PhilHealth, Pag-IBIG) on reports | [Company details](modules/core.md#company-details-pending-from-the-client) |
 
 ## BIR (taxes)
@@ -160,6 +160,38 @@ Step 2.10 lets HR adjust and submit a run, a Board member approve it, and employ
 | Board view and the register | A Board member who is approving sees totals, net pay and manual entries after an audited reveal; HR, Accounting and the System Administrator see full bank account numbers in the register after an audited reveal | RA 10173 (proportionality; the spec's own Board exception) | That full account numbers on screen are proportionate for crediting salaries |
 | Keeping payroll records | Finalized runs, their lines, manual entries, acknowledgements and payslip PDFs are never deleted | The Labor Code's rules on keeping employment and payroll records (at least three years) and the Tax Code's books and records rules; see [Open questions](#open-questions), item 1 | The retention period, and whether keeping them forever is proportionate |
 
+## Remittances (build step 2.11)
+
+Step 2.11 builds the monthly SSS, PhilHealth, Pag-IBIG and BIR 1601-C reports from finalized payroll runs, with due-date reminders and payment records ([Employer contributions and remittances](modules/talent.md#employer-contributions-and-remittances-build-step-211)). No rate is added: every amount is what the finalized runs hold. The due dates and file layouts below were looked up online on **2026-10-25**, but **no agency's official file specification was found or read**, and the due dates come from secondary sources and older circulars. Each is an *Assumption* in [HANDOFF](HANDOFF.md#assumptions-to-check) (items 373–398) for the accountant, counsel or HR, before the first real remittance.
+
+**Due dates** (seeded in `talent.remittanceSettings`; the earliest date the rule could give is seeded where it depends on the employer, and none is moved for a weekend or holiday):
+
+| Agency | Seeded | Basis, as found | Status | To confirm |
+|---|---|---|---|---|
+| SSS | Last day of the month after the applicable month | SSS Circular No. 2019-012 (regular employers, from SSS Circular No. 2018-022's change); payments due on a weekend or holiday are accepted the next working day | Secondary: SSS's own advisory and news reports, 2018–2024; no 2025–2026 circular found | That no later circular changed it |
+| PhilHealth | The 15th of the next month | PhilHealth's schedule by the employer number's last digit: 0–4 from the 11th to the 15th, 5–9 from the 16th to the 20th of the month after | Secondary (provider guides) | The company's window, from its PhilHealth employer number |
+| Pag-IBIG | The 14th of the next month | HDMF Circular No. 275: by the first letter of the employer's name, A–D the 10th–14th, E–L 15th–19th, M–Q 20th–24th, R–Z the 25th to the month's end (so "Xtreme Works" would fall in R–Z). **HDMF Circular No. 499-2026** (effective about August 21, 2026) makes eSRS mandatory, requires a PRN after a six-month transition, and replaces Circular 275's schedule; its new schedule wasn't found | Secondary; Circular 499-2026 not read | The current schedule under Circular 499-2026 |
+| BIR 1601-C | The 10th of the next month; December's on January 15 | RR 2-98 as amended by RR 11-2018 (manual and eBIRForms filers); eFPS filers file 11 to 15 days after the month's end by group (RR 26-2002) | Secondary (tax calendars) | Whether the company files through eFPS, and its group |
+
+**File formats** (each built as one isolated, versioned definition marked not verified; [Employer contributions and remittances](modules/talent.md#employer-contributions-and-remittances-build-step-211)):
+
+| Agency | What was found | Built as | Status |
+|---|---|---|---|
+| SSS | Electronic submission of the contribution collection list (R-3) has been required since July 2014; employers create it through the R3 File Generator or the My.SSS e-CL (electronic collection list, with an offline editor and upload) and then get a PRN to pay. The field layout and file naming weren't found | `sss.r3.assumed-2026-10`: a fixed-width text file with a header, one detail per employee (SS number, names, regular SS, EC and MPF, a new hire or separated status) and a trailer | **Not verified.** Get the R3 File Generator user guide or My.SSS e-CL specification from SSS |
+| PhilHealth | Employers submit through EPRS (the Electronic Premium Remittance System); PhilHealth's older guides list RF-1 in Excel, in a text file for its premium remittance system, and a structured RF-1 from a payroll system, and a 2012 circular allowed a CSV softcopy. No current EPRS upload layout found | `philhealth.rf1.assumed-2026-10`: a CSV with an employer line, one line per employee (PIN, names, date of birth, sex, basic salary, PS, ES, status) and a total line | **Not verified.** Get the EPRS upload template from PhilHealth |
+| Pag-IBIG | Circular No. 499-2026 mandates eSRS through Virtual Pag-IBIG for Employers, with the employee salary details submitted with each remittance schedule; the MCRF lists each member's MID, name, monthly compensation and both shares. No upload layout found | `pagibig.mcrf.assumed-2026-10`: a CSV with an employer line and one line per member (MID, names, monthly compensation, both shares, total, remarks) | **Not verified.** Get the eSRS upload template from Pag-IBIG |
+| BIR 1601-C | Filed and paid through eFPS or eBIRForms by entering the return's figures. As understood, no data file is attached to the monthly return (the employee detail goes in the annual alphalist); no source saying otherwise was found | The figures for items 14–25 and a per-employee schedule, as PDF and Excel; **no upload file** | The item mapping (below) |
+
+| Topic | Built as | Basis, as understood | To confirm |
+|---|---|---|---|
+| What is remitted | The sum of what the month's finalized runs deducted (employee) and computed (employer, EC), overrides included, never recomputed from the tables; a row that differs from the table is flagged | RA 11199 (SSS, with EC under PD 626), RA 11223 (PhilHealth), RA 9679 (Pag-IBIG): the employer remits the employee's deducted share with its own | That remitting what was deducted, and correcting a wrong deduction in a later run, is right |
+| The month | The pay date's month, both cut-offs together, for every agency and for 1601-C | The agencies' monthly collection; RR 2-98 (tax withheld when compensation is paid) | — |
+| The go-live month | Only the cut-offs paid in Pulse; HR adds the old system's part outside Pulse | — | How the go-live month's remittance is completed |
+| Regular SS and MPF | The table's split for the salary credit; otherwise regular SS first, the rest MPF | SSS Circular No. 2024-006 (MPF above an MSC of ₱20,000) | The split when a share was overridden |
+| BIR 1601-C items | Item 14 total compensation (earnings less attendance deductions, no reimbursements); 15–16 a minimum wage earner's exempt pay; 17 0 (13th month in step 2.12); 18 de minimis; 19 employee contributions; 20 other non-taxable pay; 22 = 14 − 21; 23 the taxable pay of non-minimum wage earners with ₱0.00 withheld; 25 tax withheld; 26–35 typed on the form | BIR Form 1601-C (January 2018 ENCS) and its guidelines; RA 10963 | Every item, especially item 23 (BIR's "₱250,000 and below" employees) |
+| Penalties | Not computed; a payment amount other than the amount due is allowed with a warning | SSS (RA 11199), PhilHealth (RA 11223), Pag-IBIG (1/10 of 1% a day, Circular 499-2026) and BIR (NIRC Secs. 248–249) penalties | — |
+| Privacy | Every amount and government ID in a report is encrypted; viewing amounts and each export are audit-logged; the PhilHealth file carries the date of birth and sex (as RF-1 did); exported files are kept, never deleted | RA 10173 (proportionality, security) | That the PhilHealth file needs the date of birth and sex, and the retention of exported files ([Open questions](#open-questions), item 1) |
+
 ## Reimbursement receipts (build step 2.5)
 
 Step 2.5 records reimbursement lines with their receipts; payment as a separate non-taxable line follows in step 2.9 ([Reimbursements](modules/talent.md#reimbursements-build-step-25)). Each rule below is an *Assumption, to be confirmed by the accountant* ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check), items 62–65 and 73):
@@ -200,8 +232,8 @@ Verification status:
 | Needed | Before | Source |
 |---|---|---|
 | Confirmation of the government ID and bank account number formats, and of the date of birth and civil status handling, assumed in build step 2.1 ([HANDOFF › Assumptions to check](HANDOFF.md#assumptions-to-check)) | Before HR enters real records | HR, counsel, UnionBank and RCBC |
-| SSS, PhilHealth and Pag-IBIG upload file specifications | Build step 2.11 | Each agency |
-| BIR alphalist format | Build step 2.12 | BIR |
+| SSS, PhilHealth and Pag-IBIG upload file specifications. **Not obtained** (searched 2026-10-25): step 2.11 builds each as an unverified, replaceable definition ([Remittances](#remittances-build-step-211)). Still needed: SSS's R3 File Generator or My.SSS e-CL layout, PhilHealth's EPRS upload template, and Pag-IBIG's eSRS template under Circular No. 499-2026 | Before the first real remittance | Each agency (the employer portals, or a branch) |
+| BIR alphalist format. **Found in part** (2026-10-25): the alphalist of employees for the 1604-C is produced with BIR's Alphalist Data Entry and Validation Module (version 7.x; 7.4 is the latest found) as a `.DAT` file, or by the employer's own extract program following the file structures and naming in Annexes A and B of RMC No. 7-2021, reiterated by RMC No. 25-2024; it is sent through BIR's eSubmission facility, which replies with a validation report. The annexes themselves weren't read | Build step 2.12 | BIR (RMC No. 7-2021 Annexes A and B; the module's own data file layout) |
 | BIR data file formats for VAT and withholding reports | Build step 5.12 | BIR |
 | Company registration numbers and BIR registration details | Go-live | The company ([Company details](modules/core.md#company-details-pending-from-the-client)) |
 
@@ -216,3 +248,4 @@ The spec doesn't cover these yet. Confirm them with the company's accountant or 
 5. **Service Incentive Leave** (build step 2.8). The spec meets the Labor Code's 5-day SIL with paid VL, never converts leave to cash, and credits VL only from regularization. The implementing rules make unused SIL commutable to cash at the end of the year and give it after one year of service, Contractual employees included. Confirm whether carrying VL over satisfies the law, and whether Contractual employees with a year of service need VL or SIL ([Leave and time off](#leave-and-time-off-build-step-28)).
 6. **Maternity benefit in payroll** (build step 2.9). The run pays approved maternity leave as ordinary paid leave. Confirm how the SSS maternity benefit and the salary differential under RA 11210 should be split on the payslip, taxed, and reimbursed by SSS ([Payroll computation](#payroll-computation-build-step-29)).
 7. **Contribution bases and the minimum wage earner's other pay** (build step 2.9). Confirm which pay counts for SSS and Pag-IBIG, and the withholding on a minimum wage earner's taxable allowances ([Payroll computation](#payroll-computation-build-step-29)).
+8. **Agency file specifications and due dates** (build step 2.11). Get each agency's official upload file specification and the company's own due dates (its PhilHealth window, its Pag-IBIG schedule under Circular No. 499-2026, its eFPS group) before the first real remittance ([Remittances](#remittances-build-step-211)).
