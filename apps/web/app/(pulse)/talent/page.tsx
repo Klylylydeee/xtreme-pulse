@@ -5,6 +5,7 @@ import { type CurrentUser, listBrandOptions, listDirectoryDepartments } from '@p
 import {
   canManageOpeningBalances,
   canSeePayrollRuns,
+  canSeeRemittances,
   getExpiryAlertSettings,
   getOnboardingSettings,
   listEmployeeRecords,
@@ -51,6 +52,8 @@ function onboardingParam(value: string | undefined): OnboardingFilter | null {
 // Administrator (`canManageOpeningBalances`); `/talent/opening-balances` checks again.
 // From step 2.9 the header's "Payroll" shows only for Talent Read and HR, Accounting or the System
 // Administrator (`canSeePayrollRuns`); `/talent/payroll` checks again.
+// From step 2.11 the header's "Remittances" shows only for the same viewers
+// (`canSeeRemittances`); `/talent/remittances` checks again.
 export default async function TalentPage({
   searchParams,
 }: {
@@ -110,6 +113,7 @@ async function Employees({
       onboardingCounts={list.onboarding ?? null}
       canOpenOpeningBalances={canManageOpeningBalances(user)}
       canOpenPayroll={canSeePayrollRuns(user)}
+      canOpenRemittances={canSeeRemittances(user)}
     />
   );
 }

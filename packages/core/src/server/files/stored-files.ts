@@ -10,6 +10,8 @@ import {
   detectUploadType,
   GENERATED_TYPES,
   type GeneratedType,
+  isGeneratedTextType,
+  isPrintableAsciiCrLf,
   looksLikeZip,
   UPLOAD_TYPES,
   type UploadType,
@@ -382,7 +384,10 @@ function isDuplicateKey(error: unknown): boolean {
   );
 }
 
-/** Saves a file the app generated (a PDF or Excel export). */
+/**
+ * Saves a file the app generated (a PDF or Excel export; from build step 2.11 a plain text or CSV
+ * upload file, accepted only as printable ASCII with CR LF line ends).
+ */
 export async function saveGeneratedFile({
   bytes,
   contentType,
@@ -394,8 +399,13 @@ export async function saveGeneratedFile({
   assertOwner(owner);
   assertIdempotencyKey(idempotencyKey);
   if (!(contentType in GENERATED_TYPES)) throw new Error(`Unknown generated type ${contentType}.`);
+  // Build step 2.11 (decision 389): a text type only as printable ASCII with CR LF line ends.
   const matches =
-    contentType in UPLOAD_TYPES ? detectUploadType(bytes) === contentType : looksLikeZip(bytes);
+    contentType in UPLOAD_TYPES
+      ? detectUploadType(bytes) === contentType
+      : isGeneratedTextType(contentType)
+        ? isPrintableAsciiCrLf(bytes)
+        : looksLikeZip(bytes);
   if (!matches)
     throw new Error(`The generated content is not ${GENERATED_TYPES[contentType].label}.`);
   await connectDb();

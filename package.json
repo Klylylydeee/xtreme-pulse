@@ -18,6 +18,7 @@
     "dev:timesheet-reminders": "tsx scripts/dev-timesheet-reminders.ts",
     "dev:leave-credits": "tsx scripts/dev-leave-credits.ts",
     "dev:payroll-drafts": "tsx scripts/dev-payroll-drafts.ts",
+    "dev:remittance-reminders": "tsx scripts/dev-remittance-reminders.ts",
     "test": "vitest run"
   },
   "devDependencies": {

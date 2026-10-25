@@ -248,6 +248,89 @@ export {
   type PayrollRunSettingsVersionView,
   type PayrollRunSettingsView,
 } from './payroll-settings/service';
+// The remittance settings (build step 2.11, `talent.remittanceSettings`): the "Remittances"
+// card's view and "Add version", and the version in effect on a day.
+export { REMITTANCE_SETTINGS_SETTING, remittanceSettingsOn } from './payroll-settings/settings';
+export {
+  addRemittanceSettingsVersion,
+  getRemittanceSettingsView,
+  type RemittanceSettingsVersionInput,
+  type RemittanceSettingsVersionView,
+  type RemittanceSettingsView,
+} from './payroll-settings/service';
+// Remittances (build step 2.11,
+// docs/modules/talent.md#employer-contributions-and-remittances-build-step-211).
+// - `/talent/remittances`: `listRemittances` (statuses, due dates and payments, no amount);
+//   `/talent/remittances/<YYYY-MM>/<agency>`: `getRemittanceReportPage` (no amount or ID),
+//   "Show amounts" (`showRemittanceAmounts`, the `reveal` first), "Generate report" and
+//   "Regenerate" (`generateRemittanceReport`), the exports (`exportRemittanceReport`, the
+//   `export` entry first) and the payments (`recordRemittancePayment`,
+//   `correctRemittancePayment`, `voidRemittancePayment`).
+// - `getRemittanceStatus(agency, month)`: server-only, for step 2.16 and step 5.8.
+// - The file route's `talent.remittanceReport` check is registered by `registerTalentFileAccess()`.
+// - The daily `talent.remittanceReminders` job for the worker (`runRemittanceReminders`).
+export {
+  getRemittanceReportPage,
+  getRemittanceStatus,
+  listRemittances,
+  REMITTANCE_NOT_FOUND,
+  REMITTANCE_REPORT_MISSING,
+  type RemittanceAgencyStatus,
+  type RemittanceListRow,
+  type RemittanceListView,
+  type RemittanceLivePayment,
+  type RemittanceMonthGroup,
+  type RemittancePaymentEntryView,
+  remittanceReportHref,
+  type RemittanceReportPageView,
+  type RemittanceReportSummary,
+  type RemittanceSourceRunView,
+  type RemittanceUploadView,
+  REMITTANCES_HREF,
+} from './remittances/service';
+export {
+  generateRemittanceReport,
+  type GenerateRemittanceInput,
+  type GeneratedRemittance,
+  REMITTANCE_REGENERATED_REASON,
+} from './remittances/generate';
+export {
+  type ExportedRemittance,
+  exportRemittanceReport,
+  type ExportRemittanceInput,
+  REMITTANCE_FILE_TYPE,
+  remittanceExportDescription,
+  remittanceIdempotencyKey,
+} from './remittances/exports';
+export {
+  type CorrectRemittancePaymentInput,
+  correctRemittancePayment,
+  recordRemittancePayment,
+  REMITTANCE_AMOUNT_DUE_FIELD,
+  REMITTANCE_NOT_GENERATED,
+  REMITTANCE_NOT_PAID,
+  REMITTANCE_PAYMENT_GONE,
+  type RemittancePaymentInput,
+  type RemittancePaymentResult,
+  type VoidRemittancePaymentInput,
+  voidRemittancePayment,
+} from './remittances/payments';
+export {
+  REMITTANCE_AMOUNTS_FIELD,
+  type RemittanceAmountRow,
+  type RemittanceAmountsView,
+  showRemittanceAmounts,
+} from './remittances/view';
+export { REMITTANCE_PAYMENT_RECORD_TYPE, REMITTANCE_REPORT_RECORD_TYPE } from './remittances/model';
+export {
+  REMITTANCE_DUE_EVENT,
+  REMITTANCE_OVERDUE_EVENT,
+  REMITTANCE_REMINDERS_JOB,
+  REMITTANCE_REMINDERS_SCHEDULE,
+  remittanceReminderDedupeKey,
+  type RemittanceRemindersResult,
+  runRemittanceReminders,
+} from './remittances/job';
 // Payroll runs (build step 2.9, docs/modules/talent.md#payroll-run-computation-build-step-29;
 // chunk C).
 // - `/talent/payroll`: `listPayrollRuns` (no amount) and "Compute draft run"
@@ -644,6 +727,16 @@ export {
   PAYROLL_REGISTER_DENIED,
   PAYROLL_SUBMIT_DENIED,
   PAYSLIP_DENIED,
+  // Step 2.11
+  assertCanGenerateRemittances,
+  assertCanRecordRemittancePayments,
+  assertCanSeeRemittances,
+  canGenerateRemittances,
+  canRecordRemittancePayments,
+  canSeeRemittances,
+  REMITTANCE_GENERATE_DENIED,
+  REMITTANCE_PAYMENT_DENIED,
+  REMITTANCES_DENIED,
   // Step 2.6
   assertCanConfirmNoSupervisor,
   assertCanVerifySensitiveDetails,

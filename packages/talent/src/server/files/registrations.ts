@@ -24,12 +24,20 @@ import {
   PayrollRunModel,
 } from '../payroll-runs/model';
 import { PAYSLIP_FILE_TYPE } from '../payslips/service';
+import { remittanceAuditLabel } from '../../remittance/agencies';
+import { REMITTANCE_FILE_TYPE } from '../remittances/exports';
+import {
+  REMITTANCE_REPORT_RECORD_TYPE,
+  type RemittanceReportDocument,
+  RemittanceReportModel,
+} from '../remittances/model';
 import {
   canOpenCertificationAttachment,
   canOpenPayslip,
   canSeeDocumentCategory,
   canOpenTimeOffAttachment,
   canSeeESignatureImage,
+  canSeeRemittances,
   canViewTimesheet,
 } from '../policy';
 import { type ReimbursementDocument, ReimbursementModel } from '../reimbursements/model';
@@ -62,6 +70,12 @@ import { type TimeOffRequestDocument, TimeOffRequestModel } from '../time-off/mo
 //   the System Administrator (`canOpenPayslip`); never a Board member as such or a supervisor.
 //   Every open, the employee's own included, is audit-logged (`auditView`) as a `reveal` on
 //   `talent.payrollRunEmployee` (field `file`), labelled `<run number> · <employee number>`.
+//
+// - `talent.remittanceReport` (build step 2.11, decision 387): a remittance report's exported PDF,
+//   Excel or upload file, only a file the report's `files` points at (the current version's), for
+//   Talent Read with HR, Accounting or the System Administrator (`canSeeRemittances`). Every open
+//   is audit-logged (`auditView`) as a `reveal` on `talent.remittanceReport` (field `file`),
+//   labelled `<agency> · <YYYY-MM>`.
 //
 // Each check reads the record the file belongs to and requires that record to point at this very
 // file, so a replaced or stray file never opens through someone else's record.
@@ -107,12 +121,30 @@ async function payslipLineOf(
   return run ? { line, runNumber: run.number } : null;
 }
 
+type RemittanceFileReport = Pick<RemittanceReportDocument, '_id' | 'agency' | 'month'>;
+
+/** The report an exported file belongs to, when its current `files` point at this very file. */
+async function remittanceReportOf(file: StoredFile): Promise<RemittanceFileReport | null> {
+  const ownerId = objectIdOf(file.ownerId);
+  const fileId = objectIdOf(file.id);
+  if (!ownerId || !fileId) return null;
+  await connectDb();
+  return RemittanceReportModel.findOne(
+    {
+      _id: ownerId,
+      $or: [{ 'files.pdf': fileId }, { 'files.xlsx': fileId }, { 'files.upload': fileId }],
+    },
+    { agency: 1, month: 1 },
+  ).lean<RemittanceFileReport>();
+}
+
 let registered = false;
 
 /**
  * Registers Talent's file access checks (`talent.employeeDocument` with its audited views,
  * `talent.eSignature`, `talent.certification`, `talent.reimbursement`, `talent.timeOffRequest`
- * with its audited views, and from step 2.10 `talent.payslip` with its audited views). Safe to call on every request: it registers once per process (per
+ * with its audited views, from step 2.10 `talent.payslip` with its audited views, and from step 2.11
+ * `talent.remittanceReport` with its audited views). Safe to call on every request: it registers once per process (per
  * bundle in Next).
  */
 export function registerTalentFileAccess(): void {
@@ -242,6 +274,29 @@ export function registerTalentFileAccess(): void {
             type: PAYROLL_RUN_EMPLOYEE_RECORD_TYPE,
             id: found.line._id,
             label: employee ? `${found.runNumber} · ${employee.employeeNumber}` : found.runNumber,
+          };
+        },
+      },
+    },
+  );
+
+  registerFileAccess(
+    REMITTANCE_FILE_TYPE,
+    async (user, file) => {
+      // The viewer first, so one who may not see remittances never reads the report.
+      if (!canSeeRemittances(user)) return false;
+      return (await remittanceReportOf(file)) !== null;
+    },
+    {
+      auditView: {
+        module: 'talent',
+        async record(file) {
+          const report = await remittanceReportOf(file);
+          if (!report) throw new Error('The remittance report for this file is missing.');
+          return {
+            type: REMITTANCE_REPORT_RECORD_TYPE,
+            id: report._id,
+            label: remittanceAuditLabel(report.agency, report.month),
           };
         },
       },

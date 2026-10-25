@@ -31,6 +31,8 @@ import {
   OWN_TIME_OFF_HREF,
   PAYROLL_HREF,
   payrollRegisterHref,
+  REMITTANCES_HREF,
+  remittanceHref,
   TIME_OFF_REQUESTS_HREF,
   TIMESHEETS_LIST_HREF,
   type NavigationViewer,
@@ -747,6 +749,45 @@ describe('Payroll review (step 2.10)', () => {
 
   it('isn’t a sidebar entry', () => {
     expect(visibleHrefs(systemAdministrator)).not.toContain(register);
+  });
+});
+
+describe('Remittances (step 2.11)', () => {
+  const talentReader = visibleNavigation(
+    viewer({ moduleAccess: { ...emptyModuleAccess(), talent: 'read' } }),
+  );
+  const report = remittanceHref('2026-10', 'sss');
+
+  it('builds the report path under the remittances page', () => {
+    expect(REMITTANCES_HREF).toBe('/talent/remittances');
+    expect(report).toBe('/talent/remittances/2026-10/sss');
+  });
+
+  it('reads "Pulse Talent › Remittances" and "Pulse Talent › Remittance", with Talent current', () => {
+    for (const groups of [talentReader, visibleNavigation(systemAdministrator)]) {
+      expect(breadcrumbFor(groups, REMITTANCES_HREF)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Remittances',
+      });
+      expect(breadcrumbFor(groups, report)).toEqual({
+        parent: 'Pulse Talent',
+        current: 'Remittance',
+      });
+      for (const path of [REMITTANCES_HREF, report]) {
+        expect(activeEntry(groups, path)?.entry.label).toBe('Talent');
+      }
+    }
+  });
+
+  it('isn’t a sidebar entry, and reads "No access" without Talent Read', () => {
+    expect(visibleHrefs(systemAdministrator)).not.toContain(REMITTANCES_HREF);
+    for (const someone of [newUser, hr]) {
+      for (const path of [REMITTANCES_HREF, report]) {
+        expect(breadcrumbFor(visibleNavigation(someone), path)).toEqual({
+          current: NO_ACCESS_PAGE_TITLE,
+        });
+      }
+    }
   });
 });
 

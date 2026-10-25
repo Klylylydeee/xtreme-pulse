@@ -15,6 +15,12 @@ import {
   SEED_PAYROLL_RUN_SETTINGS,
 } from '../../payroll/run-settings';
 import {
+  REMITTANCE_SETTINGS_KEY,
+  type RemittanceSettings,
+  remittanceSettingsSchema,
+  SEED_REMITTANCE_SETTINGS,
+} from '../../remittance/settings';
+import {
   LEAVE_SETTINGS_KEY,
   type LeaveSettings,
   leaveSettingsSchema,
@@ -181,4 +187,34 @@ export async function payrollRunSettingsOn(
   return version
     ? { value: version.value, effectiveFrom: version.effectiveFrom }
     : { value: structuredClone(SEED_PAYROLL_RUN_SETTINGS), effectiveFrom: null };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.11: `talent.remittanceSettings` (decision 383 in docs/BUILD_PLAN.md): each agency's due date
+// and the reminder lead days. Kept apart from the thirteen payroll settings, like the payroll run
+// settings, with its own view and "Add version" in ./service.ts (the
+// "Remittances" card in the Pay schedule segment), under the step 2.3 rules.
+
+export const REMITTANCE_SETTINGS_SETTING = defineConfigSetting(
+  REMITTANCE_SETTINGS_KEY,
+  remittanceSettingsSchema,
+);
+
+/**
+ * `talent.remittanceSettings` in effect on `on` (a month's due date reads the first day of the
+ * month after it), with the version's effective date for the report's `settingVersions`. Before
+ * any version exists (only before `pnpm seed:admin` has run) the seeded value applies, with a
+ * null date.
+ */
+export async function remittanceSettingsOn(
+  on: ConfigDate,
+  { session }: { session?: ClientSession | null } = {},
+): Promise<{ value: RemittanceSettings; effectiveFrom: BusinessDate | null }> {
+  await connectDb();
+  const version = await findConfigVersion(REMITTANCE_SETTINGS_SETTING, on, {
+    session: session ?? undefined,
+  });
+  return version
+    ? { value: version.value, effectiveFrom: version.effectiveFrom }
+    : { value: structuredClone(SEED_REMITTANCE_SETTINGS), effectiveFrom: null };
 }

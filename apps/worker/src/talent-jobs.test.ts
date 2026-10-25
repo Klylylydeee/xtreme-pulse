@@ -8,11 +8,13 @@ import {
   PAYROLL_DRAFTS_JOB,
   PAYSLIP_PDFS_JOB,
   registerTalentHolidaysChangedListener,
+  REMITTANCE_REMINDERS_JOB,
   runExpiryAlerts,
   runLeaveCredits,
   runOpenTimesheets,
   runPayrollDrafts,
   runPayslipPdfs,
+  runRemittanceReminders,
   runTimesheetReminders,
   TIMESHEET_REMINDERS_JOB,
 } from '@pulse/talent/server';
@@ -22,8 +24,9 @@ import { registerTalentListeners, talentJobHandlers, talentJobSchedules } from '
 // The worker's Talent job wiring (docs/ARCHITECTURE.md#background-jobs): the expiry alert job
 // (build step 2.2), the timesheet opening job (build step 2.4), the timesheet reminders (build
 // step 2.7), the leave credits (build step 2.8), the draft payroll runs (build step 2.9) and the
-// payslip PDFs (build step 2.10) each have one handler and one schedule on Manila time
-// (`0 8 * * *`, `5 0 * * *`, `0 8 * * *`, `30 0 * * *`, `0 5 * * *` and `*/10 * * * *`), and each
+// payslip PDFs (build step 2.10) and the remittance reminders (build step 2.11) each have one
+// handler and one schedule on Manila time (`0 8 * * *`, `5 0 * * *`, `0 8 * * *`, `30 0 * * *`,
+// `0 5 * * *`, `*/10 * * * *` and `0 8 * * *`), and each
 // handler calls Talent's service. The worker also registers the
 // `talent.recomputeDtr` holidays-changed listener at start-up (build step 2.7). The services and
 // the listener themselves are tested in packages/talent; here they are stubs.
@@ -38,6 +41,7 @@ vi.mock('@pulse/talent/server', async (importOriginal) => {
     runLeaveCredits: vi.fn(async () => ({ stub: 'leaveCredits' })),
     runPayrollDrafts: vi.fn(async () => ({ stub: 'payrollDrafts' })),
     runPayslipPdfs: vi.fn(async () => ({ stub: 'payslipPdfs' })),
+    runRemittanceReminders: vi.fn(async () => ({ stub: 'remittanceReminders' })),
     registerTalentHolidaysChangedListener: vi.fn(),
   };
 });
@@ -51,6 +55,7 @@ beforeEach(() => {
   vi.mocked(runLeaveCredits).mockClear();
   vi.mocked(runPayrollDrafts).mockClear();
   vi.mocked(runPayslipPdfs).mockClear();
+  vi.mocked(runRemittanceReminders).mockClear();
   vi.mocked(registerTalentHolidaysChangedListener).mockClear();
 });
 
@@ -235,6 +240,35 @@ describe('Payslip PDFs job registration (build step 2.10)', () => {
     );
     const handler = talentJobHandlers.find((h) => h.job.name === 'talent.payslipPdfs');
     await expect(handler?.run({}, context)).rejects.toThrow(/failed to render/);
+  });
+});
+
+describe('Remittance reminders job registration (build step 2.11)', () => {
+  it('registers the handler and schedule once, in production and development', () => {
+    for (const production of [true, false]) {
+      const names = jobHandlers({ production }).map((handler) => handler.job.name);
+      expect(names.filter((name) => name === 'talent.remittanceReminders')).toHaveLength(1);
+      const ids = jobSchedules({ production }).map((schedule) => schedule.id);
+      expect(ids.filter((id) => id === 'talent.remittanceReminders')).toHaveLength(1);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it('runs daily at 8:00 AM Manila', () => {
+    expect(SCHEDULE_TIME_ZONE).toBe('Asia/Manila');
+    const schedule = talentJobSchedules.find((s) => s.id === 'talent.remittanceReminders');
+    expect(schedule?.job).toBe(REMITTANCE_REMINDERS_JOB);
+    expect(schedule?.pattern).toBe('0 8 * * *');
+    expect(schedule?.data).toEqual({});
+  });
+
+  it('sends the reminders through Talent’s service', async () => {
+    const handler = talentJobHandlers.find((h) => h.job.name === 'talent.remittanceReminders');
+    await expect(handler?.run({}, context)).resolves.toEqual({ stub: 'remittanceReminders' });
+    expect(runRemittanceReminders).toHaveBeenCalledTimes(1);
+    expect(runRemittanceReminders).toHaveBeenCalledWith();
+    expect(runTimesheetReminders).not.toHaveBeenCalled();
+    expect(runPayslipPdfs).not.toHaveBeenCalled();
   });
 });
 

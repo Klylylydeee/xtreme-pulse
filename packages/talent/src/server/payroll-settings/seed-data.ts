@@ -21,6 +21,12 @@ import {
   SEED_PAYROLL_RUN_SETTINGS,
 } from '../../payroll/run-settings';
 import type { ReimbursementSettings } from '../../reimbursements/schemas';
+import {
+  REMITTANCE_SETTINGS_SEED_EFFECTIVE_FROM,
+  REMITTANCE_SETTINGS_SEED_SOURCE,
+  type RemittanceSettings,
+  SEED_REMITTANCE_SETTINGS,
+} from '../../remittance/settings';
 import type { TimesheetSettings, WorkSchedule } from '../../timesheets/schemas';
 import {
   LEAVE_SETTINGS_SEED_EFFECTIVE_FROM,
@@ -546,5 +552,31 @@ export function isSeededPayrollRunVersion(
   return (
     effectiveFrom === PAYROLL_RUN_SEED_VERSION.effectiveFrom &&
     source === PAYROLL_RUN_SEED_VERSION.source
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.11: `talent.remittanceSettings` (decision 383 in docs/BUILD_PLAN.md), one version from
+// 2000-01-01 with the earliest due date of each agency and 5 days' lead. Every value an
+// *Assumption, to be confirmed by the accountant and HR* (HANDOFF items 373–376).
+
+export const REMITTANCE_SEED_VERSION: Readonly<{
+  effectiveFrom: BusinessDate;
+  value: Readonly<RemittanceSettings>;
+  source: string;
+}> = Object.freeze({
+  effectiveFrom: REMITTANCE_SETTINGS_SEED_EFFECTIVE_FROM,
+  value: SEED_REMITTANCE_SETTINGS,
+  source: REMITTANCE_SETTINGS_SEED_SOURCE,
+});
+
+/** True when a stored `talent.remittanceSettings` version is the seeded one (same date and source). */
+export function isSeededRemittanceVersion(
+  effectiveFrom: BusinessDate,
+  source: string | null,
+): boolean {
+  return (
+    effectiveFrom === REMITTANCE_SEED_VERSION.effectiveFrom &&
+    source === REMITTANCE_SEED_VERSION.source
   );
 }

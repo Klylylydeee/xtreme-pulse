@@ -47,12 +47,19 @@ import { LeaveEntryModel } from '../leave/model';
 import { OffsetEntryModel } from '../offset/model';
 import { PayrollOpeningEntryModel } from '../opening-balances/model';
 import { type PayrollRunSettings, payrollRunSettingsSchema } from '../../payroll/run-settings';
-import { isSeededLeaveVersion, isSeededPayrollRunVersion, isSeededVersion } from './seed-data';
+import { type RemittanceSettings, remittanceSettingsSchema } from '../../remittance/settings';
+import {
+  isSeededLeaveVersion,
+  isSeededPayrollRunVersion,
+  isSeededRemittanceVersion,
+  isSeededVersion,
+} from './seed-data';
 import {
   LEAVE_SETTINGS_SETTING,
   PAYROLL_RUN_SETTINGS_SETTING,
   PAYROLL_SETTINGS,
   payrollSettingVersionOn,
+  REMITTANCE_SETTINGS_SETTING,
 } from './settings';
 
 // Spec: docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 ("Payroll settings
@@ -607,6 +614,158 @@ export async function addPayrollRunSettingsVersion(
             type: 'core.configVersion',
             id: version.id,
             label: `${PAYROLL_RUN_SETTINGS_SETTING.key} from ${version.effectiveFrom}`,
+          },
+          before: null,
+          after: {
+            key: version.key,
+            effectiveFrom: version.effectiveFrom,
+            value: version.value,
+            source: version.source,
+          },
+        },
+        { session },
+      );
+      return { id: version.id, effectiveFrom: version.effectiveFrom };
+    });
+  } catch (error) {
+    // Another version for that date committed first (the unique key and effective date).
+    if (error instanceof ConfigVersionExistsError) throw exists();
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.11: the "Remittances" card in the Pay schedule segment (`talent.remittanceSettings`;
+// decision 383 in docs/BUILD_PLAN.md). Viewing is Talent Read; adding a version is Talent Owner
+// and HR or the System Administrator, under the same date rules as the payroll run settings. A
+// month's due date reads the version in effect on the first day of the month after it.
+
+/** One `talent.remittanceSettings` version on the "Remittances" card. */
+export interface RemittanceSettingsVersionView {
+  id: string;
+  effectiveFrom: BusinessDate;
+  value: RemittanceSettings;
+  source: string | null;
+  /** True for the version `pnpm seed:admin` added. */
+  seeded: boolean;
+  status: 'inEffect' | 'scheduled' | 'past';
+}
+
+/** The "Remittances" card of Payroll settings › Pay schedule. */
+export interface RemittanceSettingsView {
+  today: BusinessDate;
+  /** Talent Owner and HR or the System Administrator: "Add version". */
+  canAddVersion: boolean;
+  inEffect: RemittanceSettingsVersionView | null;
+  /** Versions taking effect after today, soonest first. */
+  scheduled: RemittanceSettingsVersionView[];
+  /** Every version, newest first. */
+  history: RemittanceSettingsVersionView[];
+  earliestEffectiveFrom: BusinessDate | null;
+  latestEffectiveFrom: BusinessDate;
+}
+
+/** The "Remittances" card: Talent Read. */
+export async function getRemittanceSettingsView(
+  actor: TalentActor,
+): Promise<RemittanceSettingsView> {
+  assertCanReadEmployeeRecords(actor);
+  await connectDb();
+  const today = businessToday();
+  const versions = await listConfigVersions(REMITTANCE_SETTINGS_SETTING);
+  const inEffectId = versions.find((version) => version.effectiveFrom <= today)?.id ?? null;
+  const history = versions.map((version): RemittanceSettingsVersionView => ({
+    id: version.id,
+    effectiveFrom: version.effectiveFrom,
+    value: version.value,
+    source: version.source,
+    seeded: isSeededRemittanceVersion(version.effectiveFrom, version.source),
+    status:
+      version.effectiveFrom > today ? 'scheduled' : version.id === inEffectId ? 'inEffect' : 'past',
+  }));
+  const latest = versions[0];
+  return {
+    today,
+    canAddVersion: canAddPayrollSettingsVersion(actor),
+    inEffect: history.find((version) => version.status === 'inEffect') ?? null,
+    scheduled: history.filter((version) => version.status === 'scheduled').reverse(),
+    history,
+    earliestEffectiveFrom: latest ? addDays(latest.effectiveFrom, 1) : null,
+    latestEffectiveFrom: latestEffectiveDate(today),
+  };
+}
+
+/** "Add version" on the "Remittances" card: the effective date, the source and the whole value. */
+export interface RemittanceSettingsVersionInput {
+  effectiveFrom: unknown;
+  source: unknown;
+  value: unknown;
+}
+
+/**
+ * Adds a `talent.remittanceSettings` version from `effectiveFrom`, with its source. Talent Owner
+ * and HR or the System Administrator, checked again in the transaction. Refused: a date on or
+ * before the latest version's or more than a year ahead, and an invalid value. The `create` entry
+ * on `core.configVersion` is written in the same transaction.
+ */
+export async function addRemittanceSettingsVersion(
+  actor: TalentActor,
+  input: RemittanceSettingsVersionInput,
+): Promise<{ id: string; effectiveFrom: BusinessDate }> {
+  assertCanAddPayrollSettingsVersion(actor);
+  const meta = versionMetaSchema.safeParse(input);
+  if (!meta.success) throw inputError(meta.error.issues);
+  const parsedValue = remittanceSettingsSchema.safeParse(input.value);
+  if (!parsedValue.success) {
+    throw inputError(
+      parsedValue.error.issues.map((issue) => ({ ...issue, path: ['value', ...issue.path] })),
+    );
+  }
+  const { effectiveFrom, source } = meta.data;
+  const value = parsedValue.data;
+  const today = businessToday();
+  await connectDb();
+  const exists = () =>
+    new ActionError(
+      `A version of the remittance settings already takes effect on ${formatDate(effectiveFrom)}. Versions can’t be changed: add one with a later date.`,
+      { field: 'effectiveFrom' },
+    );
+
+  try {
+    return await withTransaction(async (session) => {
+      const current = await reloadActorAccess({ id: actor.id }, session);
+      assertCanAddPayrollSettingsVersion(current);
+      const versions = await listConfigVersions(REMITTANCE_SETTINGS_SETTING, { session });
+      const latest = versions[0];
+      if (latest && effectiveFrom === latest.effectiveFrom) throw exists();
+      if (latest && effectiveFrom < latest.effectiveFrom) {
+        throw new ActionError(
+          `The effective date must be after ${formatDate(latest.effectiveFrom)}, the latest version’s date. A wrong version is replaced by a newer one.`,
+          { field: 'effectiveFrom' },
+        );
+      }
+      if (effectiveFrom > latestEffectiveDate(today)) {
+        throw new ActionError('The effective date can be at most a year from today.', {
+          field: 'effectiveFrom',
+        });
+      }
+      const version = await addConfigVersion(REMITTANCE_SETTINGS_SETTING, {
+        effectiveFrom,
+        value,
+        source,
+        actorId: new Types.ObjectId(current.id),
+        session,
+      });
+      await recordAudit(
+        {
+          actorId: current.id,
+          actorEmail: current.email,
+          module: 'core',
+          action: 'create',
+          record: {
+            type: 'core.configVersion',
+            id: version.id,
+            label: `${REMITTANCE_SETTINGS_SETTING.key} from ${version.effectiveFrom}`,
           },
           before: null,
           after: {

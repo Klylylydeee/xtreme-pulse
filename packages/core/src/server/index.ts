@@ -109,8 +109,12 @@ export {
 } from './files/image-transform';
 export { registerCoreFileAccess } from './files/registrations';
 export {
+  GENERATED_TEXT_TYPES,
   GENERATED_TYPES,
+  type GeneratedTextType,
   type GeneratedType,
+  isGeneratedTextType,
+  isPrintableAsciiCrLf,
   UPLOAD_TYPES,
   type UploadType,
 } from './files/file-types';

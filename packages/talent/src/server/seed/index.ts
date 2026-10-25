@@ -6,11 +6,13 @@ import {
   LEAVE_SEED_VERSION,
   PAYROLL_RUN_SEED_VERSION,
   PAYROLL_SEED_VERSIONS,
+  REMITTANCE_SEED_VERSION,
 } from '../payroll-settings/seed-data';
 import {
   LEAVE_SETTINGS_SETTING,
   PAYROLL_RUN_SETTINGS_SETTING,
   PAYROLL_SETTINGS,
+  REMITTANCE_SETTINGS_SETTING,
 } from '../payroll-settings/settings';
 import { ONBOARDING_SEED_VERSION, ONBOARDING_SETTINGS_SETTING } from '../onboarding/settings';
 
@@ -18,8 +20,8 @@ import { ONBOARDING_SEED_VERSION, ONBOARDING_SETTINGS_SETTING } from '../onboard
 // and docs/modules/talent.md#payroll-settings-and-allowances-build-step-23 (decision 196 in
 // docs/BUILD_PLAN.md) — Pulse Talent's seed loaders, run by `pnpm seed:admin` after Core's
 // (`[...coreSeedLoaders, ...talentSeedLoaders]`). One loader per payroll setting, then the
-// onboarding setting (build step 2.6, decision 259), the leave settings (build step 2.8) and the
-// payroll run settings (build step 2.9):
+// onboarding setting (build step 2.6, decision 259), the leave settings (build step 2.8), the
+// payroll run settings (build step 2.9) and the remittance settings (build step 2.11):
 //
 // - It adds the setting's seeded versions only when the setting has no version at all, so a
 //   later run never adds or replaces one, and a version HR added is left alone.
@@ -135,13 +137,40 @@ const payrollRunSettingsLoader: SeedLoader = {
 };
 
 /**
+ * `talent.remittanceSettings` (build step 2.11, decision 397): each agency's due date and the
+ * reminder lead days, seeded once from 2000-01-01 like the payroll settings.
+ */
+const remittanceSettingsLoader: SeedLoader = {
+  name: REMITTANCE_SETTINGS_SETTING.key,
+  async run(): Promise<SeedLoaderResult> {
+    await connectDb();
+    const existing = await listConfigVersions(REMITTANCE_SETTINGS_SETTING);
+    if (existing.length > 0) return { added: 0, skipped: 1 };
+    try {
+      await addConfigVersion(REMITTANCE_SETTINGS_SETTING, {
+        effectiveFrom: REMITTANCE_SEED_VERSION.effectiveFrom,
+        value: structuredClone(REMITTANCE_SEED_VERSION.value),
+        source: REMITTANCE_SEED_VERSION.source,
+        actorId: null,
+      });
+      return { added: 1, skipped: 0 };
+    } catch (error) {
+      // Another seed run added it at the same moment.
+      if (!(error instanceof ConfigVersionExistsError)) throw error;
+      return { added: 0, skipped: 1 };
+    }
+  },
+};
+
+/**
  * Pulse Talent's seed loaders: one per payroll setting, in the settings' order, then the
  * onboarding setting, then (from step 2.8) the leave settings, then (from step 2.9) the payroll
- * run settings.
+ * run settings, then (from step 2.11) the remittance settings.
  */
 export const talentSeedLoaders: readonly SeedLoader[] = [
   ...PAYROLL_SETTING_KEYS.map((key) => payrollSettingLoader(key)),
   onboardingSettingsLoader,
   leaveSettingsLoader,
   payrollRunSettingsLoader,
+  remittanceSettingsLoader,
 ];

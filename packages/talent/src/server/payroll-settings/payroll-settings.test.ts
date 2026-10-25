@@ -20,6 +20,7 @@ import {
   LEAVE_SEED_VERSION,
   PAYROLL_RUN_SEED_VERSION,
   PAYROLL_SEED_VERSIONS,
+  REMITTANCE_SEED_VERSION,
   SEED_ALLOWANCE_TYPES,
   SEED_PAYROLL_SETTINGS,
   SEED_PREMIUM_RATES,
@@ -31,10 +32,13 @@ import {
   addLeaveSettingsVersion,
   addPayrollRunSettingsVersion,
   addPayrollSettingsVersion,
+  addRemittanceSettingsVersion,
   getLeaveSettingsView,
   getPayrollRunSettingsView,
   getPayrollSettingsView,
+  getRemittanceSettingsView,
 } from './service';
+import { SEED_REMITTANCE_SETTINGS } from '../../remittance/settings';
 import { SEED_LEAVE_SETTINGS } from '../../time-off/settings';
 import { payrollRunSettingsSchema, SEED_PAYROLL_RUN_SETTINGS } from '../../payroll/run-settings';
 import {
@@ -45,6 +49,8 @@ import {
   payrollRunSettingsOn,
   PREMIUM_RATES_SETTING,
   REIMBURSEMENT_SETTINGS_SETTING,
+  REMITTANCE_SETTINGS_SETTING,
+  remittanceSettingsOn,
   THIRTEENTH_MONTH_EXEMPTION_SETTING,
 } from './settings';
 
@@ -249,6 +255,7 @@ describe('seeding', () => {
       'talent.onboardingSettings',
       'talent.leaveSettings',
       'talent.payrollRunSettings',
+      'talent.remittanceSettings',
     ]);
 
     const first = await runSeed();
@@ -737,5 +744,106 @@ describe('the payroll run settings', () => {
       (entry) => entry.record.id.toHexString() === added.id,
     );
     expect(entries[0]?.record.label).toBe('talent.payrollRunSettings from 2026-11-11');
+  });
+});
+
+describe('the remittance settings (step 2.11)', () => {
+  const remittanceVersion = (value: unknown, effectiveFrom = '2026-11-11') => ({
+    effectiveFrom,
+    source: 'Made-up HR memo on due dates',
+    value,
+  });
+  const value = (change: object = {}) => ({
+    ...structuredClone(SEED_REMITTANCE_SETTINGS),
+    ...change,
+  });
+
+  it('seeds one version from 2000-01-01, once, with no audit entry', async () => {
+    expect(REMITTANCE_SEED_VERSION).toMatchObject({
+      effectiveFrom: '2000-01-01',
+      source:
+        'Agency rules as understood on 2026-10-25 (step 2.11): check before the first remittance',
+    });
+    expect(hasFractionalNumber(SEED_REMITTANCE_SETTINGS)).toBe(false);
+    const versions = await listConfigVersions(REMITTANCE_SETTINGS_SETTING);
+    expect(versions.map((v) => [v.effectiveFrom, v.source, v.value])).toEqual([
+      ['2000-01-01', REMITTANCE_SEED_VERSION.source, SEED_REMITTANCE_SETTINGS],
+    ]);
+    const auditBefore = await countAudit();
+    const loader = talentSeedLoaders.find((entry) => entry.name === 'talent.remittanceSettings');
+    expect(await loader?.run()).toEqual({ added: 0, skipped: 1 });
+    expect(await listConfigVersions(REMITTANCE_SETTINGS_SETTING)).toHaveLength(1);
+    expect(await countAudit()).toBe(auditBefore);
+    expect(await remittanceSettingsOn('2026-11-01')).toEqual({
+      value: SEED_REMITTANCE_SETTINGS,
+      effectiveFrom: '2000-01-01',
+    });
+  });
+
+  it('shows the card to Talent Read, with Add version for HR or the System Administrator with Talent Owner', async () => {
+    const view = await getRemittanceSettingsView(reader.actor);
+    expect(view).toMatchObject({ canAddVersion: false, earliestEffectiveFrom: '2000-01-02' });
+    expect(view.inEffect).toMatchObject({ effectiveFrom: '2000-01-01', seeded: true });
+    expect((await getRemittanceSettingsView(hrOwner.actor)).canAddVersion).toBe(true);
+    expect((await getRemittanceSettingsView(netOwner.actor)).canAddVersion).toBe(false);
+  });
+
+  it('refuses an invalid value, a missing source, a date over a year ahead and whoever may not add a version', async () => {
+    await expect(
+      addRemittanceSettingsVersion(
+        hrOwner.actor,
+        remittanceVersion(value({ reminderLeadDays: 31 })),
+      ),
+    ).rejects.toMatchObject({ field: 'value.reminderLeadDays' });
+    await expect(
+      addRemittanceSettingsVersion(
+        hrOwner.actor,
+        remittanceVersion(
+          value({
+            dueDates: {
+              ...SEED_REMITTANCE_SETTINGS.dueDates,
+              pagibig: { dueDay: 0, monthsAfter: 1, decemberDueDay: null },
+            },
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ field: 'value.dueDates.pagibig.dueDay' });
+    await expect(
+      addRemittanceSettingsVersion(hrOwner.actor, { ...remittanceVersion(value()), source: '' }),
+    ).rejects.toBeInstanceOf(ActionError);
+    await expect(
+      addRemittanceSettingsVersion(hrOwner.actor, remittanceVersion(value(), '2027-11-13')),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    await expect(
+      addRemittanceSettingsVersion(hrWriter.actor, remittanceVersion(value())),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    await expect(
+      addRemittanceSettingsVersion(netOwner.actor, remittanceVersion(value())),
+    ).rejects.toBeInstanceOf(AccessDeniedError);
+    expect(await listConfigVersions(REMITTANCE_SETTINGS_SETTING)).toHaveLength(1);
+  });
+
+  it('adds a version, audited, that the next month’s due dates read', async () => {
+    const next = value({
+      dueDates: {
+        ...SEED_REMITTANCE_SETTINGS.dueDates,
+        philhealth: { dueDay: 20, monthsAfter: 1, decemberDueDay: null },
+      },
+      reminderLeadDays: 7,
+    });
+    const added = await addRemittanceSettingsVersion(
+      hrOwner.actor,
+      remittanceVersion(next, '2026-12-01'),
+    );
+    expect(added.effectiveFrom).toBe('2026-12-01');
+    await expect(
+      addRemittanceSettingsVersion(hrOwner.actor, remittanceVersion(next, '2026-11-30')),
+    ).rejects.toMatchObject({ field: 'effectiveFrom' });
+    expect((await remittanceSettingsOn('2026-12-01')).value).toEqual(next);
+    expect((await remittanceSettingsOn('2026-11-30')).value).toEqual(SEED_REMITTANCE_SETTINGS);
+    const entries = (await auditEntries('core.configVersion')).filter(
+      (entry) => entry.record.id.toHexString() === added.id,
+    );
+    expect(entries[0]?.record.label).toBe('talent.remittanceSettings from 2026-12-01');
   });
 });

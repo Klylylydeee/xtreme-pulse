@@ -9,12 +9,14 @@ import {
   PAYROLL_SETTING_SCHEMAS,
   payrollRunSettingsSchema,
   payrollSettingsVersionSchema,
+  remittanceSettingsSchema,
   WORK_REGIONS,
 } from '@pulse/talent';
 import {
   addLeaveSettingsVersion,
   addPayrollRunSettingsVersion,
   addPayrollSettingsVersion,
+  addRemittanceSettingsVersion,
   listEmployeesBelowMinimumWage,
 } from '@pulse/talent/server';
 import { requireModuleAccess, signedInUser } from '@/lib/auth';
@@ -251,6 +253,42 @@ export const addPayrollRunSettingsVersionAction = defineAction({
   schema: addPayrollRunVersionSchema,
   handler: async (input) => {
     const result = await addPayrollRunSettingsVersion(await signedInUser(), input);
+    revalidatePath('/talent/payroll-settings');
+    return result;
+  },
+});
+
+// Step 2.11: "Add version" on the "Remittances" card (`talent.remittanceSettings`, decision 383).
+// Talent Owner here; the service checks HR or the System Administrator in its transaction.
+const addRemittanceVersionSchema = z.record(z.string(), z.unknown()).transform((raw, ctx) => {
+  const meta = payrollSettingsVersionSchema
+    .pick({ effectiveFrom: true, source: true })
+    .safeParse(raw);
+  if (!meta.success) {
+    for (const issue of meta.error.issues) {
+      ctx.addIssue({ code: 'custom', path: pathOf(issue.path), message: issue.message });
+    }
+  }
+  const value = remittanceSettingsSchema.safeParse(raw.value);
+  if (!value.success) {
+    for (const issue of value.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value', ...pathOf(issue.path)],
+        message: issue.message,
+      });
+    }
+  }
+  if (!meta.success || !value.success) return z.NEVER;
+  return { ...meta.data, value: value.data };
+});
+
+/** "Add version" on the "Remittances" card. Returns the new version's id and date. */
+export const addRemittanceSettingsVersionAction = defineAction({
+  access: talentOwners,
+  schema: addRemittanceVersionSchema,
+  handler: async (input) => {
+    const result = await addRemittanceSettingsVersion(await signedInUser(), input);
     revalidatePath('/talent/payroll-settings');
     return result;
   },

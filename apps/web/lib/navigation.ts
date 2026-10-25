@@ -202,6 +202,23 @@ export function payrollRegisterHref(runId: string): string {
   return `${PAYROLL_HREF}/${runId}/register`;
 }
 
+/**
+ * The remittances page (step 2.11,
+ * docs/modules/talent.md#employer-contributions-and-remittances-build-step-211), for Talent Read
+ * and HR, Accounting or the System Administrator: "Pulse Talent › Remittances", reached from the
+ * "Remittances" button on `/talent` and from `talent.remittanceDue`, never from the sidebar. A
+ * report sits under it, at `/talent/remittances/<YYYY-MM>/<agency>` ("Pulse Talent › Remittance").
+ */
+export const REMITTANCES_HREF = '/talent/remittances';
+
+/** One agency's month: `/talent/remittances/<YYYY-MM>/<agency>`. */
+export function remittanceHref(month: string, agency: string): string {
+  return `${REMITTANCES_HREF}/${month}/${agency}`;
+}
+
+/** `/talent/remittances/<YYYY-MM>/<agency>`. */
+const REMITTANCE_PATH = /^\/talent\/remittances\/[^/]+\/[^/]+$/;
+
 /** `/talent/payroll/<runId>` exactly (a run page, not its register). */
 const PAYROLL_RUN_PATH = /^\/talent\/payroll\/[^/]+$/;
 /** `/talent/payroll/<runId>/register`. */
@@ -575,6 +592,11 @@ export const SECTION_PAGES: {
     title: 'Payroll register',
     match: PAYROLL_REGISTER_PATH,
   },
+  // Step 2.11 (decision 396): the remittances page ("Pulse Talent › Remittances") and an agency's
+  // month ("Pulse Talent › Remittance"), for Talent readers; the pages also check HR, Accounting or
+  // the System Administrator.
+  { href: REMITTANCES_HREF, section: '/talent', title: 'Remittances', exact: true },
+  { href: REMITTANCES_HREF, section: '/talent', title: 'Remittance', match: REMITTANCE_PATH },
 ];
 
 /**

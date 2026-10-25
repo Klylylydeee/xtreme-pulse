@@ -12,11 +12,14 @@ import {
   PAYSLIP_PDFS_JOB,
   PAYSLIP_PDFS_SCHEDULE,
   registerTalentHolidaysChangedListener,
+  REMITTANCE_REMINDERS_JOB,
+  REMITTANCE_REMINDERS_SCHEDULE,
   runExpiryAlerts,
   runLeaveCredits,
   runOpenTimesheets,
   runPayrollDrafts,
   runPayslipPdfs,
+  runRemittanceReminders,
   runTimesheetReminders,
   TIMESHEET_REMINDERS_JOB,
   TIMESHEET_REMINDERS_SCHEDULE,
@@ -47,6 +50,9 @@ export const talentJobHandlers: JobHandler[] = [
   // the run's `payslipsPending`. Counts only; when a line fails it throws (counts only) after the
   // other lines, so BullMQ retries it and the next 10-minute run tries again.
   handleJob(PAYSLIP_PDFS_JOB, () => runPayslipPdfs()),
+  // The remittance reminders (build step 2.11, decision 393). Idempotent per agency, month and
+  // kind through notify()'s dedupeKey; runs every day, so a missed run sends the reminder late.
+  handleJob(REMITTANCE_REMINDERS_JOB, () => runRemittanceReminders()),
 ];
 
 export const talentJobSchedules: ScheduleDefinition[] = [
@@ -56,6 +62,7 @@ export const talentJobSchedules: ScheduleDefinition[] = [
   LEAVE_CREDITS_SCHEDULE,
   PAYROLL_DRAFTS_SCHEDULE,
   PAYSLIP_PDFS_SCHEDULE,
+  REMITTANCE_REMINDERS_SCHEDULE,
 ];
 
 /**

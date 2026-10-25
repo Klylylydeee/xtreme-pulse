@@ -1,6 +1,6 @@
 # Owner review list
 
-Last updated: 2026-10-25, through the step 2.11 spec.
+Last updated: 2026-10-25, through the step 2.11 build (not yet verified).
 
 **Branch:** `phase-1` · **For:** the project owner
 
@@ -181,6 +181,8 @@ Also check the counsel item R-331, which names the accountant too. Before the fi
 - [ ] **R-340 · The SS and MPF split** ([#383](HANDOFF.md#assumptions-to-check)) when a share was overridden or estimated: regular SS first, the rest MPF.
 - [ ] **R-341 · The go-live month** ([#384](HANDOFF.md#assumptions-to-check)): if go-live is on an end-of-month cut-off, the report covers only the Pulse cut-off; HR adds the old system's half outside Pulse. Right?
 - [ ] **R-342 · The remittance month is the pay date's month** ([#397](HANDOFF.md#assumptions-to-check)) for every agency and the 1601-C.
+- [ ] **R-368 · The BIR 1601-C export's layout** ([#400](HANDOFF.md#assumptions-to-check)): one table, items 14–25 then a per-employee schedule. Is that what the person filing in eFPS or eBIRForms needs?
+- [ ] **R-369 · A minimum wage earner's items 15 and 19** ([#403](HANDOFF.md#assumptions-to-check)): both count, so item 22 goes negative by their contributions and the item 22 check shows it. Should item 15 be net of contributions?
 
 ### Receipts and reimbursements
 
@@ -321,6 +323,18 @@ The choices a business owner would most want to decide. Each was built as descri
 - [ ] **R-353 · One small Core change** ([#395](HANDOFF.md#assumptions-to-check)): text and CSV files can be generated and stored.
 - [ ] **R-354 · Exports are stored and audited twice** ([#396](HANDOFF.md#assumptions-to-check)): when exported and when opened.
 - [ ] **R-355 · Upload formats are code, not settings** ([#398](HANDOFF.md#assumptions-to-check)): a new agency layout needs a code change.
+- [ ] **R-370 · The remittance PDF is laid out in Talent** ([#399](HANDOFF.md#assumptions-to-check)), A4 landscape with notes after the table, so Core keeps its one change; the Excel file puts the employer's details and warnings in its subtitle.
+- [ ] **R-371 · A PDF prints the payment status when it was made** ([#401](HANDOFF.md#assumptions-to-check)): one file per report version and format.
+- [ ] **R-372 · The amount warning counts as a reveal** ([#402](HANDOFF.md#assumptions-to-check)): it shows the amount due, so it's logged like "Show amounts".
+- [ ] **R-373 · Due dates follow today's setting** ([#404](HANDOFF.md#assumptions-to-check)); the report keeps the date it was generated with for its files.
+- [ ] **R-374 · Which months show** ([#405](HANDOFF.md#assumptions-to-check)): the first remittance month through this month, newest first.
+- [ ] **R-375 · "Regenerate" checks the page's version** ([#406](HANDOFF.md#assumptions-to-check)); a stale page is refused.
+- [ ] **R-376 · Reminder catch-up** ([#407](HANDOFF.md#assumptions-to-check)): a missed run still sends "soon" or "overdue" late, once.
+- [ ] **R-377 · A void copies the payment's date and reference** ([#408](HANDOFF.md#assumptions-to-check)); a correction must be of the live payment.
+- [ ] **R-378 · Upload field padding** ([#409](HANDOFF.md#assumptions-to-check)): an amount too wide stops the file instead of being cut.
+- [ ] **R-379 · A refused upload writes no audit entry** ([#410](HANDOFF.md#assumptions-to-check)); every export that goes ahead does, first.
+- [ ] **R-380 · "ID not verified" follows step 2.6's one group check** ([#411](HANDOFF.md#assumptions-to-check)), so it flags every agency for that employee.
+- [ ] **R-381 · The report page hides the date of birth and sex** and shows IDs as their last 4 digits ([#412](HANDOFF.md#assumptions-to-check)); the tiles filter only after "Show amounts" ([#413](HANDOFF.md#assumptions-to-check)); file names are "SSS October 2026.pdf" and the like ([#414](HANDOFF.md#assumptions-to-check)).
 
 ### Step 1.8 judgement calls
 
@@ -504,12 +518,22 @@ Setup first: rerun `pnpm seed:admin` (see section 5) and, on a throwaway databas
 - [ ] **R-321** A finalized run refuses recompute, manual entries and acknowledgements, and shows "Pulse Fiscal posting: waiting for Pulse Fiscal (Phase 5)."
 - [ ] **R-322** Light, dark and phone width: the run page in each status and its sheets (flags, manual entry, submit), the Board's view, the register, and the Payslips section.
 
-### 2.11 Employer contributions and remittances (not built yet)
+### 2.11 Employer contributions and remittances ([2.11 hands-on checks](HANDOFF.md#211-hands-on-checks-by-the-user-signed-in))
 
-Setup first: rerun `pnpm seed:admin` once built (it adds the remittance settings), and on a throwaway database finalize step 2.10's October 2026 runs (Sep 26 – Oct 10 and Oct 11 – 25).
+Setup first: rerun `pnpm seed:admin` (it adds the remittance settings once), and on a throwaway database finalize step 2.10's October 2026 runs (Sep 26 – Oct 10 and Oct 11 – 25) through a Board member's approval, with every employee's government IDs entered and verified.
 
 - [ ] **R-356** The "Done when" (cases R1 and R2): the SSS report for October 2026 shows employee ₱2,375.00, employer ₱4,750.00, EC ₱60.00, amount due ₱7,185.00, matching the two runs; recording the payment (date, reference, amount) shows SSS October 2026 "Paid" on `/talent/remittances`.
 - [ ] **R-357** Light, dark and phone width: the remittances list, the report page, the export buttons and the upload warning, the payment sheet, and the Remittances card in Payroll settings.
+- [ ] **R-358** Before PAY-2026-0002 is finalized, October's agencies read "Not ready" and the page says "Finalize Oct 11 – 25, 2026 first: its pay date is in October 2026."
+- [ ] **R-359** PhilHealth (₱2,392.50 due), Pag-IBIG (₱800.00 due) and BIR 1601-C (items 14–25, item 25 the runs' withholding, no upload button) for October 2026.
+- [ ] **R-360** "PDF" (A4 landscape, totals, then the due date and status) and "Excel" download in the same tab; `/admin/audit` has an `export` entry for each press and a `reveal` (field `file`) for each open.
+- [ ] **R-361** The upload sheet warns "This layout hasn't been checked against SSS's official file specification…"; it's refused while the SSS employer number is a placeholder; after filling it in and "Regenerate" the `.txt` downloads (header, one line per employee, trailer; upper-case, CR LF).
+- [ ] **R-362** With one SS number cleared and the report regenerated: "Missing or unverified ID" reads 1, the row says "No SS number on file", PDF and Excel still export, the upload says "Enter the SS numbers of 1 employee first."
+- [ ] **R-363** Recording ₱7,200.00 shows the amount warning and saves only on "Save anyway".
+- [ ] **R-364** "Correct" (new reference, reason) adds an entry to History; "Regenerate" is hidden while paid; "Void" (reason) returns the report to "Generated". Accounting with Talent Read sees and exports but has no payment buttons; with Talent Write can correct.
+- [ ] **R-365** A Talent Read user outside HR and Accounting, a Board member and an employee get "No access" on the remittance pages and see no "Remittances" button on `/talent`.
+- [ ] **R-366** `pnpm dev:remittance-reminders --date 2026-11-25`, then `2026-11-30` and `2026-12-01`: SSS "due …", "due today" and "overdue" once each to every active HR user, no amount, nothing for a paid agency; a rerun the same day sends nothing; it refuses with `NODE_ENV=production`.
+- [ ] **R-367** The Remittances card in Payroll settings › Pay schedule shows the seeded dates with the seeded note; "Add version" (Talent Owner in HR) saves a later version; a Talent Write user sees no "Add version".
 
 ## 5. Before going live, and housekeeping
 

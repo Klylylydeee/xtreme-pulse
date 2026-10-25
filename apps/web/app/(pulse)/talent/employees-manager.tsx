@@ -10,6 +10,7 @@ import {
   ClipboardList,
   FileCheck,
   HandCoins,
+  Landmark,
   Receipt,
   Search,
   Settings,
@@ -43,7 +44,7 @@ import { Sheet, SheetContent } from '@pulse/ui/components/sheet';
 import { useReturnFocus } from '@pulse/ui/hooks/use-return-focus';
 import { Badge, plural } from '@/components/org-structure';
 import { PersonAvatar } from '@/components/person-avatar';
-import { OPENING_BALANCES_HREF, PAYROLL_HREF } from '@/lib/navigation';
+import { OPENING_BALANCES_HREF, PAYROLL_HREF, REMITTANCES_HREF } from '@/lib/navigation';
 import { CheckReceiptSheet } from './check-receipt-sheet';
 import { ExpiryAlertsSheet } from './employee-documents-sheets';
 import { EmployeeInspector, type InspectorTools, useEmployeeInspector } from './employee-inspector';
@@ -76,6 +77,10 @@ import { OnboardingDocumentsSheet } from './onboarding-section';
 // "Opening balances" opens `/talent/opening-balances`, shown only when the server says the user
 // may open it (`canOpenOpeningBalances`: Talent Write and HR or the System Administrator); the
 // page checks again.
+//
+// From build step 2.11 (docs/modules/talent.md#employer-contributions-and-remittances-build-step-211)
+// "Remittances" opens `/talent/remittances`, shown only when the server says the user may see
+// them (`canOpenRemittances`, the same rule as "Payroll"); the page checks again.
 //
 // From build step 2.9 (docs/modules/talent.md#payroll-run-computation-build-step-29) "Payroll"
 // opens the payroll runs list (`/talent/payroll`), shown only when the server says the user may
@@ -193,6 +198,7 @@ export function EmployeesManager({
   onboardingCounts,
   canOpenOpeningBalances = false,
   canOpenPayroll = false,
+  canOpenRemittances = false,
 }: {
   rows: EmployeeListRow[];
   stats: { status: EmploymentStatus; count: number }[];
@@ -215,6 +221,8 @@ export function EmployeesManager({
   canOpenOpeningBalances?: boolean;
   /** Step 2.9: Talent Read and HR, Accounting or the System Administrator (the page checks again). */
   canOpenPayroll?: boolean;
+  /** Step 2.11: Talent Read and HR, Accounting or the System Administrator (the page checks again). */
+  canOpenRemittances?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -324,6 +332,13 @@ export function EmployeesManager({
               <Link href={PAYROLL_HREF} className={buttonVariants({ variant: 'secondary' })}>
                 <HandCoins aria-hidden="true" className="size-4.5" />
                 Payroll
+              </Link>
+            ) : null}
+            {/* Step 2.11: remittances, Talent Read and HR, Accounting or the System Administrator. */}
+            {canOpenRemittances ? (
+              <Link href={REMITTANCES_HREF} className={buttonVariants({ variant: 'secondary' })}>
+                <Landmark aria-hidden="true" className="size-4.5" />
+                Remittances
               </Link>
             ) : null}
             {/* Step 2.5: Talent Read, which this page already needs. */}

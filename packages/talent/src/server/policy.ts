@@ -730,3 +730,59 @@ export function canOpenPayslip(actor: TalentActor, employeeId: string): boolean 
   if (actor.employee !== null && actor.employee.id === employeeId) return true;
   return canSeePayrollRuns(actor);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Step 2.11: remittances (SECURITY.md#sensitive-data, "Remittances";
+// docs/modules/talent.md#employer-contributions-and-remittances-build-step-211, "Who may see and
+// do what"; decision 394 in docs/BUILD_PLAN.md).
+//
+// - Seeing the remittances page, a report, "Show amounts" and the exports: Talent Read and HR,
+//   Accounting or the System Administrator (the rule for seeing payroll runs), for every employee,
+//   HR staff included.
+// - Generating and regenerating: Talent Write and HR or the System Administrator.
+// - Recording, correcting and voiding a payment: Talent Write and HR, Accounting or the System
+//   Administrator (*Assumption*: Accounting needs Talent Write for this).
+// - Board members, supervisors and employees have no access.
+
+export const REMITTANCES_DENIED =
+  'You don’t have access to remittances. HR, Accounting and the System Administrator, with Talent access, see them.';
+export const REMITTANCE_GENERATE_DENIED =
+  'Only HR and the System Administrator, with Talent Write, generate remittance reports.';
+export const REMITTANCE_PAYMENT_DENIED =
+  'Only HR, Accounting and the System Administrator, with Talent Write, record remittance payments.';
+
+/** True when `actor` sees remittances: Talent Read and HR, Accounting or the System Administrator. */
+export function canSeeRemittances(actor: TalentActor): boolean {
+  return canSeePayrollRuns(actor);
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may see remittances. */
+export function assertCanSeeRemittances(actor: TalentActor): void {
+  if (!canSeeRemittances(actor)) throw new AccessDeniedError(REMITTANCES_DENIED);
+}
+
+/** True when `actor` may generate reports: Talent Write and HR or the System Administrator. */
+export function canGenerateRemittances(actor: TalentActor): boolean {
+  return hasModuleAccess(actor, 'talent', 'write') && (isHR(actor) || isSystemAdministrator(actor));
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may generate and regenerate reports. */
+export function assertCanGenerateRemittances(actor: TalentActor): void {
+  if (!canGenerateRemittances(actor)) throw new AccessDeniedError(REMITTANCE_GENERATE_DENIED);
+}
+
+/**
+ * True when `actor` may record, correct and void payments: Talent Write and HR, Accounting or
+ * the System Administrator.
+ */
+export function canRecordRemittancePayments(actor: TalentActor): boolean {
+  return (
+    hasModuleAccess(actor, 'talent', 'write') &&
+    (isHR(actor) || isAccounting(actor) || isSystemAdministrator(actor))
+  );
+}
+
+/** Throws {@link AccessDeniedError} unless `actor` may record, correct and void payments. */
+export function assertCanRecordRemittancePayments(actor: TalentActor): void {
+  if (!canRecordRemittancePayments(actor)) throw new AccessDeniedError(REMITTANCE_PAYMENT_DENIED);
+}

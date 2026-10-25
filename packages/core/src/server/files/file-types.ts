@@ -13,6 +13,20 @@ export type UploadType = keyof typeof UPLOAD_TYPES;
 
 export const UPLOAD_TYPE_NAMES = Object.keys(UPLOAD_TYPES) as [UploadType, ...UploadType[]];
 
+/**
+ * Generated plain text files (build step 2.11, decision 389): the remittance upload files, as
+ * printable ASCII with CR LF line ends only.
+ */
+export const GENERATED_TEXT_TYPES = {
+  'text/plain': { extension: 'txt', label: 'plain text (printable ASCII with CR LF line ends)' },
+  'text/csv': {
+    extension: 'csv',
+    label: 'comma-separated text (printable ASCII with CR LF line ends)',
+  },
+} as const;
+
+export type GeneratedTextType = keyof typeof GENERATED_TEXT_TYPES;
+
 /** Types the app generates itself (reports, payslips, exports). Never accepted as uploads. */
 export const GENERATED_TYPES = {
   ...UPLOAD_TYPES,
@@ -20,9 +34,33 @@ export const GENERATED_TYPES = {
     extension: 'xlsx',
     label: 'Excel workbook',
   },
+  ...GENERATED_TEXT_TYPES,
 } as const;
 
 export type GeneratedType = keyof typeof GENERATED_TYPES;
+
+/** True for a generated text type (`text/plain`, `text/csv`). */
+export function isGeneratedTextType(type: string): type is GeneratedTextType {
+  return Object.hasOwn(GENERATED_TEXT_TYPES, type);
+}
+
+/**
+ * True when `bytes` is non-empty printable ASCII (0x20 to 0x7E) in lines that each end with
+ * CR LF: no tab, no bare CR or LF, no other control or non-ASCII byte, and a final CR LF.
+ */
+export function isPrintableAsciiCrLf(bytes: Uint8Array): boolean {
+  if (bytes.length < 2) return false;
+  for (let index = 0; index < bytes.length; index += 1) {
+    const byte = bytes[index] as number;
+    if (byte === 0x0d) {
+      if (bytes[index + 1] !== 0x0a) return false;
+      index += 1;
+      continue;
+    }
+    if (byte < 0x20 || byte > 0x7e) return false;
+  }
+  return bytes[bytes.length - 2] === 0x0d && bytes[bytes.length - 1] === 0x0a;
+}
 
 function startsWith(bytes: Uint8Array, signature: readonly number[], offset = 0): boolean {
   if (bytes.length < offset + signature.length) return false;
